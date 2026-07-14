@@ -16,30 +16,29 @@ from django.http import HttpResponseRedirect
 from datetime import timedelta
 
 from accounts.models import Reviewee, UserProfile, OrganizationInvitation
+from accounts.permissions import can_view_all_reports, visible_cycles
 from reviews.models import ReviewCycle, ReviewerToken
 from reviews.services import assign_tokens_to_emails, send_reviewer_invitations
 from questionnaires.models import Questionnaire
 from reports.models import Report
 from core.models import Organization
 from core.gdpr import GDPRDeletionService
+from core.env_config import env_managed_fields
 
 import logging
 logger = logging.getLogger(__name__)
 
 
-def get_cycle_or_404(cycle_uuid, organization):
+def get_cycle_or_404(request, cycle_uuid):
     """
-    Get a ReviewCycle by UUID, filtered by organization to prevent cross-org access.
-    Returns 404 if cycle doesn't exist or belongs to a different organization.
-
-    Args:
-        cycle_uuid: UUID string or UUID object
-        organization: Organization instance
+    Get a ReviewCycle by UUID, filtered by organization and by what the current
+    user is allowed to see. Returns 404 for cycles in another organization or
+    belonging to another reviewee.
     """
     cycles_qs = ReviewCycle.objects.select_related('reviewee', 'questionnaire', 'created_by')
-    if organization:
-        cycles_qs = cycles_qs.filter(reviewee__organization=organization)
-    return get_object_or_404(cycles_qs, uuid=cycle_uuid)
+    if request.organization:
+        cycles_qs = cycles_qs.filter(reviewee__organization=request.organization)
+    return get_object_or_404(visible_cycles(request.user, cycles_qs), uuid=cycle_uuid)
 
 
 @login_required
@@ -51,7 +50,10 @@ def dashboard(request):
 
     # Get statistics filtered by organization
     reviewees_qs = Reviewee.objects.for_organization(org).filter(is_active=True)
-    cycles_qs = ReviewCycle.objects.for_organization(org).select_related('reviewee', 'questionnaire')
+    cycles_qs = visible_cycles(
+        request.user,
+        ReviewCycle.objects.for_organization(org).select_related('reviewee', 'questionnaire')
+    )
 
     total_reviewees = reviewees_qs.count()
     active_cycles = cycles_qs.filter(status='active').count()
@@ -64,7 +66,8 @@ def dashboard(request):
     recent_cycles = cycles_qs.all()[:5]
 
     # Pending reviews (tokens not completed)
-    pending_tokens = ReviewerToken.objects.for_organization(org).filter(
+    pending_tokens = ReviewerToken.objects.filter(
+        cycle__in=cycles_qs,
         completed_at__isnull=True,
         cycle__status='active'
     ).count()
@@ -1217,6 +1220,8 @@ def review_cycle_list(request):
             'reviewee', 'questionnaire', 'created_by'
         )
 
+    cycles_qs = visible_cycles(request.user, cycles_qs)
+
     cycles_qs = cycles_qs.prefetch_related(
         'questionnaire__sections__questions'
     ).annotate(
@@ -1497,7 +1502,7 @@ def bulk_send_invitations(request):
 @login_required
 def review_cycle_detail(request, cycle_uuid):
     """View details of a review cycle"""
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     tokens = cycle.tokens.all().order_by('category', 'created_at')
 
@@ -1550,7 +1555,7 @@ def generate_report_view(request, cycle_uuid):
     """Generate or regenerate report for a review cycle"""
     from reports.services import generate_report, send_report_ready_notification
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     try:
         report = generate_report(cycle)
@@ -1577,7 +1582,7 @@ def close_cycle(request, cycle_uuid):
     if request.method != 'POST':
         return redirect('review_cycle_detail', cycle_uuid=cycle_uuid)
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     if cycle.status != 'active':
         messages.warning(request, 'This cycle is already completed.')
@@ -1622,7 +1627,7 @@ def close_cycle(request, cycle_uuid):
 @login_required
 def send_reminder_form(request, cycle_uuid):
     """Show form to send reminders for pending reviews"""
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     # Get pending tokens
     pending_tokens = cycle.tokens.filter(completed_at__isnull=True).order_by('category')
@@ -1638,7 +1643,7 @@ def send_reminder_form(request, cycle_uuid):
 @login_required
 def manage_invitations(request, cycle_uuid):
     """Manage reviewer invitations for a cycle"""
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     # Group tokens by category
     tokens_by_category = {}
@@ -1672,7 +1677,7 @@ def assign_invitations(request, cycle_uuid):
     from django.core.validators import validate_email
     from django.core.exceptions import ValidationError
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     if request.method == 'POST':
         # Parse email assignments by category
@@ -1750,7 +1755,7 @@ def assign_invitations(request, cycle_uuid):
 @login_required
 def send_invitations(request, cycle_uuid):
     """Send email invitations to assigned reviewers"""
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     if request.method == 'POST':
         # Send invitations
@@ -1775,7 +1780,7 @@ def send_reminder(request, cycle_uuid):
     """Send reminder emails for pending reviews"""
     from reviews.services import send_reminder_emails
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     if request.method == 'POST':
         # Send reminders
@@ -1803,7 +1808,7 @@ def send_individual_reminder(request, cycle_uuid, token_id):
     from django.template.loader import render_to_string
     from django.conf import settings
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     try:
         # Get the specific token
@@ -1875,7 +1880,7 @@ def remove_reviewer_token(request, cycle_uuid, token_id):
         messages.error(request, 'You do not have permission to remove reviewers.')
         return redirect('review_cycle_detail', cycle_uuid=cycle_uuid)
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     try:
         # Get the specific token
@@ -1937,7 +1942,7 @@ def send_report_email(request, cycle_uuid):
     """Send report notification email to reviewee"""
     from reports.services import send_report_ready_notification
 
-    cycle = get_cycle_or_404(cycle_uuid, request.organization)
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     # Check if report exists
     try:
@@ -1971,6 +1976,14 @@ def settings_view(request):
         messages.error(request, 'No organization found. Please run setup first.')
         return redirect('admin_dashboard')
 
+    # Fields the environment owns are read-only here — setup_organization
+    # rewrites them on every container start, so an edit made here would
+    # silently disappear on the next restart.
+    locked = env_managed_fields()
+
+    def editable(field):
+        return field not in locked
+
     if request.method == 'POST':
         # Check permission to modify organization settings
         if not request.user.has_perm('accounts.can_manage_organization'):
@@ -1983,8 +1996,10 @@ def settings_view(request):
         try:
             if section == 'organization':
                 # Update organization details
-                organization.name = request.POST.get('name', organization.name)
-                organization.email = request.POST.get('email', organization.email)
+                if editable('name'):
+                    organization.name = request.POST.get('name', organization.name)
+                if editable('email'):
+                    organization.email = request.POST.get('email', organization.email)
                 organization.save()
                 messages.success(request, 'Organization details updated successfully.')
 
@@ -2008,19 +2023,33 @@ def settings_view(request):
 
             elif section == 'email':
                 # Update SMTP settings
-                organization.smtp_host = request.POST.get('smtp_host', '')
-                organization.smtp_port = int(request.POST.get('smtp_port', 587))
-                organization.smtp_username = request.POST.get('smtp_username', '')
+                if editable('smtp_host'):
+                    organization.smtp_host = request.POST.get('smtp_host', '')
+                if editable('smtp_port'):
+                    try:
+                        organization.smtp_port = int(request.POST.get('smtp_port', 587))
+                    except (ValueError, TypeError):
+                        organization.smtp_port = 587
+                if editable('smtp_username'):
+                    organization.smtp_username = request.POST.get('smtp_username', '')
 
                 # Only update password if provided
                 smtp_password = request.POST.get('smtp_password', '')
-                if smtp_password:
+                if smtp_password and editable('smtp_password'):
                     organization.smtp_password = smtp_password
 
-                organization.smtp_use_tls = request.POST.get('smtp_use_tls') == 'on'
-                organization.from_email = request.POST.get('from_email', organization.from_email)
+                if editable('smtp_use_tls'):
+                    organization.smtp_use_tls = request.POST.get('smtp_use_tls') == 'on'
+                if editable('from_email'):
+                    organization.from_email = request.POST.get('from_email', organization.from_email)
                 organization.save()
                 messages.success(request, 'Email settings updated successfully.')
+
+            if locked:
+                messages.info(request, (
+                    'Some settings are managed by environment variables and were '
+                    'not changed: ' + ', '.join(sorted(set(locked.values())))
+                ))
 
             return redirect('settings')
         except Exception as e:
@@ -2066,6 +2095,7 @@ def settings_view(request):
         'webhooks': webhooks,
         'new_token': new_token,
         'new_token_name': new_token_name,
+        'locked_fields': locked,
     }
 
     return render(request, 'admin_dashboard/settings.html', context)

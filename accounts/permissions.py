@@ -283,5 +283,35 @@ def can_delete_organization(user):
 
 
 def can_view_all_reports(user):
-    """Check if user can view all organization reports."""
-    return user.has_perm('accounts.can_view_all_reports')
+    """
+    Check if user can view all organization reports.
+
+    can_manage_organization also counts: admin accounts that predate the
+    can_view_all_reports permission may only carry the former.
+    """
+    return (user.has_perm('accounts.can_view_all_reports')
+            or user.has_perm('accounts.can_manage_organization'))
+
+
+def visible_cycles(user, queryset, email_field='reviewee__email'):
+    """
+    Restrict a ReviewCycle (or Report) queryset to what this user may see.
+
+    Org admins see everything in their organization; everyone else only sees
+    cycles where they are the reviewee. Reviewees are matched by email because
+    there is no FK from Reviewee to User.
+
+    Organization scoping is a separate concern and must already be applied —
+    this narrows within an organization, it does not isolate between them.
+
+    Args:
+        email_field: path from the queryset's model to the reviewee email
+            ('reviewee__email' for ReviewCycle, 'cycle__reviewee__email' for Report)
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return queryset.none()
+    if can_view_all_reports(user):
+        return queryset
+    if not user.email:
+        return queryset.none()
+    return queryset.filter(**{f'{email_field}__iexact': user.email})

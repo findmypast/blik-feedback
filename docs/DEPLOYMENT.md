@@ -80,6 +80,24 @@ EMAIL_HOST_PASSWORD=your-app-password
 DEFAULT_FROM_EMAIL=noreply@yourdomain.com
 ```
 
+Any `EMAIL_*` variable you set here is authoritative: it is written to the
+organization on every container start, and the matching field on the Settings
+page is shown read-only ("Managed by `EMAIL_HOST` in the environment"). To
+configure SMTP from the admin UI instead, leave these unset or empty
+(`EMAIL_HOST=`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#settings-managed-by-environment-variables).
+
+#### Site URLs (used in every email link)
+```env
+SITE_DOMAIN=feedback.yourdomain.com
+SITE_PROTOCOL=https
+```
+
+All links in outgoing email — reviewer invitations, self-assessments, report
+links — are built from `SITE_DOMAIN`, never from the incoming request's host.
+Behind a reverse proxy the request host is often an internal upstream name, so
+deriving links from it would send recipients a URL they cannot open. Set
+`SITE_DOMAIN` to the public hostname your users type in the browser.
+
 #### Organization Settings
 ```env
 ORGANIZATION_NAME=Your Company Name
@@ -216,7 +234,8 @@ nano .env
 - `ALLOWED_HOSTS` - Your domain(s)
 - `CSRF_TRUSTED_ORIGINS` - Your domain(s) with https:// protocol
 - `DATABASE_PASSWORD` - Secure password
-- `EMAIL_*` - Your SMTP settings
+- `EMAIL_*` - Your SMTP settings (these override the admin UI — see above)
+- `SITE_DOMAIN` - Public hostname; every link in outgoing email is built from it
 - `SESSION_COOKIE_SECURE=True`
 - `CSRF_COOKIE_SECURE=True`
 

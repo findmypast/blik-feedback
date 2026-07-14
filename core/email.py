@@ -1,16 +1,22 @@
 """
 Custom email utilities that use Organization SMTP settings
 """
-from django.core.mail import EmailMultiAlternatives
+import logging
+
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.mail.backends.smtp import EmailBackend
 from django.conf import settings
 from .models import Organization
+
+logger = logging.getLogger(__name__)
 
 
 def get_email_backend():
     """
     Get email backend configured with Organization SMTP settings.
-    Falls back to Django settings if no organization configured.
+    Falls back to the backend in Django settings if no organization SMTP host
+    is configured — that fallback must honour EMAIL_BACKEND, otherwise console
+    and locmem (test) backends are bypassed in favour of a real SMTP connection.
     """
     try:
         org = Organization.objects.filter(is_active=True).first()
@@ -25,18 +31,10 @@ def get_email_backend():
                 use_tls=org.smtp_use_tls,
                 fail_silently=False,
             )
-    except Exception as e:
-        print(f"Error loading organization email settings: {e}")
+    except Exception:
+        logger.exception('Error loading organization email settings')
 
-    # Fall back to default Django email backend
-    return EmailBackend(
-        host=settings.EMAIL_HOST,
-        port=settings.EMAIL_PORT,
-        username=settings.EMAIL_HOST_USER,
-        password=settings.EMAIL_HOST_PASSWORD,
-        use_tls=settings.EMAIL_USE_TLS,
-        fail_silently=False,
-    )
+    return get_connection(fail_silently=False)
 
 
 def get_from_email():

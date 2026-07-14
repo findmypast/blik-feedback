@@ -6,6 +6,7 @@ Complete guide for administrators setting up and managing the 360 feedback syste
 
 - [Initial Setup](#initial-setup)
 - [Organization Settings](#organization-settings)
+- [Who Can See What](#who-can-see-what)
 - [Managing Reviewees](#managing-reviewees)
 - [Creating Review Cycles](#creating-review-cycles)
 - [Managing Invitations](#managing-invitations)
@@ -48,11 +49,58 @@ Navigate to **Dashboard → Settings** to configure:
 
 **Important:** Settings are stored in the database and persist across container restarts. Changes take effect immediately without restart.
 
+### Settings managed by environment variables
+
+If a setting has a matching environment variable in your `.env` (or compose
+file), the environment owns it: the deployment rewrites that value on every
+container start. Those fields are shown read-only on the Settings page, labelled
+*"Managed by `EMAIL_HOST` in the environment"*, so an edit you make in the UI
+can't be silently reverted by the next restart.
+
+| Setting | Environment variable |
+|---------|----------------------|
+| Organization Name | `ORGANIZATION_NAME` |
+| Contact Email / From Email | `DEFAULT_FROM_EMAIL` |
+| SMTP Host | `EMAIL_HOST` |
+| SMTP Port | `EMAIL_PORT` |
+| SMTP Username | `EMAIL_HOST_USER` |
+| SMTP Password | `EMAIL_HOST_PASSWORD` |
+| Use TLS | `EMAIL_USE_TLS` |
+
+To manage a setting from the UI instead, leave its variable unset — or set it to
+an empty value (`EMAIL_HOST=`), which hands the field back to the UI without
+removing the line. Settings with no environment variable (anonymity threshold,
+registration options) are always editable in the UI.
+
 ### Report Settings
 - **Minimum Responses for Anonymity** - Minimum number of responses required to display results
   - Set to `1` for small teams where anonymity is less critical
   - Set to `3+` for larger teams to protect reviewer anonymity
   - Self-assessments are always shown regardless of this setting
+
+---
+
+## Who Can See What
+
+Blik has two roles inside an organization:
+
+| | Organization Admin | Organization Member |
+|---|---|---|
+| Cycles list & detail | All cycles in the organization | Only cycles where they are the reviewee |
+| Reports | All reports in the organization | Only their own |
+| Organization settings, team, API tokens | Yes | No |
+
+Feedback is anonymous to *everyone*, admins included: the system stores no link
+between a reviewer's identity and their answers, and responses below the
+anonymity threshold are hidden in reports (see [Report Settings](#report-settings)).
+
+A member's own report reaches them through a private link containing an access
+token. That link needs no login — treat it as a secret. It is shown to admins on
+the cycle page and emailed to the reviewee when a cycle closes.
+
+The same rules apply to the REST API (`/api/v1/cycles/`, `/api/v1/reports/`):
+a token authenticates as the user who created it and sees exactly what that user
+would see in the dashboard.
 
 ---
 

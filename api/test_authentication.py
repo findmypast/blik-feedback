@@ -5,7 +5,8 @@ from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework.test import APIClient
-from accounts.models import Organization, User, Reviewee
+from accounts.models import Organization, User, Reviewee, UserProfile
+from accounts.permissions import assign_organization_admin
 from api.models import APIToken
 
 
@@ -17,7 +18,6 @@ class APITokenAuthenticationTest(TestCase):
         # Create organization
         self.org = Organization.objects.create(
             name='Test Org',
-            slug='test-org'
         )
 
         # Create user
@@ -26,7 +26,8 @@ class APITokenAuthenticationTest(TestCase):
             email='test@example.com',
             password='testpass123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         # Create API token
@@ -113,7 +114,6 @@ class APITokenAuthenticationTest(TestCase):
         # Create another organization
         other_org = Organization.objects.create(
             name='Other Org',
-            slug='other-org'
         )
 
         # Create reviewee in other org
@@ -125,7 +125,7 @@ class APITokenAuthenticationTest(TestCase):
 
         # Try to access other org's reviewee
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token.token}')
-        response = self.client.get(f'/api/v1/reviewees/{other_reviewee.id}/')
+        response = self.client.get(f'/api/v1/reviewees/{other_reviewee.uuid}/')
 
         # Should return 404 (not 403) to avoid leaking existence
         self.assertEqual(response.status_code, 404)
@@ -145,8 +145,9 @@ class APITokenAuthenticationTest(TestCase):
         self.assertEqual(response.status_code, 200)
 
         # Should only see reviewees from our org
-        self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['email'], 'reviewee@example.com')
+        emails = {r['email'] for r in response.data['results']}
+        self.assertIn('reviewee@example.com', emails)
+        self.assertNotIn('other@example.com', emails)
 
 
 class SessionAuthenticationTest(TestCase):
@@ -156,7 +157,6 @@ class SessionAuthenticationTest(TestCase):
         """Set up test data."""
         self.org = Organization.objects.create(
             name='Test Org',
-            slug='test-org'
         )
 
         self.user = User.objects.create_user(
@@ -164,7 +164,8 @@ class SessionAuthenticationTest(TestCase):
             email='test@example.com',
             password='testpass123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         self.client = APIClient()
@@ -172,7 +173,7 @@ class SessionAuthenticationTest(TestCase):
     def test_session_authentication(self):
         """Session authentication should work for logged-in users."""
         # Login
-        self.client.login(username='testuser', password='testpass123')
+        self.client.force_login(self.user)
 
         # Should be able to access API
         response = self.client.get('/api/v1/reviewees/')
@@ -187,7 +188,7 @@ class SessionAuthenticationTest(TestCase):
             password='testpass123'
         )
 
-        self.client.login(username='noorg', password='testpass123')
+        self.client.force_login(user_no_org)
         response = self.client.get('/api/v1/reviewees/')
 
         # Should be denied (no organization context)

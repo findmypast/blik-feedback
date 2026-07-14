@@ -40,8 +40,10 @@
                             class="form-control"
                             value="{{ organization.name }}"
                             {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                            {% if locked_fields.name %}disabled readonly{% endif %}
                             required
                         >
+                        {% if locked_fields.name %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.name }}</code> in the environment</small>{% endif %}
                     </div>
 
                     <div class="form-group">
@@ -53,8 +55,10 @@
                             class="form-control"
                             value="{{ organization.email }}"
                             {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                            {% if locked_fields.email %}disabled readonly{% endif %}
                             required
                         >
+                        {% if locked_fields.email %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.email }}</code> in the environment</small>{% endif %}
                     </div>
 
                     {% if perms.accounts.can_manage_organization %}
@@ -268,8 +272,10 @@
                                 class="form-control"
                                 value="{{ organization.smtp_host }}"
                                 {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                                {% if locked_fields.smtp_host %}disabled readonly{% endif %}
                                 placeholder="{% if subscription %}Optional{% else %}smtp.gmail.com{% endif %}"
                             >
+                            {% if locked_fields.smtp_host %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.smtp_host }}</code> in the environment</small>{% endif %}
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label" for="smtp_port">Port</label>
@@ -280,8 +286,10 @@
                                 class="form-control"
                                 value="{{ organization.smtp_port|default:587 }}"
                                 {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                                {% if locked_fields.smtp_port %}disabled readonly{% endif %}
                                 placeholder="587"
                             >
+                            {% if locked_fields.smtp_port %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.smtp_port }}</code> in the environment</small>{% endif %}
                         </div>
                     </div>
 
@@ -294,8 +302,10 @@
                             class="form-control"
                             value="{{ organization.smtp_username }}"
                             {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                            {% if locked_fields.smtp_username %}disabled readonly{% endif %}
                             placeholder="your-email@gmail.com"
                         >
+                        {% if locked_fields.smtp_username %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.smtp_username }}</code> in the environment</small>{% endif %}
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0.75rem;">
@@ -306,8 +316,10 @@
                             name="smtp_password"
                             class="form-control"
                             {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                            {% if locked_fields.smtp_password %}disabled readonly{% endif %}
                             placeholder="Leave blank to keep current"
                         >
+                        {% if locked_fields.smtp_password %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.smtp_password }}</code> in the environment</small>{% endif %}
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0.75rem;">
@@ -319,8 +331,10 @@
                             class="form-control"
                             value="{{ organization.from_email }}"
                             {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
+                            {% if locked_fields.from_email %}disabled readonly{% endif %}
                             placeholder="noreply@example.com"
                         >
+                        {% if locked_fields.from_email %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.from_email }}</code> in the environment</small>{% endif %}
                     </div>
 
                     <div class="form-group" style="margin-bottom: 0;">
@@ -332,7 +346,9 @@
                                 class="form-check-input"
                                 {% if organization.smtp_use_tls %}checked{% endif %}
                                 {% if not perms.accounts.can_manage_organization %}disabled{% endif %}
+                                {% if locked_fields.smtp_use_tls %}disabled readonly{% endif %}
                             >
+                            {% if locked_fields.smtp_use_tls %}<small class="form-text" style="color: var(--text-muted, #6b7280); font-size: 0.75rem;">Managed by <code>{{ locked_fields.smtp_use_tls }}</code> in the environment</small>{% endif %}
                             <label class="form-label" for="smtp_use_tls" style="display: inline; font-weight: normal; font-size: 0.875rem;">
                                 Use TLS encryption (port 587)
                             </label>

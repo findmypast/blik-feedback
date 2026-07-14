@@ -226,6 +226,27 @@ def test_send_email(self):
     # Or check in Mailpit UI at http://localhost:8125
 ```
 
+`mail.outbox` only fills when the organization has no `smtp_host`: organization
+SMTP settings take priority over `EMAIL_BACKEND`, so an org configured with a
+host will try to open a real connection. Factories leave `smtp_host` empty, so
+this works by default — but if you set one, patch `send_email` instead.
+
+### Gotchas
+
+- **Logging in:** use `self.client.force_login(user)`. `client.login()` raises
+  `AxesBackendRequestParameterRequired` — django-axes needs a request object,
+  which the test client's `login()` does not pass.
+- **Your `.env` leaks into tests.** It is loaded into `os.environ`, so anything
+  reading env vars (e.g. which org settings are environment-managed) sees your
+  machine's values. Clear them with `patch.dict(os.environ, ..., clear=True)` —
+  see `core/test_env_locked_settings.py`.
+- **Signals that use `transaction.on_commit`** (webhooks) never fire inside a
+  `TestCase`, whose transaction is rolled back. Wrap the write in
+  `with self.captureOnCommitCallbacks(execute=True):`.
+- **Creating a `UserProfile` auto-creates a `Reviewee`** for that user. Assert on
+  membership (`assertIn(email, emails)`) rather than exact row counts, which
+  also drift when new orgs get template questionnaires cloned in.
+
 ### Testing Invite Links
 
 ```python

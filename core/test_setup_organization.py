@@ -76,3 +76,18 @@ class SetupOrganizationCommandTests(TestCase):
             org.smtp_host, 'smtp.acme.example.com',
             'Unset env vars must not touch their fields',
         )
+
+    def test_invalid_email_port_falls_back_instead_of_crashing(self):
+        """A typo in EMAIL_PORT must not take the container down on boot."""
+        self._run(EMAIL_PORT='abc')
+
+        org = Organization.objects.get(id=1)
+        self.assertEqual(org.smtp_port, 587)
+
+    def test_invalid_email_port_on_subsequent_run_keeps_container_up(self):
+        self._run(EMAIL_PORT='2525')
+
+        self._run(EMAIL_PORT='not-a-port')
+
+        org = Organization.objects.get(id=1)
+        self.assertEqual(org.smtp_port, 587)

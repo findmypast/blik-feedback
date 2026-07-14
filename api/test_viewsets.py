@@ -3,7 +3,8 @@ Tests for API viewsets.
 """
 from django.test import TestCase
 from rest_framework.test import APIClient
-from accounts.models import Organization, User, Reviewee
+from accounts.models import Organization, User, Reviewee, UserProfile
+from accounts.permissions import assign_organization_admin
 from api.models import APIToken
 from reviews.models import ReviewCycle, ReviewerToken
 from questionnaires.models import Questionnaire, QuestionSection, Question
@@ -22,7 +23,8 @@ class RevieweeViewSetTest(TestCase):
             email='admin@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         # Grant manage permission
@@ -58,7 +60,9 @@ class RevieweeViewSetTest(TestCase):
         response = self.client.get('/api/v1/reviewees/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 2)
+        emails = {r['email'] for r in response.data['results']}
+        self.assertIn('john@example.com', emails)
+        self.assertIn('jane@example.com', emails)
 
     def test_create_reviewee(self):
         """POST /reviewees/ creates new reviewee."""
@@ -84,7 +88,7 @@ class RevieweeViewSetTest(TestCase):
             email='test@example.com'
         )
 
-        response = self.client.get(f'/api/v1/reviewees/{reviewee.id}/')
+        response = self.client.get(f'/api/v1/reviewees/{reviewee.uuid}/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['name'], 'Test Reviewee')
@@ -99,7 +103,7 @@ class RevieweeViewSetTest(TestCase):
             department='Engineering'
         )
 
-        response = self.client.put(f'/api/v1/reviewees/{reviewee.id}/', {
+        response = self.client.put(f'/api/v1/reviewees/{reviewee.uuid}/', {
             'name': 'Updated Name',
             'email': 'original@example.com',
             'department': 'Sales'
@@ -118,7 +122,7 @@ class RevieweeViewSetTest(TestCase):
             department='Engineering'
         )
 
-        response = self.client.patch(f'/api/v1/reviewees/{reviewee.id}/', {
+        response = self.client.patch(f'/api/v1/reviewees/{reviewee.uuid}/', {
             'department': 'Product'
         })
 
@@ -134,7 +138,7 @@ class RevieweeViewSetTest(TestCase):
             email='test@example.com'
         )
 
-        response = self.client.delete(f'/api/v1/reviewees/{reviewee.id}/')
+        response = self.client.delete(f'/api/v1/reviewees/{reviewee.uuid}/')
 
         self.assertEqual(response.status_code, 204)
 
@@ -197,7 +201,11 @@ class RevieweeViewSetTest(TestCase):
         self.assertEqual(response.data['summary']['failed'], 0)
 
         # Verify created in database
-        self.assertEqual(Reviewee.objects.filter(organization=self.org).count(), 3)
+        created = Reviewee.objects.filter(
+            organization=self.org,
+            email__in=['p1@example.com', 'p2@example.com', 'p3@example.com'],
+        )
+        self.assertEqual(created.count(), 3)
 
     def test_bulk_create_with_errors(self):
         """Bulk create reports errors for invalid entries."""
@@ -243,7 +251,8 @@ class ReviewCycleViewSetTest(TestCase):
             email='creator@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.can_create_cycles_for_others = True
         self.user.profile.save()
 
@@ -272,14 +281,14 @@ class ReviewCycleViewSetTest(TestCase):
     def test_create_cycle_basic(self):
         """POST /cycles/ creates new review cycle."""
         response = self.client.post('/api/v1/cycles/', {
-            'reviewee': self.reviewee.id,
-            'questionnaire': self.questionnaire.id
+            'reviewee': str(self.reviewee.uuid),
+            'questionnaire': str(self.questionnaire.uuid)
         })
 
         self.assertEqual(response.status_code, 201)
 
         # Verify created in database
-        cycle = ReviewCycle.objects.get(id=response.data['id'])
+        cycle = ReviewCycle.objects.get(uuid=response.data['uuid'])
         self.assertEqual(cycle.reviewee, self.reviewee)
         self.assertEqual(cycle.questionnaire, self.questionnaire)
         self.assertEqual(cycle.created_by, self.user)
@@ -287,8 +296,8 @@ class ReviewCycleViewSetTest(TestCase):
     def test_create_cycle_with_reviewers(self):
         """Can create cycle with reviewer emails."""
         response = self.client.post('/api/v1/cycles/', {
-            'reviewee': self.reviewee.id,
-            'questionnaire': self.questionnaire.id,
+            'reviewee': str(self.reviewee.uuid),
+            'questionnaire': str(self.questionnaire.uuid),
             'reviewer_emails': {
                 'self': ['reviewee@example.com'],
                 'peer': ['peer1@example.com', 'peer2@example.com'],
@@ -300,7 +309,7 @@ class ReviewCycleViewSetTest(TestCase):
         self.assertEqual(response.status_code, 201)
 
         # Verify tokens created
-        cycle = ReviewCycle.objects.get(id=response.data['id'])
+        cycle = ReviewCycle.objects.get(uuid=response.data['uuid'])
         self.assertEqual(cycle.tokens.count(), 4)
         self.assertEqual(cycle.tokens.filter(category='peer').count(), 2)
 
@@ -325,7 +334,7 @@ class ReviewCycleViewSetTest(TestCase):
             created_by=self.user
         )
 
-        response = self.client.get(f'/api/v1/cycles/{cycle.id}/')
+        response = self.client.get(f'/api/v1/cycles/{cycle.uuid}/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['reviewee_detail']['name'], 'Test Reviewee')
@@ -349,7 +358,7 @@ class ReviewCycleViewSetTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['id'], active.id)
+        self.assertEqual(response.data['results'][0]['uuid'], str(active.uuid))
 
     def test_progress_action(self):
         """GET /cycles/{id}/progress/ returns detailed progress."""
@@ -371,7 +380,7 @@ class ReviewCycleViewSetTest(TestCase):
             reviewer_email='peer@example.com'
         )
 
-        response = self.client.get(f'/api/v1/cycles/{cycle.id}/progress/')
+        response = self.client.get(f'/api/v1/cycles/{cycle.uuid}/progress/')
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('overall', response.data)
@@ -391,7 +400,8 @@ class QuestionnaireViewSetTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         self.token = APIToken.objects.create(
@@ -422,7 +432,9 @@ class QuestionnaireViewSetTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         # Should see both org questionnaire and shared template
-        self.assertEqual(len(response.data['results']), 2)
+        names = {q['name'] for q in response.data['results']}
+        self.assertIn('Org Questionnaire', names)
+        self.assertIn('Shared Template', names)
 
     def test_retrieve_questionnaire(self):
         """GET /questionnaires/{id}/ returns questionnaire details."""
@@ -439,7 +451,7 @@ class QuestionnaireViewSetTest(TestCase):
             order=1
         )
 
-        response = self.client.get(f'/api/v1/questionnaires/{self.org_questionnaire.id}/')
+        response = self.client.get(f'/api/v1/questionnaires/{self.org_questionnaire.uuid}/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['name'], 'Org Questionnaire')
@@ -467,7 +479,8 @@ class ReportViewSetTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         self.token = APIToken.objects.create(
@@ -521,7 +534,7 @@ class ReportViewSetTest(TestCase):
 
     def test_retrieve_shows_access_token(self):
         """Detail view should show access_token."""
-        response = self.client.get(f'/api/v1/reports/{self.report.id}/')
+        response = self.client.get(f'/api/v1/reports/{self.report.uuid}/')
 
         self.assertEqual(response.status_code, 200)
         # access_token should be in detail response

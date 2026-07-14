@@ -1,18 +1,50 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.http import Http404
 from django.views.decorators.http import require_http_methods
-from accounts.permissions import can_manage_organization_required
+from accounts.permissions import can_view_all_reports
 from reviews.models import ReviewCycle
 from .models import Report
 from .services import generate_report, get_report_summary, apply_display_anonymization
 import uuid
 
 
+def get_cycle_or_404(request, cycle_uuid):
+    """
+    Get a cycle for the admin report views: must be in the user's organization,
+    and the user must be an org admin. A cycle UUID alone is not authorization —
+    without the org check any admin could read another organization's report.
+    """
+    cycle = get_object_or_404(
+        ReviewCycle.objects.select_related('reviewee', 'questionnaire'),
+        uuid=cycle_uuid
+    )
+    in_org = (not request.organization
+              or cycle.reviewee.organization_id == request.organization.id)
+    if not in_org or not can_view_all_reports(request.user):
+        raise Http404
+    return cycle
+
+
+def is_own_cycle(user, cycle):
+    """Reviewees are matched by email — there is no FK from Reviewee to User."""
+    return bool(user.email) and cycle.reviewee.email.lower() == user.email.lower()
+
+
 @login_required
-@can_manage_organization_required
 def view_report(request, cycle_uuid):
-    """View aggregated feedback report for a review cycle"""
-    cycle = get_object_or_404(ReviewCycle, uuid=cycle_uuid)
+    """View aggregated feedback report for a review cycle (org admins only)"""
+    # Reviewees reach their own report through the token URL, not the admin view.
+    if not can_view_all_reports(request.user):
+        cycle = get_object_or_404(
+            ReviewCycle.objects.select_related('reviewee'), uuid=cycle_uuid
+        )
+        if not is_own_cycle(request.user, cycle):
+            raise Http404
+        report = Report.objects.filter(cycle=cycle).first() or generate_report(cycle)
+        return redirect('reports:reviewee_report', access_token=report.access_token)
+
+    cycle = get_cycle_or_404(request, cycle_uuid)
 
     # Get or generate report
     try:
@@ -42,10 +74,9 @@ def view_report(request, cycle_uuid):
 
 
 @login_required
-@can_manage_organization_required
 def regenerate_report(request, cycle_uuid):
     """Regenerate report for a review cycle"""
-    cycle = get_object_or_404(ReviewCycle, uuid=cycle_uuid)
+    cycle = get_cycle_or_404(request, cycle_uuid)
     generate_report(cycle)
 
     return redirect('reports:view_report', cycle_uuid=cycle.uuid)

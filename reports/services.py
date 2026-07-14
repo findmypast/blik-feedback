@@ -816,11 +816,10 @@ def send_report_ready_notification(report, request=None):
         stats['errors'].append("Report does not have an access token")
         return stats
 
-    # Build absolute URL
-    if request:
-        base_url = f"{request.scheme}://{request.get_host()}"
-    else:
-        base_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}"
+    # Always use SITE_DOMAIN for consistent URLs across all email contexts.
+    # A request's host can be an internal proxy hostname, which produces links
+    # the recipient cannot reach.
+    base_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}"
 
     report_url = f"{base_url}{reverse('reports:reviewee_report', kwargs={'access_token': report.access_token})}"
 

@@ -4,8 +4,25 @@ from django.core.management.base import BaseCommand
 from core.models import Organization
 
 
+DEFAULT_SMTP_PORT = 587
+
+
 class Command(BaseCommand):
     help = 'Create or update the default organization from environment variables'
+
+    def smtp_port(self, raw):
+        """
+        Parse EMAIL_PORT. A typo must not take the container down on boot —
+        warn and fall back to the default rather than raising ValueError.
+        """
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            self.stderr.write(self.style.WARNING(
+                f'EMAIL_PORT={raw!r} is not a number - '
+                f'falling back to {DEFAULT_SMTP_PORT}'
+            ))
+            return DEFAULT_SMTP_PORT
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -33,7 +50,7 @@ class Command(BaseCommand):
             org.name = options.get('name') or os.getenv('ORGANIZATION_NAME', 'Blik Organization')
             org.email = options.get('email') or os.getenv('DEFAULT_FROM_EMAIL', 'noreply@example.com')
             org.smtp_host = os.getenv('EMAIL_HOST', '')
-            org.smtp_port = int(os.getenv('EMAIL_PORT', '587'))
+            org.smtp_port = self.smtp_port(os.getenv('EMAIL_PORT', DEFAULT_SMTP_PORT))
             org.smtp_username = os.getenv('EMAIL_HOST_USER', '')
             org.smtp_password = os.getenv('EMAIL_HOST_PASSWORD', '')
             org.smtp_use_tls = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 'yes')
@@ -67,7 +84,7 @@ class Command(BaseCommand):
                 updated_fields.append('smtp_host')
 
             if os.environ.get('EMAIL_PORT'):
-                org.smtp_port = int(os.environ['EMAIL_PORT'])
+                org.smtp_port = self.smtp_port(os.environ['EMAIL_PORT'])
                 updated_fields.append('smtp_port')
 
             if os.environ.get('EMAIL_HOST_USER'):

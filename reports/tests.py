@@ -1,4 +1,6 @@
-from django.test import TestCase
+from unittest.mock import patch
+
+from django.test import RequestFactory, TestCase, override_settings
 from django.contrib.auth.models import User
 from core.models import Organization
 from accounts.models import UserProfile, Reviewee
@@ -476,3 +478,102 @@ class ReportViewAnonymizationTestCase(TestCase):
         from reports import views
         self.assertTrue(hasattr(views, 'apply_display_anonymization'),
                        "views module should import apply_display_anonymization")
+
+
+class ReportAccessControlTestCase(TestCase):
+    """
+    A plain org member must not reach another member's cycle or report.
+    Regression test for the report/cycle views being scoped by organization
+    only, so any logged-in member could open any colleague's report.
+    """
+
+    def setUp(self):
+        from django.urls import reverse
+        self.reverse = reverse
+
+        self.org = Organization.objects.create(name="Org", email="org@example.org")
+
+        self.user1 = User.objects.create_user(
+            username="user1", email="user1@example.org", password="pw")
+        UserProfile.objects.create(user=self.user1, organization=self.org)
+
+        self.user2 = User.objects.create_user(
+            username="user2", email="user2@example.org", password="pw")
+        UserProfile.objects.create(user=self.user2, organization=self.org)
+
+        reviewee, _ = Reviewee.objects.get_or_create(
+            organization=self.org,
+            email="user1@example.org",
+            defaults={'name': "User One"},
+        )
+        questionnaire = Questionnaire.objects.create(name="Q", organization=self.org)
+        self.cycle = ReviewCycle.objects.create(
+            reviewee=reviewee,
+            questionnaire=questionnaire,
+            created_by=self.user1,
+            status='completed',
+        )
+        self.report = generate_report(self.cycle)
+
+    def test_member_cannot_view_other_members_report(self):
+        self.client.force_login(self.user2)
+        response = self.client.get(
+            self.reverse('reports:view_report', args=[self.cycle.uuid]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_member_cannot_open_other_members_cycle_detail(self):
+        self.client.force_login(self.user2)
+        response = self.client.get(
+            self.reverse('review_cycle_detail', args=[self.cycle.uuid]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_member_does_not_see_other_members_cycles_in_list(self):
+        self.client.force_login(self.user2)
+        response = self.client.get(self.reverse('review_cycle_list'))
+        self.assertNotContains(response, str(self.cycle.uuid))
+
+    def test_reviewee_is_redirected_to_own_report(self):
+        self.client.force_login(self.user1)
+        response = self.client.get(
+            self.reverse('reports:view_report', args=[self.cycle.uuid]))
+        self.assertRedirects(
+            response,
+            self.reverse('reports:reviewee_report', args=[self.report.access_token]),
+        )
+
+
+@override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
+class ReportEmailUrlTestCase(TestCase):
+    """
+    Report links must always point at SITE_DOMAIN. A request handed in from a
+    view can carry an internal proxy hostname, which produces a link the
+    recipient cannot open. Companion to the same fix in reviews.services.
+    """
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Org", email="org@example.org")
+        user = User.objects.create_user(username="admin", email="admin@example.org")
+        reviewee = Reviewee.objects.create(
+            name="R", email="r@example.org", organization=self.org)
+        cycle = ReviewCycle.objects.create(
+            reviewee=reviewee,
+            questionnaire=Questionnaire.objects.create(name="Q", organization=self.org),
+            created_by=user,
+            status='completed',
+        )
+        self.report = generate_report(cycle)
+
+    @patch('reports.services.send_email')
+    def test_uses_site_domain_not_request_host(self, mock_send_email):
+        from reports.services import send_report_ready_notification
+
+        request = RequestFactory().get('/', HTTP_HOST='proxy.internal:8000')
+
+        send_report_ready_notification(self.report, request=request)
+
+        rendered = '\n'.join(
+            (call.kwargs.get('html_message') or '') + '\n' + call.kwargs['message']
+            for call in mock_send_email.call_args_list
+        )
+        self.assertIn('https://public.example.com/', rendered)
+        self.assertNotIn('proxy.internal', rendered)

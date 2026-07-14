@@ -13,6 +13,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 
 from accounts.models import Reviewee
+from accounts.permissions import visible_cycles
 from reviews.models import ReviewCycle, ReviewerToken
 from questionnaires.models import Questionnaire
 from reports.models import Report
@@ -296,13 +297,15 @@ class ReviewCycleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Filter by organization via reviewee relationship.
+        Filter by organization via reviewee relationship, then by what this
+        user may see: non-admins only get cycles where they are the reviewee.
         """
         org = self.request.organization
-        return (
+        return visible_cycles(
+            self.request.user,
             ReviewCycle.objects.for_organization(org)
             .select_related("reviewee", "questionnaire", "created_by")
-            .prefetch_related("tokens")
+            .prefetch_related("tokens"),
         )
 
     def get_permissions(self):
@@ -659,10 +662,18 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
     lookup_field = "uuid"
 
     def get_queryset(self):
-        """Filter by organization."""
+        """
+        Filter by organization, then by what this user may see. Without the
+        second filter any org member could list colleagues' reports — and the
+        detail view hands out access_token, which is an unauthenticated URL.
+        """
         org = self.request.organization
-        return Report.objects.for_organization(org).select_related(
-            "cycle__reviewee", "cycle__questionnaire"
+        return visible_cycles(
+            self.request.user,
+            Report.objects.for_organization(org).select_related(
+                "cycle__reviewee", "cycle__questionnaire"
+            ),
+            email_field="cycle__reviewee__email",
         )
 
     @extend_schema(

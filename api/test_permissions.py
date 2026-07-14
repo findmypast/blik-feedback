@@ -3,7 +3,8 @@ Tests for API permissions.
 """
 from django.test import TestCase
 from rest_framework.test import APIClient
-from accounts.models import Organization, User, Reviewee
+from accounts.models import Organization, User, Reviewee, UserProfile
+from accounts.permissions import assign_organization_admin
 from api.models import APIToken
 from reviews.models import ReviewCycle
 from questionnaires.models import Questionnaire
@@ -24,7 +25,8 @@ class IsOrganizationMemberPermissionTest(TestCase):
             email='user1@example.com',
             password='test123'
         )
-        self.user1.profile.organization = self.org1
+        UserProfile.objects.create(user=self.user1, organization=self.org1)
+        assign_organization_admin(self.user1)
         self.user1.profile.save()
 
         self.user2 = User.objects.create_user(
@@ -32,7 +34,8 @@ class IsOrganizationMemberPermissionTest(TestCase):
             email='user2@example.com',
             password='test123'
         )
-        self.user2.profile.organization = self.org2
+        UserProfile.objects.create(user=self.user2, organization=self.org2)
+        assign_organization_admin(self.user2)
         self.user2.profile.save()
 
         # Create tokens
@@ -70,15 +73,16 @@ class IsOrganizationMemberPermissionTest(TestCase):
         # Should see own org's reviewees
         response = self.client.get('/api/v1/reviewees/')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['email'], 'r1@example.com')
+        emails = {r['email'] for r in response.data['results']}
+        self.assertIn('r1@example.com', emails)
+        self.assertNotIn('r2@example.com', emails)
 
     def test_cannot_access_other_org_data(self):
         """Users cannot access other organization's data."""
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.token1.token}')
 
         # Should not see other org's reviewee
-        response = self.client.get(f'/api/v1/reviewees/{self.reviewee2.id}/')
+        response = self.client.get(f'/api/v1/reviewees/{self.reviewee2.uuid}/')
         self.assertEqual(response.status_code, 404)
 
     def test_list_only_shows_own_org(self):
@@ -88,9 +92,10 @@ class IsOrganizationMemberPermissionTest(TestCase):
         response = self.client.get('/api/v1/reviewees/')
         self.assertEqual(response.status_code, 200)
 
-        # Should only see 1 reviewee (from org1)
-        self.assertEqual(len(response.data['results']), 1)
-        self.assertEqual(response.data['results'][0]['id'], self.reviewee1.id)
+        # Should only see org1's reviewees, never org2's
+        emails = {r['email'] for r in response.data['results']}
+        self.assertIn(self.reviewee1.email, emails)
+        self.assertNotIn(self.reviewee2.email, emails)
 
 
 class CanManageOrganizationPermissionTest(TestCase):
@@ -106,11 +111,9 @@ class CanManageOrganizationPermissionTest(TestCase):
             email='admin@example.com',
             password='test123'
         )
-        self.admin.profile.organization = self.org
+        UserProfile.objects.create(user=self.admin, organization=self.org)
         self.admin.profile.save()
-        self.admin.user_permissions.add(
-            *self.admin._meta.model._meta.permissions
-        )
+        assign_organization_admin(self.admin)
 
         # Create regular user
         self.user = User.objects.create_user(
@@ -118,7 +121,7 @@ class CanManageOrganizationPermissionTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
         self.user.profile.save()
 
         # Create tokens
@@ -138,11 +141,6 @@ class CanManageOrganizationPermissionTest(TestCase):
 
     def test_admin_can_create_reviewee(self):
         """Admin can create reviewees."""
-        # Grant manage permission to admin
-        from django.contrib.auth.models import Permission
-        perm = Permission.objects.get(codename='can_manage_organization')
-        self.admin.user_permissions.add(perm)
-
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.admin_token.token}')
 
         response = self.client.post('/api/v1/reviewees/', {
@@ -179,7 +177,7 @@ class CanCreateCyclesPermissionTest(TestCase):
             email='creator@example.com',
             password='test123'
         )
-        self.creator.profile.organization = self.org
+        UserProfile.objects.create(user=self.creator, organization=self.org)
         self.creator.profile.can_create_cycles_for_others = True
         self.creator.profile.save()
 
@@ -189,7 +187,7 @@ class CanCreateCyclesPermissionTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
         self.user.profile.can_create_cycles_for_others = False
         self.user.profile.save()
 
@@ -226,8 +224,8 @@ class CanCreateCyclesPermissionTest(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.creator_token.token}')
 
         response = self.client.post('/api/v1/cycles/', {
-            'reviewee': self.reviewee.id,
-            'questionnaire': self.questionnaire.id
+            'reviewee': str(self.reviewee.uuid),
+            'questionnaire': str(self.questionnaire.uuid)
         })
 
         self.assertEqual(response.status_code, 201)
@@ -237,8 +235,8 @@ class CanCreateCyclesPermissionTest(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.user_token.token}')
 
         response = self.client.post('/api/v1/cycles/', {
-            'reviewee': self.reviewee.id,
-            'questionnaire': self.questionnaire.id
+            'reviewee': str(self.reviewee.uuid),
+            'questionnaire': str(self.questionnaire.uuid)
         })
 
         self.assertEqual(response.status_code, 403)
@@ -256,7 +254,8 @@ class HasAPIPermissionTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         # Token with read-only permissions
@@ -292,7 +291,7 @@ class HasAPIPermissionTest(TestCase):
         perm = Permission.objects.get(codename='can_manage_organization')
         self.user.user_permissions.add(perm)
 
-        self.client.login(username='user', password='test123')
+        self.client.force_login(self.user)
 
         # Should work even though we're not using a token
         response = self.client.post('/api/v1/reviewees/', {

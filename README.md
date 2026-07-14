@@ -114,6 +114,12 @@ docker run -d -p 8000:8000 \
 - `ALLOWED_HOSTS` - Comma-separated hostnames (default: `*`)
 - `DEBUG` - `True` or `False` (default: `False`)
 
+**Email & links:**
+- `SITE_DOMAIN`, `SITE_PROTOCOL` - Public URL; every link in outgoing email is built from these, not from the request host
+- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` - SMTP settings
+
+Any `EMAIL_*` or `ORGANIZATION_NAME` variable you set here wins over the admin UI: it is re-applied on every container start, so those fields are shown read-only on the Settings page. Leave them unset (or empty) to configure email from the UI instead.
+
 See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete environment variable documentation.
 
 ## Development

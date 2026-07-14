@@ -7,7 +7,8 @@ import hashlib
 from unittest.mock import patch, Mock
 from django.test import TestCase
 from rest_framework.test import APIClient
-from accounts.models import Organization, User, Reviewee
+from accounts.models import Organization, User, Reviewee, UserProfile
+from accounts.permissions import assign_organization_admin
 from api.models import APIToken, WebhookEndpoint, WebhookDelivery
 from api.webhooks import send_webhook, deliver_webhook, verify_webhook_signature
 from reviews.models import ReviewCycle
@@ -26,7 +27,7 @@ class WebhookDeliveryTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
         self.user.profile.save()
 
         self.endpoint = WebhookEndpoint.objects.create(
@@ -261,7 +262,8 @@ class WebhookEndpointViewSetTest(TestCase):
             email='admin@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
+        assign_organization_admin(self.user)
         self.user.profile.save()
 
         # Grant manage permission
@@ -325,7 +327,7 @@ class WebhookEndpointViewSetTest(TestCase):
             events=['cycle.created']
         )
 
-        response = self.client.get(f'/api/v1/webhooks/{webhook.id}/')
+        response = self.client.get(f'/api/v1/webhooks/{webhook.uuid}/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['name'], 'Test Webhook')
@@ -341,7 +343,7 @@ class WebhookEndpointViewSetTest(TestCase):
             events=['cycle.created']
         )
 
-        response = self.client.put(f'/api/v1/webhooks/{webhook.id}/', {
+        response = self.client.put(f'/api/v1/webhooks/{webhook.uuid}/', {
             'name': 'Updated Name',
             'url': 'https://example.com/webhook',
             'events': ['cycle.created', 'report.generated']
@@ -361,7 +363,7 @@ class WebhookEndpointViewSetTest(TestCase):
             events=['cycle.created']
         )
 
-        response = self.client.delete(f'/api/v1/webhooks/{webhook.id}/')
+        response = self.client.delete(f'/api/v1/webhooks/{webhook.uuid}/')
 
         self.assertEqual(response.status_code, 204)
 
@@ -381,7 +383,7 @@ class WebhookEndpointViewSetTest(TestCase):
             events=['test.event']
         )
 
-        response = self.client.post(f'/api/v1/webhooks/{webhook.id}/test/')
+        response = self.client.post(f'/api/v1/webhooks/{webhook.uuid}/test/')
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(mock_send.called)
@@ -414,7 +416,7 @@ class WebhookEndpointViewSetTest(TestCase):
             status_code=500
         )
 
-        response = self.client.get(f'/api/v1/webhooks/{webhook.id}/deliveries/')
+        response = self.client.get(f'/api/v1/webhooks/{webhook.uuid}/deliveries/')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), 2)
@@ -431,7 +433,7 @@ class WebhookEndpointViewSetTest(TestCase):
             events=['cycle.created']
         )
 
-        response = self.client.get(f'/api/v1/webhooks/{other_webhook.id}/')
+        response = self.client.get(f'/api/v1/webhooks/{other_webhook.uuid}/')
 
         self.assertEqual(response.status_code, 404)
 
@@ -448,7 +450,7 @@ class WebhookSignalsTest(TestCase):
             email='user@example.com',
             password='test123'
         )
-        self.user.profile.organization = self.org
+        UserProfile.objects.create(user=self.user, organization=self.org)
         self.user.profile.save()
 
         self.endpoint = WebhookEndpoint.objects.create(
@@ -475,11 +477,15 @@ class WebhookSignalsTest(TestCase):
     @patch('api.webhooks.deliver_webhook')
     def test_cycle_created_triggers_webhook(self, mock_deliver):
         """Creating a cycle should trigger cycle.created webhook."""
-        cycle = ReviewCycle.objects.create(
-            reviewee=self.reviewee,
-            questionnaire=self.questionnaire,
-            created_by=self.user
-        )
+        # The signal defers to transaction.on_commit so a rolled-back cycle never
+        # emits a webhook. TestCase wraps each test in a transaction that never
+        # commits, so the callbacks have to be run explicitly.
+        with self.captureOnCommitCallbacks(execute=True):
+            cycle = ReviewCycle.objects.create(
+                reviewee=self.reviewee,
+                questionnaire=self.questionnaire,
+                created_by=self.user
+            )
 
         # Check webhook delivery was created
         deliveries = WebhookDelivery.objects.filter(event_type='cycle.created')
@@ -488,7 +494,7 @@ class WebhookSignalsTest(TestCase):
         delivery = deliveries.first()
         self.assertEqual(delivery.endpoint, self.endpoint)
         self.assertIn('cycle_id', delivery.payload)
-        self.assertEqual(delivery.payload['cycle_id'], cycle.id)
+        self.assertEqual(delivery.payload['cycle_id'], str(cycle.uuid))
 
     @patch('api.webhooks.deliver_webhook')
     def test_cycle_completed_triggers_webhook(self, mock_deliver):
