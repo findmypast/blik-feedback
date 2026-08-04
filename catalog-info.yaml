@@ -1,0 +1,19 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: blik-feedback
+  title: Blik Feedback
+  description: Open source 360-degree feedback and performance review platform
+  annotations:
+    github.com/project-slug: findmypast/blik-feedback
+    backstage.io/kubernetes-id: blik-feedback
+    backstage.io/kubernetes-namespace: default
+    backstage.io/kubernetes-label-selector: app=blik-feedback
+    backstage.io/techdocs-ref: dir:.
+    teamcity/project-id: blik-feedback
+    graylog/query: 'application: blik-feedback AND environment:production'
+    sonarqube.org/project-key: blik-feedback
+spec:
+  type: service
+  lifecycle: production
+  owner: group:default/the-denge-team

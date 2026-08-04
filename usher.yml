@@ -1,0 +1,58 @@
+version: '2'
+vars:
+  colour: <%=service_tag.split('-')[0]%>
+  registry: fh1-harbor01.dun.fh
+  base_service_name: blik-feedback
+  base_service_name_snake_case: blik_feedback
+  service_folder: .
+  service_tag:
+  service_node:
+  create_image_extra_args:
+  service_image_name: <%=base_service_name%>
+  docker_compose: docker compose
+
+  docker_environment: &DOCKER_ENV
+    - DOCKER_TLS_VERIFY=1
+    - DOCKER_HOST=tcp://<%=service_node%>.dun.fh:2376
+    - &IMAGE IMAGE=<%=registry%>/findmypast/<%=service_image_name%>:<%=version%>
+    - SERVICE_NAME=<%=service_image_name%>
+    - SERVICE_TAGS=<%=service_tag%>
+    - SERVICE_NODE=<%=service_node%>
+    - COMPOSE_PROJECT_NAME=<%=service_tag%>
+
+include:
+  - from: git+ssh://git@github.com:findmypast/usher_shared_tasks.git
+    name: shared_tasks as global
+    import:
+      - docker
+
+tasks:
+  test:
+    do: shell
+    description: Run the Django test suite in Docker Compose
+    command: <%=docker_compose%> -f docker-compose.test.yml run --rm web python manage.py test --verbosity=2
+    env:
+      - *IMAGE
+    finally_task: test_cleanup
+
+  test_cleanup:
+    do: shell
+    description: Remove test containers, networks, and volumes
+    command: <%=docker_compose%> -f docker-compose.test.yml down --volumes --remove-orphans
+    env:
+      - *IMAGE
+
+  build:
+    do: global.docker.create_image
+    description: Build the application image
+    service_name: <%=service_image_name%>
+
+  push:
+    do: global.docker.push_image
+    description: Push the application image
+    service_name: <%=service_image_name%>
+
+  pull:
+    do: global.docker.pull_image
+    description: Pull the application image
+    service_name: <%=service_image_name%>
