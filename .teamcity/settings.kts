@@ -14,7 +14,7 @@ project {
 }
 
 object BuildScanTestTagWithVersion : BuildType({
-    templates(AbsoluteId("BuildScanTestTagWithVersion"))
+    templates(AbsoluteId("BuildVersionTestAndTag"))
     name = "Build, scan, test & tag with version"
 
     params {
