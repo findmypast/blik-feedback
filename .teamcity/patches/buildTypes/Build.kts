@@ -10,6 +10,7 @@ To apply the patch, create a buildType with id = 'Build'
 in the root project, and delete the patch script.
 */
 create(DslContext.projectId, BuildType({
+    templates(AbsoluteId("BuildVersionTestAndTag"))
     id("Build")
     name = "Build"
 }))
