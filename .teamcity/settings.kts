@@ -14,7 +14,7 @@ project {
 }
 
 object BuildScanTestTagWithVersion : BuildType({
-    templates(AbsoluteId("BuildScanTestTagWithVersionMain"))
+    templates(AbsoluteId("BuildScanTestTagWithVersionMaster"))
     name = "Build, scan, test & tag with version"
 
     params {
@@ -32,7 +32,7 @@ object tech_docs : Project({
 })
 
 object PublishBackstageTechdocs_PublishTechDocs : BuildType({
-    templates(AbsoluteId("PublishBackstageTechDocsMain"))
+    templates(AbsoluteId("PublishBackstageTechDocsMaster"))
     name = "Publish TechDocs"
     description = "Build and publish tech docs"
 
