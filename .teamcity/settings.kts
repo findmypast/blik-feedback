@@ -1,7 +1,7 @@
 import jetbrains.buildServer.configs.kotlin.*
 import jetbrains.buildServer.configs.kotlin.triggers.vcs
 
-version = "2024.03"
+version = "2026.01"
 
 project {
     buildType(BuildScanTestTagWithVersion)
@@ -32,7 +32,7 @@ object tech_docs : Project({
 })
 
 object PublishBackstageTechdocs_PublishTechDocs : BuildType({
-    templates(AbsoluteId("PublishBackstageTechDocsMaster"))
+    templates(AbsoluteId("PublishBackstageTechDocs"))
     name = "Publish TechDocs"
     description = "Build and publish tech docs"
 
