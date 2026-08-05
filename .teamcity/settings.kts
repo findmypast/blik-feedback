@@ -1,10 +1,12 @@
 import jetbrains.buildServer.configs.kotlin.*
+import jetbrains.buildServer.configs.kotlin.triggers.finishBuildTrigger
 import jetbrains.buildServer.configs.kotlin.triggers.vcs
 
 version = "2026.01"
 
 project {
     buildType(BuildScanTestTagWithVersion)
+    buildType(DeployIntegration)
 
     params {
         param("git.projectname", "blik-feedback")
@@ -21,6 +23,28 @@ object BuildScanTestTagWithVersion : BuildType({
         param("git.projectname", "blik-feedback")
         param("enable_vulnerability_scanning", "true")
         param("disable_npm_audit", "true")
+    }
+})
+
+object DeployIntegration : BuildType({
+    name = "Deploy to Integration"
+    description = "Tracks the downstream Blik Docker build and Integration deployment"
+    type = BuildTypeSettings.Type.COMPOSITE
+
+    triggers {
+        finishBuildTrigger {
+            id = "TRIGGER_AFTER_BLIK_FEEDBACK_SUCCESS"
+            buildType = "${BuildScanTestTagWithVersion.id}"
+            successfulOnly = true
+            branchFilter = "+:<default>"
+        }
+    }
+
+    dependencies {
+        snapshot(AbsoluteId("blik_integration_DeployIntegration")) {
+            onDependencyFailure = FailureAction.FAIL_TO_START
+            reuseBuilds = ReuseBuilds.NO
+        }
     }
 })
 
