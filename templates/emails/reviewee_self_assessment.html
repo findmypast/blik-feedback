@@ -7,7 +7,7 @@
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
         .header { background-color: #667eea; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 8px 8px 0 0; text-align: center; }
         .content { background: #ffffff; padding: 30px; border: 1px solid #e5e7eb; border-top: none; }
-        .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
+        .button { display: inline-block; background-color: #667eea !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
         .footer { text-align: center; padding: 20px; color: #6b7280; font-size: 0.875rem; }
     </style>
 </head>
@@ -24,7 +24,7 @@
             <p>Please complete your <strong>self-assessment</strong> by clicking the button below:</p>
 
             <div style="text-align: center;">
-                <a href="{{ self_assessment_url }}" class="button">Complete Self-Assessment</a>
+                <a href="{{ self_assessment_url }}" class="button" style="background-color: #667eea !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff;">Complete Self-Assessment</a>
             </div>
 
             <p>This is your opportunity to reflect on your own performance before receiving feedback from others.</p>

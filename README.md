@@ -124,6 +124,26 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete environment variable d
 
 ## Development
 
+### Native Setup with uv
+
+Install [uv](https://docs.astral.sh/uv/), then create the pinned Python 3.11
+development environment from the committed lockfile:
+
+```bash
+uv sync --extra dev
+uv run python manage.py migrate
+uv run python manage.py runserver
+```
+
+Run the test suite with:
+
+```bash
+uv run pytest
+```
+
+After pulling dependency changes, run `uv sync --extra dev` again. When changing
+dependencies in `pyproject.toml`, regenerate and commit `uv.lock` with `uv lock`.
+
 ### Local Setup
 
 ```bash
