@@ -1,7 +1,6 @@
 package patches.buildTypes
 
 import jetbrains.buildServer.configs.kotlin.*
-import jetbrains.buildServer.configs.kotlin.buildSteps.script
 import jetbrains.buildServer.configs.kotlin.ui.*
 
 /*
@@ -13,18 +12,6 @@ changeBuildType(RelativeId("BuildScanTestTagWithVersion")) {
     expectSteps {
     }
     steps {
-        insert(0) {
-            script {
-                name = "Docker Buildx diagnostics"
-                id = "Docker_Buildx_diagnostics"
-                scriptContent = """
-                    where docker
-                    docker version
-                    docker buildx version
-                    docker buildx ls
-                """.trimIndent()
-            }
-        }
         check(stepsOrder == arrayListOf<String>()) {
             "Unexpected build steps order: $stepsOrder"
         }
