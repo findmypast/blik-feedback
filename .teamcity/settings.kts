@@ -1,4 +1,5 @@
 import jetbrains.buildServer.configs.kotlin.*
+import jetbrains.buildServer.configs.kotlin.buildSteps.script
 import jetbrains.buildServer.configs.kotlin.triggers.finishBuildTrigger
 import jetbrains.buildServer.configs.kotlin.triggers.vcs
 
@@ -19,10 +20,32 @@ object BuildScanTestTagWithVersion : BuildType({
     templates(AbsoluteId("BuildVersionTestAndTag"))
     name = "Build, scan, test & tag with version"
 
+    requirements {
+        equals("teamcity.agent.jvm.os.name", "Linux")
+    }
+
     params {
         param("git.projectname", "blik-feedback")
-        param("enable_vulnerability_scanning", "true")
+        // The shared scanner only supports npm and Yarn lockfiles. Python
+        // dependencies are audited from uv.lock in the dedicated step below.
+        param("enable_vulnerability_scanning", "false")
         param("disable_npm_audit", "true")
+    }
+
+    steps {
+        script {
+            id = "python_dependency_audit"
+            name = "Audit locked Python dependencies"
+            scriptContent = """
+                set -eu
+
+                docker run --rm \
+                  --volume "%teamcity.build.checkoutDir%:/workspace" \
+                  --workdir /workspace \
+                  python:3.11-slim \
+                  sh -c 'python -m pip install --disable-pip-version-check --no-cache-dir uv pip-audit && uv export --frozen --no-dev --no-emit-project --output-file /tmp/requirements-audit.txt && python -m pip_audit --no-deps --disable-pip --requirement /tmp/requirements-audit.txt'
+            """.trimIndent()
+        }
     }
 })
 
