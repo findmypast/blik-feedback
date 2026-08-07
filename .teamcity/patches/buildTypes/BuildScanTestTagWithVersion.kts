@@ -13,11 +13,5 @@ changeBuildType(RelativeId("BuildScanTestTagWithVersion")) {
         remove {
             equals("teamcity.agent.jvm.os.name", "Linux", "RQ_1")
         }
-        add {
-            equals("teamcity.agent.jvm.os.name", "Linux", "RQ_1")
-        }
     }
-
-    expectDisabledSettings()
-    updateDisabledSettings("RQ_1")
 }
