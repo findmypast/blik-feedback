@@ -25,5 +25,9 @@ changeBuildType(RelativeId("BuildScanTestTagWithVersion")) {
                 """.trimIndent()
             }
         }
+        check(stepsOrder == arrayListOf<String>()) {
+            "Unexpected build steps order: $stepsOrder"
+        }
+        stepsOrder = arrayListOf("Docker_Buildx_diagnostics", "RUNNER_895", "RUNNER_706", "RUNNER_896", "RUNNER_897")
     }
 }
