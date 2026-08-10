@@ -30,7 +30,7 @@ tasks:
   test:
     do: shell
     description: Run the Django test suite in Docker Compose
-    command: <%=docker_compose%> -f docker-compose.test.yml run --rm web python manage.py test --verbosity=2
+    command: <%=docker_compose%> -f docker-compose.test.yml run --rm web sh -c "python manage.py collectstatic --noinput && python manage.py test --verbosity=2"
     env:
       - *IMAGE
     finally_task: test_cleanup
