@@ -225,6 +225,7 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Product')
         self.assertContains(response, 'Research')
+        self.assertContains(response, 'Parent team: Product')
         self.assertContains(response, 'Taylor Mate')
         self.assertContains(
             response,
@@ -281,6 +282,32 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertRedirects(response, reverse('team_list'))
         self.teammate_reviewee.refresh_from_db()
         self.assertIsNone(self.teammate_reviewee.team)
+
+    def test_adding_member_to_second_team_preserves_first_membership(self):
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+        odyssey = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=self.member_profile
+        )
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'set_member_team',
+            'reviewee': self.teammate_reviewee.id,
+            'team': odyssey.id,
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.teammate_reviewee.refresh_from_db()
+        self.assertEqual(self.teammate_reviewee.team, self.child_team)
+        self.assertSetEqual(
+            set(self.teammate_reviewee.teams.values_list('id', flat=True)),
+            {self.child_team.id, odyssey.id},
+        )
+        page = self.client.get(reverse('team_list'))
+        self.assertContains(page, 'Research')
+        self.assertContains(page, 'Odyssey')
+        self.assertContains(page, '<strong>Odyssey (2)</strong>', html=True)
+        self.assertContains(page, '<strong>Research (2)</strong>', html=True)
 
     def test_manager_can_remove_a_leaf_team_and_members_become_unassigned(self):
         self.child_team.manager = self.member_profile

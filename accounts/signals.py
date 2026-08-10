@@ -6,7 +6,7 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from core.models import Organization
 from core.email import send_welcome_email
-from .models import Team, UserProfile
+from .models import Reviewee, Team, TeamMembership, UserProfile
 
 User = get_user_model()
 
@@ -49,8 +49,6 @@ def keep_team_manager_in_team(sender, instance, **kwargs):
     if not instance.manager_id:
         return
 
-    from accounts.models import Reviewee
-
     manager = instance.manager
     reviewee = Reviewee.objects.filter(
         organization=instance.organization,
@@ -69,3 +67,13 @@ def keep_team_manager_in_team(sender, instance, **kwargs):
         reviewee.team = instance
     reviewee.full_clean()
     reviewee.save()
+    TeamMembership.objects.get_or_create(reviewee=reviewee, team=instance)
+
+
+@receiver(post_save, sender=Reviewee)
+def keep_primary_team_membership(sender, instance, **kwargs):
+    """Keep legacy primary-team writes represented in additive memberships."""
+    if instance.team_id:
+        TeamMembership.objects.get_or_create(
+            reviewee_id=instance.id, team_id=instance.team_id
+        )

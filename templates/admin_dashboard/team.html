@@ -21,7 +21,7 @@
 <div class="card mb-2">
     <div class="card-body" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem;">
         <div><small class="help-text">Organization</small><div><strong>{{ organization.name }}</strong></div></div>
-        <div><small class="help-text">Your team</small><div><strong>{% if current_reviewee.team %}{{ current_reviewee.team.name }}{% else %}Not assigned{% endif %}</strong></div></div>
+        <div><small class="help-text">Your teams</small><div><strong>{% for team in current_teams %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% empty %}Not assigned{% endfor %}</strong></div></div>
     </div>
 </div>
 
@@ -42,7 +42,7 @@
 {% endif %}
 
 <div style="display:flex; flex-direction:column; gap:1rem;">
-{% for card in team_tree %}{% include "admin_dashboard/_team_node.html" with card=card depth=0 %}
+{% for card in team_cards %}{% include "admin_dashboard/_team_node.html" with card=card depth=0 %}
 {% empty %}<div class="card"><div class="card-body"><p class="help-text">You are not assigned to a team yet.</p></div></div>{% endfor %}
 </div>
 

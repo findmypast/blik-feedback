@@ -74,8 +74,9 @@ def effective_scope(user, organization=None):
         Q(profile=profile) |
         Q(email__iexact=user.email) |
         Q(reporting_manager=profile) |
-        Q(team_id__in=granted_team_ids)
-    ).values_list('id', flat=True)
+        Q(team_id__in=granted_team_ids) |
+        Q(team_memberships__team_id__in=granted_team_ids)
+    ).distinct().values_list('id', flat=True)
     return EffectiveScope(organization.id, frozenset(visible))
 
 
@@ -116,6 +117,31 @@ def visible_profiles(user, queryset, organization=None):
         id__in=scope.reviewee_ids, profile__isnull=False
     ).values('profile_id')
     return queryset.filter(id__in=profile_ids)
+
+
+def manageable_teams(user, organization=None):
+    """Teams the user may target directly when creating a campaign."""
+    profile = getattr(user, 'profile', None)
+    organization = organization or getattr(profile, 'organization', None)
+    queryset = Team.objects.for_organization(organization)
+    if not profile or not organization or profile.organization_id != organization.id:
+        return queryset.none()
+    if user.has_perm('accounts.can_manage_organization'):
+        return queryset
+
+    allowed_ids = set(queryset.filter(manager=profile).values_list('id', flat=True))
+    children = {}
+    for team_id, parent_id in queryset.values_list('id', 'parent_id'):
+        children.setdefault(parent_id, set()).add(team_id)
+    for grant in TeamLeadGrant.objects.filter(
+        profile=profile, team__organization=organization
+    ).prefetch_related('revocations'):
+        team_ids = (_descendant_ids(grant.team_id, children)
+                    if grant.include_descendants else {grant.team_id})
+        for revocation in grant.revocations.all():
+            team_ids -= _descendant_ids(revocation.team_id, children)
+        allowed_ids |= team_ids
+    return queryset.filter(id__in=allowed_ids)
 
 
 def is_top_level_team_lead(user, organization=None):

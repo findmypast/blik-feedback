@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import (
     Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
-    TeamLeadRevocation,
+    TeamLeadRevocation, TeamMembership,
 )
 from core.gdpr import GDPRDeletionService
 
@@ -272,3 +272,10 @@ class TeamLeadRevocationAdmin(admin.ModelAdmin):
     list_display = ['grant', 'team']
     list_filter = ['team__organization']
     list_select_related = ['grant', 'team']
+
+
+@admin.register(TeamMembership)
+class TeamMembershipAdmin(admin.ModelAdmin):
+    list_display = ['reviewee', 'team', 'created_at']
+    list_filter = ['team__organization', 'team']
+    search_fields = ['reviewee__name', 'reviewee__email', 'team__name']

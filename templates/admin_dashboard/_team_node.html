@@ -1,6 +1,6 @@
-<details class="card" {% if card.team.id == current_reviewee.team_id or editing_team_id == card.team.id|stringformat:"s" %}open{% endif %} style="margin-bottom:.75rem;">
+<details class="card" {% if card.team.id in current_team_ids or editing_team_id == card.team.id|stringformat:"s" %}open{% endif %} style="margin-bottom:.75rem;">
     <summary class="card-header" style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
-        <div><strong>{{ card.team.name }} ({{ card.members|length }})</strong></div>
+        <div style="display:flex;flex-direction:column;gap:.15rem;"><strong>{{ card.team.name }} ({{ card.members|length }})</strong>{% if card.team.parent %}<small style="color:var(--text-secondary);font-weight:normal;">Parent team: {{ card.team.parent.name }}</small>{% endif %}</div>
         <span style="display:flex; gap:.75rem; align-items:center; color:var(--text-secondary);">
             Manager: {{ card.manager_name }}
             <span>▾</span>
@@ -10,7 +10,7 @@
         {% if card.can_edit and editing_team_id != card.team.id|stringformat:"s" %}
         <div style="display:flex; justify-content:flex-end; gap:.5rem; margin-bottom:.75rem;">
             <button type="button" class="btn btn-sm btn-primary" aria-expanded="false" aria-controls="add-member-{{ card.team.id }}" onclick="const form=document.getElementById('add-member-{{ card.team.id }}'); const opening=form.style.display==='none'; form.style.display=opening?'flex':'none'; this.setAttribute('aria-expanded', opening);">Add team member</button>
-            <a class="btn btn-sm btn-secondary" href="{% url 'team_list' %}?edit={{ card.team.id }}">Edit team</a>
+            <a class="btn btn-sm btn-secondary" href="{% url 'team_list' %}?edit={{ card.team.id }}">Edit team settings</a>
         </div>
         {% endif %}
         {% if editing_team_id == card.team.id|stringformat:"s" and card.can_edit %}
@@ -27,17 +27,15 @@
         </form>
         {% endif %}
 
-        {% if card.children %}<div style="margin-left:1rem; border-left:2px solid var(--border-color); padding-left:1rem;">{% for child in card.children %}{% include "admin_dashboard/_team_node.html" with card=child depth=depth|add:1 %}{% endfor %}</div>{% endif %}
-
         <section style="margin-top:.75rem; border:1px solid var(--border-color); border-radius:8px; padding:1rem;">
             <h3 style="margin:0 0 .75rem;">Team members</h3>
-                <div class="table-responsive"><table class="table"><thead><tr><th>Person</th><th>Permissions</th><th>Status</th><th></th></tr></thead><tbody>
+                <div class="table-responsive team-members-table"><table class="table"><thead><tr><th>Person</th><th>Permissions</th><th>Status</th><th></th></tr></thead><tbody>
                 {% for member in card.members %}<tr><td><strong>{{ member.name }}</strong><br><small>{{ member.email }}</small></td><td>{% if member.profile %}{% if member.is_org_admin or member.profile.user.is_superuser %}Administrator{% elif member.profile.can_create_cycles_for_others %}Can create cycles{% else %}Member{% endif %}{% else %}—{% endif %}</td><td>{% if member.status == 'active' %}<span style="color:#059669;">● Active</span>{% else %}<span style="color:#d97706;">◷ Pending</span>{% endif %}</td><td style="text-align:right; position:relative;">
-                    {% if member.status == 'active' and member.email != request.user.email %}<a class="btn btn-sm btn-primary" href="{% url 'review_cycle_create' %}?reviewer_email={{ member.email|urlencode }}">Request review</a>{% endif %}
-                    {% if card.can_edit %}
-                    <details style="display:inline-block; position:relative; vertical-align:top; margin-left:.35rem; text-align:left;">
+                    {% if member.status == 'active' and member.email != request.user.email %}{% if pending_peer_cycle and member.reviewee %}<a class="btn btn-sm btn-primary" href="{% url 'nominate_peer_reviewers' pending_peer_cycle.uuid %}?candidate={{ member.reviewee.id }}">Request review</a>{% else %}<a class="btn btn-sm btn-primary" href="{% url 'review_cycle_create' %}?reviewer_email={{ member.email|urlencode }}">Request review</a>{% endif %}{% endif %}
+                    {% if card.can_edit and member.invitation or card.can_edit and member.reviewee and not member.is_manager or card.can_edit and perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}
+                    <details class="member-actions-menu" style="display:inline-block; position:relative; vertical-align:top; margin-left:.35rem; text-align:left;">
                         <summary class="btn btn-sm btn-secondary" aria-label="Actions for {{ member.name }}" style="list-style:none; cursor:pointer; font-size:1.15rem; line-height:1;">⋯</summary>
-                        <div style="position:static; min-width:190px; margin-top:.35rem; padding:.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.15); display:flex; flex-direction:column; gap:.35rem;">
+                        <div class="member-actions-popover" style="position:absolute; right:0; top:calc(100% + .35rem); z-index:50; min-width:190px; padding:.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.15); display:flex; flex-direction:column; gap:.35rem;">
                             {% if perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('permissions-{{ member.profile.id }}').style.display='flex';">Edit permissions</button>{% endif %}
                             {% if member.reviewee and not member.is_manager %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}
                             {% if member.invitation %}<form method="post" action="{% url 'manage_team_structure' %}" onsubmit="return confirm('Cancel this pending invitation?');">{% csrf_token %}<input type="hidden" name="action" value="cancel_team_invitation"><input type="hidden" name="invitation" value="{{ member.invitation.id }}"><button class="btn btn-sm btn-secondary" style="width:100%;" type="submit">Cancel invitation</button></form>{% endif %}
@@ -61,7 +59,7 @@
                         <div style="width:min(460px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
                             <h2 id="remove-title-{{ member.reviewee.id }}" style="margin-top:0;">Remove {{ member.name }}?</h2>
                             <p>This removes them from {{ card.team.name }} but does not delete their account or review history.</p>
-                            <form method="post" action="{% url 'manage_team_structure' %}">{% csrf_token %}<input type="hidden" name="action" value="set_member_team"><input type="hidden" name="reviewee" value="{{ member.reviewee.id }}">
+                            <form method="post" action="{% url 'manage_team_structure' %}">{% csrf_token %}<input type="hidden" name="action" value="set_member_team"><input type="hidden" name="reviewee" value="{{ member.reviewee.id }}"><input type="hidden" name="remove_from_team" value="{{ card.team.id }}">
                                 <div class="form-group"><label for="remove-confirmation-{{ member.reviewee.id }}">Type <strong>delete</strong> to confirm</label><input id="remove-confirmation-{{ member.reviewee.id }}" class="form-control" name="confirmation" autocomplete="off" required oninput="document.getElementById('remove-submit-{{ member.reviewee.id }}').disabled=this.value.trim().toLowerCase()!=='delete';"></div>
                                 <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='none'">Cancel</button><button id="remove-submit-{{ member.reviewee.id }}" class="btn btn-danger" type="submit" disabled>Remove member</button></div>
                             </form>
@@ -75,3 +73,7 @@
         </section>
     </div>
 </details>
+<style>
+.team-members-table{overflow:visible}.member-actions-menu[open]{z-index:60}.member-actions-menu>summary::-webkit-details-marker{display:none}.member-actions-popover{white-space:nowrap}.team-members-table tbody tr:last-child .member-actions-popover{top:auto!important;bottom:calc(100% + .35rem)}
+@media(max-width:700px){.member-actions-popover{right:0;min-width:175px}}
+</style>

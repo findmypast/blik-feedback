@@ -224,6 +224,13 @@ class Reviewee(TimeStampedModel):
     team = models.ForeignKey(
         Team, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewees'
     )
+    teams = models.ManyToManyField(
+        Team,
+        through='TeamMembership',
+        related_name='members',
+        blank=True,
+        help_text='All teams this person belongs to. The team field remains the primary team.',
+    )
     reporting_manager = models.ForeignKey(
         UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='direct_report_reviewees'
@@ -251,3 +258,26 @@ class Reviewee(TimeStampedModel):
                 raise ValidationError({field: 'Must belong to the same organization.'})
         if self.team and self.team.organization_id != self.organization_id:
             raise ValidationError({'team': 'Must belong to the same organization.'})
+
+
+class TeamMembership(TimeStampedModel):
+    """An additive team membership; a person may belong to several teams."""
+    reviewee = models.ForeignKey(
+        Reviewee, on_delete=models.CASCADE, related_name='team_memberships'
+    )
+    team = models.ForeignKey(
+        Team, on_delete=models.CASCADE, related_name='memberships'
+    )
+
+    class Meta:
+        db_table = 'team_memberships'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reviewee', 'team'], name='unique_reviewee_team_membership'
+            ),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.reviewee.organization_id != self.team.organization_id:
+            raise ValidationError('Person and team must belong to the same organization.')
