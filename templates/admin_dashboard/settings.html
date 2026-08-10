@@ -10,6 +10,26 @@
     </div>
 </div>
 
+<div class="settings-layout" style="display:grid; grid-template-columns:minmax(200px,240px) minmax(0,1fr); gap:1.5rem; align-items:start;">
+<aside class="card settings-sidebar" style="position:sticky; top:1rem;">
+    <div class="card-header"><h2 class="card-title">Settings</h2></div>
+    <div class="card-body" style="display:flex; flex-direction:column; gap:.5rem;">
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="organization" style="text-align:left;">Organization</button>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="reports" style="text-align:left;">Reports</button>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="email" style="text-align:left;">Email</button>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="account" style="text-align:left;">Account & data</button>
+        {% if perms.accounts.can_manage_organization %}
+        <a href="{% url 'team_list' %}" class="btn btn-secondary" style="text-align:left;">Teams & members</a>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="integrations" style="text-align:left;">APIs & webhooks</button>
+        {% endif %}
+        {% if user.is_superuser %}
+        <a href="{% url 'superuser_create_organization' %}" class="btn btn-secondary" style="text-align:left;">Create organization</a>
+        <a href="/admin/" class="btn btn-secondary" style="text-align:left;">Advanced admin</a>
+        {% endif %}
+    </div>
+</aside>
+<main style="min-width:0;">
+
 {% if not perms.accounts.can_manage_organization %}
 <div class="alert alert-info" style="margin-bottom: 2rem;">
     <strong>View-only mode:</strong> Only organization administrators can modify these settings.
@@ -17,13 +37,13 @@
 {% endif %}
 
 <!-- Two Column Layout for Desktop -->
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+<div style="display:grid; gap:1.5rem; margin-bottom:1.5rem;">
 
     <!-- Left Column -->
-    <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+    <div style="display:contents;">
 
         <!-- Organization Details -->
-        <div class="card">
+        <div class="card settings-pane" data-settings-section="organization" id="organization-settings">
             <div class="card-header">
                 <h2 class="card-title">Organization</h2>
             </div>
@@ -71,7 +91,7 @@
         </div>
 
         <!-- Report Settings -->
-        <div class="card">
+        <div class="card settings-pane" data-settings-section="reports">
             <div class="card-header">
                 <h2 class="card-title">Report Settings</h2>
             </div>
@@ -122,7 +142,7 @@
         </div>
 
         <!-- User Registration Settings -->
-        <div class="card">
+        <div class="card settings-pane" data-settings-section="organization">
             <div class="card-header">
                 <h2 class="card-title">User Registration</h2>
             </div>
@@ -176,11 +196,11 @@
     </div>
 
         <!-- Right Column -->
-        <div style="display: flex; flex-direction: column; gap: 1.5rem;">
+        <div style="display:contents;">
 
             {% if subscription %}
             <!-- Subscription & Billing -->
-            <div class="card">
+            <div class="card settings-pane" data-settings-section="organization">
                 <div class="card-header">
                     <h2 class="card-title">Subscription & Billing</h2>
                 </div>
@@ -245,7 +265,7 @@
             {% endif %}
 
         <!-- Email Settings -->
-        <div class="card">
+        <div class="card settings-pane" data-settings-section="email">
             <div class="card-header">
                 <h2 class="card-title">Email (SMTP) Settings</h2>
             </div>
@@ -365,7 +385,7 @@
         </div>
 
         <!-- API Configuration -->
-        <div class="card">
+        <div class="card settings-pane" data-settings-section="integrations" id="api-settings">
             <div class="card-header">
                 <h2 class="card-title">API Configuration</h2>
             </div>
@@ -501,7 +521,7 @@
 </style>
 
 <!-- Account Management Section -->
-<div class="card" style="margin-top: 2rem;">
+<div class="card settings-pane" data-settings-section="account" id="account-settings">
     <div class="card-header">
         <h2 class="card-title">Account & Data Management</h2>
     </div>
@@ -586,6 +606,43 @@
         </div>
     </div>
 </div>
+</main>
+</div>
+
+<style>
+    .settings-nav.is-active {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+    }
+    @media (max-width: 768px) {
+        .settings-layout { grid-template-columns: 1fr !important; }
+        .settings-sidebar { position:static !important; }
+    }
+</style>
+<script>
+    (function () {
+        const buttons = Array.from(document.querySelectorAll('.settings-nav'));
+        const panes = Array.from(document.querySelectorAll('.settings-pane'));
+        const validSections = new Set(buttons.map(button => button.dataset.settingsTarget));
+
+        function showSection(section) {
+            if (!validSections.has(section)) section = 'organization';
+            panes.forEach(pane => {
+                pane.style.display = pane.dataset.settingsSection === section ? '' : 'none';
+            });
+            buttons.forEach(button => {
+                button.classList.toggle('is-active', button.dataset.settingsTarget === section);
+            });
+            history.replaceState(null, '', '#' + section);
+        }
+
+        buttons.forEach(button => button.addEventListener('click', () => {
+            showSection(button.dataset.settingsTarget);
+        }));
+        showSection(window.location.hash.slice(1) || 'organization');
+    })();
+</script>
 
 <!-- Delete Account Modal -->
 <div id="deleteAccountModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
