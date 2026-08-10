@@ -51,6 +51,12 @@ class OrganizationInvitation(TimeStampedModel):
         related_name='invitations'
     )
     email = models.EmailField()
+    first_name = models.CharField(max_length=150, blank=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    team = models.ForeignKey(
+        'Team', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='invitations'
+    )
     token = models.CharField(max_length=64, unique=True, db_index=True)
     invited_by = models.ForeignKey(
         User,
@@ -70,6 +76,11 @@ class OrganizationInvitation(TimeStampedModel):
 
     def __str__(self):
         return f"Invite {self.email} to {self.organization.name}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.team_id and self.team.organization_id != self.organization_id:
+            raise ValidationError({'team': 'Invitation team must belong to the same organization.'})
 
     def save(self, *args, **kwargs):
         if not self.token:
@@ -118,6 +129,79 @@ class PasswordResetToken(TimeStampedModel):
         return self.used_at is None and self.expires_at > timezone.now()
 
 
+class Team(TimeStampedModel):
+    """A hierarchical team within an organization."""
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='teams')
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True, related_name='children'
+    )
+    manager = models.ForeignKey(
+        UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='managed_teams'
+    )
+
+    objects = OrganizationManager()
+
+    class Meta:
+        db_table = 'teams'
+        ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(fields=['organization', 'name'], name='unique_team_name_per_org'),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.parent_id:
+            if self.parent.organization_id != self.organization_id:
+                raise ValidationError({'parent': 'Parent team must belong to the same organization.'})
+            ancestor = self.parent
+            while ancestor:
+                if ancestor.pk == self.pk:
+                    raise ValidationError({'parent': 'Team hierarchy cannot contain a cycle.'})
+                ancestor = ancestor.parent
+        if self.manager_id and self.manager.organization_id != self.organization_id:
+            raise ValidationError({'manager': 'Team manager must belong to the same organization.'})
+
+    def __str__(self):
+        return self.name
+
+
+class TeamLeadGrant(TimeStampedModel):
+    """Grants a member access to a team, optionally including descendants."""
+    profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='team_lead_grants')
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='lead_grants')
+    include_descendants = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'team_lead_grants'
+        constraints = [
+            models.UniqueConstraint(fields=['profile', 'team'], name='unique_profile_team_lead_grant'),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.profile.organization_id != self.team.organization_id:
+            raise ValidationError('Lead and team must belong to the same organization.')
+
+
+class TeamLeadRevocation(TimeStampedModel):
+    """Removes an inherited team subtree from one lead grant."""
+    grant = models.ForeignKey(TeamLeadGrant, on_delete=models.CASCADE, related_name='revocations')
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='lead_revocations')
+
+    class Meta:
+        db_table = 'team_lead_revocations'
+        constraints = [
+            models.UniqueConstraint(fields=['grant', 'team'], name='unique_grant_team_revocation'),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.grant.team.organization_id != self.team.organization_id:
+            raise ValidationError('Grant and revoked team must belong to the same organization.')
+
+
 class Reviewee(TimeStampedModel):
     """Person being reviewed in 360 feedback"""
     # Public UUID for external references (API, URLs)
@@ -134,6 +218,16 @@ class Reviewee(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name='reviewees'
     )
+    profile = models.OneToOneField(
+        UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewee'
+    )
+    team = models.ForeignKey(
+        Team, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewees'
+    )
+    reporting_manager = models.ForeignKey(
+        UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='direct_report_reviewees'
+    )
     name = models.CharField(max_length=255)
     email = models.EmailField()
     department = models.CharField(max_length=255, blank=True)
@@ -148,3 +242,12 @@ class Reviewee(TimeStampedModel):
 
     def __str__(self):
         return f"{self.name} ({self.email})"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        for field in ('profile', 'reporting_manager'):
+            value = getattr(self, field, None)
+            if value and value.organization_id != self.organization_id:
+                raise ValidationError({field: 'Must belong to the same organization.'})
+        if self.team and self.team.organization_id != self.organization_id:
+            raise ValidationError({'team': 'Must belong to the same organization.'})

@@ -4,7 +4,10 @@ from django.utils.html import format_html
 from django.utils import timezone
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Reviewee, UserProfile, OrganizationInvitation
+from .models import (
+    Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
+    TeamLeadRevocation,
+)
 from core.gdpr import GDPRDeletionService
 
 
@@ -202,11 +205,11 @@ class UserProfileAdmin(admin.ModelAdmin):
 
 @admin.register(OrganizationInvitation)
 class OrganizationInvitationAdmin(admin.ModelAdmin):
-    list_display = ['email', 'organization', 'invited_by', 'accepted_at', 'invitation_status', 'created_at']
-    list_filter = ['accepted_at', 'expires_at', 'organization', 'created_at']
+    list_display = ['email', 'first_name', 'last_name', 'team', 'organization', 'invited_by', 'accepted_at', 'invitation_status', 'created_at']
+    list_filter = ['accepted_at', 'expires_at', 'team', 'organization', 'created_at']
     search_fields = ['email', 'token', 'invited_by__username', 'invited_by__email']
-    list_select_related = ['organization', 'invited_by']
-    raw_id_fields = ['organization', 'invited_by']
+    list_select_related = ['organization', 'team', 'invited_by']
+    raw_id_fields = ['organization', 'team', 'invited_by']
     readonly_fields = ['token', 'accepted_at', 'invitation_expiry_status']
 
     def invitation_status(self, obj):
@@ -248,3 +251,24 @@ class OrganizationInvitationAdmin(admin.ModelAdmin):
     def has_add_permission(self, request):
         # Invitations should be created through the application, not admin
         return False
+
+
+@admin.register(Team)
+class TeamAdmin(admin.ModelAdmin):
+    list_display = ['name', 'organization', 'parent']
+    list_filter = ['organization']
+    search_fields = ['name', 'organization__name']
+
+
+@admin.register(TeamLeadGrant)
+class TeamLeadGrantAdmin(admin.ModelAdmin):
+    list_display = ['profile', 'team', 'include_descendants']
+    list_filter = ['team__organization', 'include_descendants']
+    list_select_related = ['profile__user', 'team']
+
+
+@admin.register(TeamLeadRevocation)
+class TeamLeadRevocationAdmin(admin.ModelAdmin):
+    list_display = ['grant', 'team']
+    list_filter = ['team__organization']
+    list_select_related = ['grant', 'team']
