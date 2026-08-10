@@ -312,8 +312,14 @@ class ReviewCycleCreateSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if "request" in self.context:
-            org = self.context["request"].organization
-            self.fields["reviewee"].queryset = Reviewee.objects.filter(organization=org, is_active=True)
+            request = self.context["request"]
+            org = request.organization
+            from accounts.authorization import visible_reviewees
+            self.fields["reviewee"].queryset = visible_reviewees(
+                request.user,
+                Reviewee.objects.filter(organization=org, is_active=True),
+                org,
+            )
             # Questionnaires can be org-specific or shared templates (org=None)
             from django.db.models import Q
             self.fields["questionnaire"].queryset = Questionnaire.objects.filter(

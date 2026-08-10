@@ -92,7 +92,7 @@ def export_data(request):
         return JsonResponse({'error': 'Organization not found'}, status=404)
 
     try:
-        data = export_organization_data(org)
+        data = export_organization_data(org, request.user)
 
         # Create downloadable JSON response
         response = HttpResponse(

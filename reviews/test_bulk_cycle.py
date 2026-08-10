@@ -25,14 +25,18 @@ class BulkCycleCreationTestCase(TestCase):
         self.user = UserFactory(username='bulkadmin')
         self.user.set_password('pw')
         self.user.save()
-        UserProfileFactory(
+        self.profile = UserProfileFactory(
             user=self.user,
             organization=self.org,
             can_create_cycles_for_others=True,
         )
         self.questionnaire = QuestionnaireFactory(organization=self.org, is_default=True)
         self.reviewees = [
-            RevieweeFactory(organization=self.org, name=f'Reviewee {i}')
+            RevieweeFactory(
+                organization=self.org,
+                name=f'Reviewee {i}',
+                reporting_manager=self.profile,
+            )
             for i in range(3)
         ]
         # Saving a UserProfile auto-creates a Reviewee via post_save signal

@@ -208,7 +208,8 @@ class CanCreateCyclesPermissionTest(TestCase):
         self.reviewee = Reviewee.objects.create(
             organization=self.org,
             name='Test Reviewee',
-            email='reviewee@example.com'
+            email='reviewee@example.com',
+            reporting_manager=self.creator.profile,
         )
 
         self.questionnaire = Questionnaire.objects.create(

@@ -11,7 +11,7 @@ from subscriptions.models import Subscription
 from subscriptions.services import cancel_subscription_immediately
 
 
-def export_organization_data(organization):
+def export_organization_data(organization, user=None):
     """
     Export all data for an organization in JSON format (GDPR compliance).
 
@@ -34,8 +34,21 @@ def export_organization_data(organization):
         'reports': [],
     }
 
+    profiles = UserProfile.objects.for_organization(organization).select_related('user')
+    reviewees = Reviewee.objects.for_organization(organization)
+    cycles = ReviewCycle.objects.for_organization(organization)
+    reports = Report.objects.for_organization(organization)
+    if user is not None:
+        from accounts.authorization import (
+            visible_profiles, visible_reviewees, visible_cycles, visible_reports,
+        )
+        profiles = visible_profiles(user, profiles, organization)
+        reviewees = visible_reviewees(user, reviewees, organization)
+        cycles = visible_cycles(user, cycles, organization)
+        reports = visible_reports(user, reports, organization)
+
     # Export users
-    for profile in UserProfile.objects.for_organization(organization).select_related('user'):
+    for profile in profiles:
         data['users'].append({
             'username': profile.user.username,
             'email': profile.user.email,
@@ -45,7 +58,7 @@ def export_organization_data(organization):
         })
 
     # Export reviewees
-    for reviewee in Reviewee.objects.for_organization(organization):
+    for reviewee in reviewees:
         data['reviewees'].append({
             'name': reviewee.name,
             'email': reviewee.email,
@@ -81,7 +94,7 @@ def export_organization_data(organization):
         data['questionnaires'].append(q_data)
 
     # Export review cycles
-    for cycle in ReviewCycle.objects.for_organization(organization).select_related('reviewee', 'questionnaire'):
+    for cycle in cycles.select_related('reviewee', 'questionnaire'):
         cycle_data = {
             'reviewee': cycle.reviewee.name,
             'questionnaire': cycle.questionnaire.name,
@@ -110,7 +123,7 @@ def export_organization_data(organization):
         data['review_cycles'].append(cycle_data)
 
     # Export reports
-    for report in Report.objects.for_organization(organization).select_related('cycle'):
+    for report in reports.select_related('cycle'):
         data['reports'].append({
             'reviewee': report.cycle.reviewee.name,
             'generated_at': report.generated_at.isoformat(),

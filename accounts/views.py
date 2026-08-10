@@ -7,7 +7,7 @@ from django.views.decorators.http import require_http_methods
 from django.utils import timezone
 from django_ratelimit.decorators import ratelimit
 from core.models import Organization
-from accounts.models import UserProfile, OrganizationInvitation, PasswordResetToken
+from accounts.models import UserProfile, OrganizationInvitation, PasswordResetToken, Reviewee
 from accounts.services import create_user_with_email_as_username
 from accounts.forms import ForgotPasswordForm, ResetPasswordForm
 
@@ -128,12 +128,28 @@ def signup_view(request):
             messages.error(request, str(e))
             return redirect('login')
 
+        if invitation.first_name or invitation.last_name:
+            user.first_name = invitation.first_name
+            user.last_name = invitation.last_name
+            user.save(update_fields=['first_name', 'last_name'])
+
         # Create user profile
-        UserProfile.objects.create(
+        profile = UserProfile.objects.create(
             user=user,
             organization=invitation.organization,
             can_create_cycles_for_others=invitation.organization.default_users_can_create_cycles
         )
+
+        reviewee = Reviewee.objects.filter(
+            organization=invitation.organization, email__iexact=invitation.email
+        ).first()
+        if reviewee:
+            invited_name = f'{invitation.first_name} {invitation.last_name}'.strip()
+            if invited_name:
+                reviewee.name = invited_name
+            reviewee.profile = profile
+            reviewee.team = invitation.team
+            reviewee.save(update_fields=['name', 'profile', 'team', 'updated_at'])
 
         # Assign organization member permissions (Django permission system)
         from accounts.permissions import assign_organization_member

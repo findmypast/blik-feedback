@@ -308,10 +308,7 @@ def visible_cycles(user, queryset, email_field='reviewee__email'):
         email_field: path from the queryset's model to the reviewee email
             ('reviewee__email' for ReviewCycle, 'cycle__reviewee__email' for Report)
     """
-    if not getattr(user, 'is_authenticated', False):
-        return queryset.none()
-    if can_view_all_reports(user):
-        return queryset
-    if not user.email:
-        return queryset.none()
-    return queryset.filter(**{f'{email_field}__iexact': user.email})
+    from accounts.authorization import visible_cycles as scope_cycles, visible_reports
+    if email_field.startswith('cycle__'):
+        return visible_reports(user, queryset)
+    return scope_cycles(user, queryset)

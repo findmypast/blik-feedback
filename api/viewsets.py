@@ -14,6 +14,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 
 from accounts.models import Reviewee
 from accounts.permissions import visible_cycles
+from accounts.authorization import visible_reviewees
 from reviews.models import ReviewCycle, ReviewerToken
 from questionnaires.models import Questionnaire
 from reports.models import Report
@@ -97,7 +98,7 @@ class RevieweeViewSet(viewsets.ModelViewSet):
     - Create/Update/Delete require organization management permission
     """
 
-    permission_classes = [IsOrganizationMember, CanManageOrganization]
+    permission_classes = [IsOrganizationMember]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["is_active", "department"]
     search_fields = ["name", "email", "department"]
@@ -117,12 +118,19 @@ class RevieweeViewSet(viewsets.ModelViewSet):
         Annotate with review count for list view.
         """
         org = self.request.organization
-        qs = Reviewee.objects.for_organization(org)
+        qs = visible_reviewees(
+            self.request.user, Reviewee.objects.for_organization(org), org
+        )
 
         if self.action == "list":
             qs = qs.annotate(review_count=Count("review_cycles"))
 
         return qs
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy', 'bulk_create']:
+            return [IsOrganizationMember(), CanManageOrganization()]
+        return [IsOrganizationMember()]
 
     def perform_destroy(self, instance):
         """
