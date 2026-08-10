@@ -20,16 +20,19 @@ object BuildScanTestTagWithVersion : BuildType({
     templates(AbsoluteId("BuildVersionTestAndTag"))
     name = "Build, scan, test & tag with version"
 
-    requirements {
-        equals("teamcity.agent.jvm.os.name", "Linux")
-    }
-
     params {
         param("git.projectname", "blik-feedback")
         // The shared scanner only supports npm and Yarn lockfiles. Python
         // dependencies are audited from uv.lock in the dedicated step below.
         param("enable_vulnerability_scanning", "false")
         param("disable_npm_audit", "true")
+    }
+
+    triggers {
+        vcs {
+            id = "TRIGGER_BLIK_FEEDBACK_BUILD"
+            branchFilter = "+:<default>"
+        }
     }
 
     steps {
