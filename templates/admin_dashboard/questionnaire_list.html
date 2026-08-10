@@ -33,7 +33,7 @@
             <div style="display: flex; gap: 0.5rem;">
                 <a href="{% url 'questionnaire_preview' questionnaire.id %}" class="btn btn-sm btn-secondary">Preview Questions</a>
                 <a href="{% url 'questionnaire_sample_report' questionnaire.id %}" class="btn btn-sm btn-primary">Sample Report</a>
-                <a href="{% url 'questionnaire_edit' questionnaire.id %}" class="btn btn-sm btn-secondary">Edit</a>
+                {% if questionnaire.can_edit %}<a href="{% url 'questionnaire_edit' questionnaire.id %}" class="btn btn-sm btn-secondary">Edit</a>{% endif %}
             </div>
         </div>
         <div class="card-body">

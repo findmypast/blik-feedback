@@ -22,7 +22,8 @@ from accounts.models import (
 )
 from accounts.permissions import can_view_all_reports, visible_cycles
 from accounts.authorization import (
-    descendant_team_ids, visible_reviewees, visible_invitations, visible_profiles,
+    can_edit_questionnaire, descendant_team_ids, visible_reviewees,
+    visible_invitations, visible_profiles,
 )
 from reviews.models import ReviewCycle, ReviewerToken
 from reviews.services import assign_tokens_to_emails, send_reviewer_invitations
@@ -903,6 +904,9 @@ def questionnaire_list(request):
         'sections__questions'
     ).order_by('-is_default', 'name')
 
+    for questionnaire in questionnaires:
+        questionnaire.can_edit = can_edit_questionnaire(request.user, questionnaire)
+
     context = {
         'questionnaires': questionnaires,
     }
@@ -913,7 +917,9 @@ def questionnaire_list(request):
 @login_required
 def questionnaire_preview(request, questionnaire_id):
     """Preview a questionnaire"""
-    questionnaire = get_object_or_404(Questionnaire, id=questionnaire_id)
+    questionnaire = get_object_or_404(
+        Questionnaire, id=questionnaire_id, organization=request.organization
+    )
     sections = questionnaire.sections.prefetch_related('questions').all()
 
     context = {
@@ -945,6 +951,7 @@ def questionnaire_sample_report(request, questionnaire_id):
     questionnaire = get_object_or_404(
         Questionnaire.objects.prefetch_related('sections__questions'),
         id=questionnaire_id,
+        organization=request.organization,
     )
 
     rng = random.Random(questionnaire.id)
@@ -1070,7 +1077,8 @@ def questionnaire_create(request):
                 name=name,
                 description=description,
                 is_default=is_default,
-                organization=org
+                organization=org,
+                created_by=request.user,
             )
             messages.success(request, f'Questionnaire "{questionnaire.name}" created successfully.')
             return redirect('questionnaire_edit', questionnaire_id=questionnaire.id)
@@ -1098,6 +1106,8 @@ def questionnaire_edit(request, questionnaire_id):
         id=questionnaire_id,
         organization=org
     )
+    if not can_edit_questionnaire(request.user, questionnaire):
+        raise PermissionDenied
 
     if request.method == 'POST':
         action = request.POST.get('action')

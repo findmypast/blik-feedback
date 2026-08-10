@@ -116,3 +116,39 @@ def visible_profiles(user, queryset, organization=None):
         id__in=scope.reviewee_ids, profile__isnull=False
     ).values('profile_id')
     return queryset.filter(id__in=profile_ids)
+
+
+def is_top_level_team_lead(user, organization=None):
+    """Whether the user leads at least one root team in this organization."""
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    profile = getattr(user, 'profile', None)
+    organization = organization or getattr(profile, 'organization', None)
+    if not profile or not organization or profile.organization_id != organization.id:
+        return False
+    return (
+        Team.objects.for_organization(organization).filter(
+            parent__isnull=True, manager=profile
+        ).exists()
+        or TeamLeadGrant.objects.filter(
+            profile=profile,
+            team__organization=organization,
+            team__parent__isnull=True,
+        ).exists()
+    )
+
+
+def can_edit_questionnaire(user, questionnaire):
+    """Owners edit their own questionnaires; root leads/admins edit all org questionnaires."""
+    profile = getattr(user, 'profile', None)
+    if (
+        not getattr(user, 'is_authenticated', False)
+        or not profile
+        or questionnaire.organization_id != profile.organization_id
+    ):
+        return False
+    return bool(
+        user.has_perm('accounts.can_manage_organization')
+        or questionnaire.created_by_id == user.id
+        or is_top_level_team_lead(user, profile.organization)
+    )

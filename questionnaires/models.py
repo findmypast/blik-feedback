@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.conf import settings
 from core.models import TimeStampedModel, Organization
 from core.managers import QuestionnaireManager
 
@@ -21,6 +22,13 @@ class Questionnaire(TimeStampedModel):
         related_name='questionnaires',
         null=True,  # Allow null for existing records and default questionnaires
         blank=True
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_questionnaires',
     )
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
