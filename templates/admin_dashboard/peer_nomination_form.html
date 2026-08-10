@@ -1,0 +1,27 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}Select Peer Reviewers{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>{% if is_editing %}Edit peer reviewers{% else %}Select your peer reviewers{% endif %}</h1><p>Choose at least {{ minimum_reviewers }} people who should provide feedback for {{ cycle.reviewee.name }}.</p></div></div>
+<form method="post" style="max-width:760px;">{% csrf_token %}
+<div class="card"><div class="card-body">
+    <label for="peerSearch" class="form-label">Find people <span id="selectionCount" style="color:var(--text-secondary);font-weight:normal;"></span></label>
+    <input id="peerSearch" class="form-control" type="search" placeholder="Search by name, email, or team" style="margin-bottom:1rem;">
+    <div id="peerCandidates" style="display:grid;gap:.5rem;max-height:480px;overflow:auto;">
+    {% for person in candidates %}
+        <label class="peer-option" data-search="{{ person.name|lower }} {{ person.email|lower }} {{ person.team.name|default:''|lower }}" style="display:flex;gap:.75rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:8px;{% if person.email in protected_emails %}opacity:.65;{% endif %}">
+            <input type="checkbox" name="reviewers" value="{{ person.id }}" {% if person.email in existing_emails or preselected == person.id|stringformat:'s' %}checked{% endif %} {% if person.email in protected_emails %}disabled{% endif %}>
+            {% if person.email in protected_emails %}<input type="hidden" name="reviewers" value="{{ person.id }}">{% endif %}
+            <span><strong>{{ person.name }}</strong><br><small style="color:var(--text-secondary);">{{ person.email }}{% if person.team %} · {{ person.team.name }}{% endif %}{% if person.email in protected_emails %} · Review started — cannot remove{% elif person.email in existing_emails %} · Invited{% endif %}</small></span>
+        </label>
+    {% empty %}<p>No eligible colleagues are available.</p>{% endfor %}
+    </div>
+</div></div>
+<div style="display:flex;gap:.75rem;margin-top:1rem;"><button class="btn btn-primary" type="submit">{% if is_editing %}Save reviewers{% else %}Send review invitations{% endif %}</button><a class="btn btn-secondary" href="{% url 'admin_dashboard' %}">Cancel</a></div>
+</form>
+<script>
+const minimumReviewers={{ minimum_reviewers }};
+function updateSelectionCount(){const count=new Set([...document.querySelectorAll('input[name="reviewers"]:checked')].map(input=>input.value)).size;document.getElementById('selectionCount').textContent=`${count} selected · minimum ${minimumReviewers}`;}
+document.getElementById('peerSearch').addEventListener('input',function(){const q=this.value.toLowerCase().trim();document.querySelectorAll('.peer-option').forEach(el=>el.style.display=el.dataset.search.includes(q)?'flex':'none');});
+document.querySelectorAll('input[name="reviewers"]').forEach(input=>input.addEventListener('change',updateSelectionCount));updateSelectionCount();
+</script>
+{% endblock %}

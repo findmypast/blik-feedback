@@ -1,0 +1,11 @@
+<!doctype html>
+<html><body style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.6">
+<div style="max-width:600px;margin:auto;padding:32px">
+  <h1 style="color:#4338ca;font-size:24px">Select your peer reviewers</h1>
+  <p>Hello {{ reviewee.name }},</p>
+  <p>You have been invited to take part in a peer review using <strong>{{ questionnaire_name }}</strong>.</p>
+  <p>Please sign in to Blik and select at least <strong>{{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }}</strong> you would like to request feedback from.</p>
+  <p><a href="{{ dashboard_url }}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px">Open Blik</a></p>
+  {% if campaign.due_date %}<p style="color:#64748b">Due {{ campaign.due_date|date:"j F Y" }}</p>{% endif %}
+</div>
+</body></html>

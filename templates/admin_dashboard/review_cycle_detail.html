@@ -41,9 +41,27 @@
                 </div>
             </details>
         </div>
-        <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to List</a>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+            {% if can_manage_cycle and cycle.status == 'active' %}<form method="post" action="{% url 'close_cycle' cycle.uuid %}" style="margin:0;">{% csrf_token %}<button class="btn btn-primary" type="submit">End cycle & generate report</button></form>{% endif %}
+            {% if can_manage_cycle %}<button class="btn btn-danger" type="button" onclick="document.getElementById('delete-cycle-modal').style.display='flex'">Remove cycle</button>{% endif %}
+            <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to List</a>
+        </div>
     </div>
 </div>
+
+{% if can_manage_cycle %}
+<div id="delete-cycle-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" style="max-width:480px;">
+        <h2>Remove this cycle?</h2>
+        <p style="color:var(--text-secondary);">This permanently deletes the cycle, its responses, and any generated report. This cannot be undone.</p>
+        <form method="post" action="{% url 'delete_review_cycle' cycle.uuid %}">{% csrf_token %}
+            <label for="delete-cycle-confirmation">Type <strong>DELETE</strong> to confirm</label>
+            <input id="delete-cycle-confirmation" name="confirmation" class="form-control" autocomplete="off" required style="margin:.5rem 0 1rem;">
+            <div style="display:flex;justify-content:flex-end;gap:.5rem;"><button type="button" class="btn btn-secondary" onclick="document.getElementById('delete-cycle-modal').style.display='none'">Cancel</button><button type="submit" class="btn btn-danger">Permanently remove</button></div>
+        </form>
+    </div>
+</div>
+{% endif %}
 
 {% if cycle.status == 'completed' %}
 <!-- Report Section (Prominent for completed cycles) -->
@@ -204,75 +222,6 @@
     </div>
 </div>
 
-<!-- Invitation Links (Active cycles only) -->
-<details style="margin-bottom: 2rem;" {% if email_invited_count == 0 %}open{% endif %}>
-    <summary style="cursor: pointer; padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 0.5rem;">
-        <svg style="width: 16px; height: 16px; transition: transform 0.2s;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-        Invitation Links
-        {% if email_invited_count > 0 %}
-        <span style="color: var(--text-secondary); font-weight: normal; margin-left: auto; font-size: 0.875rem;">Alternative to email invites</span>
-        {% endif %}
-    </summary>
-    <div style="padding: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px;">
-        <p style="color: #64748b; margin-bottom: 1.5rem;">
-            Share these links with reviewers. Each link will randomly assign an available token from the category.
-            Reviewers can bookmark their feedback link or return later - progress is saved automatically.
-        </p>
-
-        <div style="display: grid; gap: 1rem;">
-            {% if cycle.invitation_token_self %}
-            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-light); border-radius: 6px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Self Assessment</div>
-                    <a href="{% url 'reviews:claim_token' invitation_token=cycle.invitation_token_self %}" target="_blank" id="invite-self" style="font-size: 0.875rem; color: var(--primary); text-decoration: none; background: var(--bg-card); padding: 0.5rem; border-radius: 4px; display: block; overflow-x: auto; transition: background 0.2s;">
-                        {{ request.scheme }}://{{ request.get_host }}{% url 'reviews:claim_token' invitation_token=cycle.invitation_token_self %}
-                        <svg style="display: inline-block; width: 14px; height: 14px; margin-left: 4px; vertical-align: middle;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
-                    </a>
-                </div>
-                <button onclick="copyInvitationLink('self')" class="btn btn-sm btn-secondary" style="white-space: nowrap;">
-                    Copy Link
-                </button>
-            </div>
-            {% endif %}
-
-            {% if cycle.invitation_token_peer %}
-            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-light); border-radius: 6px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Peer Review</div>
-                    <code id="invite-peer" style="font-size: 0.875rem; color: var(--text-secondary); background: var(--bg-card); padding: 0.5rem; border-radius: 4px; display: block; overflow-x: auto;">{{ request.scheme }}://{{ request.get_host }}{% url 'reviews:claim_token' invitation_token=cycle.invitation_token_peer %}</code>
-                </div>
-                <button onclick="copyInvitationLink('peer')" class="btn btn-sm btn-secondary" style="white-space: nowrap;">
-                    Copy Link
-                </button>
-            </div>
-            {% endif %}
-
-            {% if cycle.invitation_token_manager %}
-            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-light); border-radius: 6px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Manager Review</div>
-                    <code id="invite-manager" style="font-size: 0.875rem; color: var(--text-secondary); background: var(--bg-card); padding: 0.5rem; border-radius: 4px; display: block; overflow-x: auto;">{{ request.scheme }}://{{ request.get_host }}{% url 'reviews:claim_token' invitation_token=cycle.invitation_token_manager %}</code>
-                </div>
-                <button onclick="copyInvitationLink('manager')" class="btn btn-sm btn-secondary" style="white-space: nowrap;">
-                    Copy Link
-                </button>
-            </div>
-            {% endif %}
-
-            {% if cycle.invitation_token_direct_report %}
-            <div style="display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--bg-light); border-radius: 6px;">
-                <div style="flex: 1;">
-                    <div style="font-weight: 600; margin-bottom: 0.25rem;">Direct Report Review</div>
-                    <code id="invite-direct_report" style="font-size: 0.875rem; color: var(--text-secondary); background: var(--bg-card); padding: 0.5rem; border-radius: 4px; display: block; overflow-x: auto;">{{ request.scheme }}://{{ request.get_host }}{% url 'reviews:claim_token' invitation_token=cycle.invitation_token_direct_report %}</code>
-                </div>
-                <button onclick="copyInvitationLink('direct_report')" class="btn btn-sm btn-secondary" style="white-space: nowrap;">
-                    Copy Link
-                </button>
-            </div>
-            {% endif %}
-        </div>
-    </div>
-</details>
 {% endif %}
 
 <!-- Reviewer Response Status -->
@@ -521,25 +470,12 @@ document.addEventListener('DOMContentLoaded', function() {
             </a>
             {% endif %}
 
-            {% if report_exists %}
-            <a href="{% url 'reports:view_report' cycle.uuid %}" class="btn btn-secondary">View Report (Admin)</a>
-            <a href="{% url 'generate_report' cycle.uuid %}" class="btn btn-secondary">Regenerate Report</a>
-            {% else %}
-            <a href="{% url 'generate_report' cycle.uuid %}" class="btn btn-secondary">Generate Report</a>
-            {% endif %}
-
             {% if user.is_superuser %}
             <a href="/admin/reviews/reviewcycle/{{ cycle.id }}/change/" class="btn btn-secondary">
                 Edit in Django Admin
             </a>
             {% endif %}
 
-            <form method="post" action="{% url 'close_cycle' cycle.uuid %}" style="margin: 0;">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-secondary" style="width: 100%;">
-                    Close Cycle & Generate Report
-                </button>
-            </form>
         </div>
     </div>
 </div>
@@ -584,16 +520,6 @@ details[open] > summary svg {
 </style>
 
 <script>
-function copyInvitationLink(category) {
-    const codeElement = document.getElementById(`invite-${category}`);
-    const url = codeElement.textContent.trim();
-    navigator.clipboard.writeText(url).then(() => {
-        showCopyFeedback('Invitation link copied to clipboard');
-    }).catch(() => {
-        showCopyFeedback('Failed to copy. URL: ' + url);
-    });
-}
-
 function copyToken(token) {
     const url = `${window.location.origin}/feedback/${token}/`;
     navigator.clipboard.writeText(url).then(() => {

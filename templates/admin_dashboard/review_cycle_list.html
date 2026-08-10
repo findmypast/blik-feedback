@@ -8,11 +8,38 @@
         <h1>Review Cycles</h1>
         <p>Manage 360-degree feedback review cycles</p>
     </div>
-    <a href="{% url 'review_cycle_create' %}" class="btn btn-primary">Create Review Cycle</a>
+    <a href="{% url 'review_cycle_create' %}" class="btn btn-primary">Create Cycle</a>
 </div>
+
+{% if campaigns %}
+<div class="card mb-2">
+    <div class="card-header"><h2 class="card-title">Campaign Cycles</h2></div>
+    <div class="card-body campaign-list">
+        {% for item in campaigns %}
+        <div class="cycle-summary-row">
+            <div>
+                <strong>{{ item.campaign.start_date|default:item.campaign.created_at|date:"j F Y" }} – {{ item.campaign.get_cycle_type_display|title }} Cycle</strong>
+                <small>{% if item.campaign.team %}{{ item.campaign.team.name }}{% if item.campaign.include_descendants %} and nested teams{% endif %}{% else %}{{ item.campaign.individual.name }}{% endif %} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
+            </div>
+            <div class="cycle-summary-progress">
+                <span>{{ item.completed_people }} / {{ item.participant_count }} people complete</span>
+                <div class="progress"><div class="progress-bar" style="width:{% widthratio item.completed_people item.participant_count 100 %}%;"></div></div>
+            </div>
+            <div class="cycle-summary-actions">
+                <a href="{% url 'review_campaign_detail' item.campaign.uuid %}" class="btn btn-sm btn-secondary">View summary</a>
+                {% if item.can_manage and item.all_complete %}
+                <form method="post" action="{% url 'renew_review_campaign' item.campaign.uuid %}">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary" title="Create a new cycle with the same team, questionnaire and settings">Reuse setup</button></form>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 {% if cycles_with_latest %}
 <div class="card">
+    <div class="card-header"><h2 class="card-title">Individual and Earlier Cycles</h2></div>
     <div class="card-body">
         <div class="table-wrapper">
         <table class="table">
@@ -68,92 +95,11 @@
                         {{ item.cycle.created_at|date:"M d, Y" }}
                     </td>
                     <td>
-                        {% if perms.accounts.can_manage_organization %}
-                        <div style="display: flex; gap: 0.5rem; align-items: center;">
-                            <!-- Split button: New Cycle (main action) + dropdown for other questionnaires -->
-                            <div class="btn-group" style="position: relative; display: inline-flex;">
-                                <!-- Main action button: Create cycle with last-used or default questionnaire -->
-                                <form method="POST" action="{% url 'quick_cycle_create' item.cycle.reviewee.id %}" style="margin: 0; display: inline;">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="source_cycle_uuid" value="{{ item.cycle.uuid }}">
-                                    {% if item.latest_questionnaire %}
-                                    <input type="hidden" name="questionnaire_id" value="{{ item.latest_questionnaire.id }}">
-                                    {% else %}
-                                    {% for q in questionnaires %}
-                                        {% if q.is_default %}
-                                        <input type="hidden" name="questionnaire_id" value="{{ q.id }}">
-                                        {% endif %}
-                                    {% endfor %}
-                                    {% endif %}
-                                    <button type="submit" class="btn btn-sm btn-primary" style="border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 1px solid rgba(255,255,255,0.3);">
-                                        New Cycle
-                                    </button>
-                                </form>
-
-                                <!-- Dropdown toggle button -->
-                                <button
-                                    class="btn btn-sm btn-primary"
-                                    type="button"
-                                    data-toggle="cycle-{{ item.cycle.id }}"
-                                    style="border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0.25rem 0.5rem; border-left: 1px solid rgba(255,255,255,0.3);"
-                                    title="Select different questionnaire"
-                                >
-                                    ▾
-                                </button>
-
-                                <!-- Dropdown menu with fixed positioning -->
-                                <div class="dropdown-menu" id="cycle-{{ item.cycle.id }}" style="display: none; position: fixed; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); min-width: 300px; z-index: 9999; margin-top: 0.25rem;">
-                                    <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-light);">
-                                        <div style="font-weight: 600; font-size: 0.875rem; color: var(--text-primary); margin-bottom: 0.25rem;">
-                                            Select Questionnaire
-                                        </div>
-                                        <div style="font-size: 0.75rem; color: var(--text-secondary);">
-                                            <span style="display: inline-flex; align-items: center; gap: 0.25rem;">
-                                                ✓ = Quick create (button action)
-                                            </span>
-                                        </div>
-                                    </div>
-                                    {% for q in questionnaires %}
-                                    {% if item.latest_questionnaire and item.latest_questionnaire.id == q.id or not item.latest_questionnaire and q.is_default %}
-                                        {# This is the questionnaire that will be used for quick create #}
-                                        <form method="POST" action="{% url 'quick_cycle_create' item.cycle.reviewee.id %}" style="margin: 0;">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="source_cycle_uuid" value="{{ item.cycle.uuid }}">
-                                            <input type="hidden" name="questionnaire_id" value="{{ q.id }}">
-                                            <button type="submit" class="dropdown-item" style="width: 100%; text-align: left; padding: 0.625rem 1rem; border: none; background: none; cursor: pointer; font-size: 0.875rem; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; color: var(--text-primary); border-left: 3px solid var(--primary);">
-                                                <span style="flex: 1; padding-right: 0.5rem; font-weight: 500;">{{ q.name }}</span>
-                                                <span class="badge badge-primary" style="font-size: 0.75rem; background: var(--primary); color: white; display: inline-flex; align-items: center; gap: 0.25rem;">
-                                                    <span>✓</span>
-                                                    <span>Quick create</span>
-                                                </span>
-                                            </button>
-                                        </form>
-                                    {% else %}
-                                        <form method="POST" action="{% url 'quick_cycle_create' item.cycle.reviewee.id %}" style="margin: 0;">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="source_cycle_uuid" value="{{ item.cycle.uuid }}">
-                                            <input type="hidden" name="questionnaire_id" value="{{ q.id }}">
-                                            <button type="submit" class="dropdown-item" style="width: 100%; text-align: left; padding: 0.625rem 1rem; border: none; background: none; cursor: pointer; font-size: 0.875rem; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; color: var(--text-primary);">
-                                                <span style="flex: 1; padding-right: 0.5rem;">{{ q.name }}</span>
-                                                {% if q.is_default %}
-                                                <span class="badge badge-secondary" style="font-size: 0.75rem;">Default</span>
-                                                {% endif %}
-                                            </button>
-                                        </form>
-                                    {% endif %}
-                                    {% endfor %}
-                                </div>
-                            </div>
-
-                            <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
-                            <form method="post" action="{% url 'renew_review_cycle' item.cycle.uuid %}" style="margin: 0; display: inline;">
-                                {% csrf_token %}
-                                <button type="submit" class="btn btn-sm btn-secondary">Renew</button>
-                            </form>
-                        </div>
-                        {% else %}
+                        <div style="display:flex;gap:.5rem;align-items:center;">
                         <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
-                        {% endif %}
+                        {% if item.cycle.status == 'active' and perms.accounts.can_manage_organization %}<form method="post" action="{% url 'close_cycle' item.cycle.uuid %}" style="margin:0;display:inline;">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary">End cycle</button></form>{% endif %}
+                        {% if perms.accounts.can_manage_organization and item.cycle.status == 'completed' %}<form method="post" action="{% url 'renew_review_cycle' item.cycle.uuid %}" style="margin:0;display:inline;">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary" title="Create a new cycle using this cycle's questionnaire and reviewers">Reuse setup</button></form>{% endif %}
+                        </div>
                     </td>
                     <td style="text-align: center;">
                         <button onclick="showUuidModal('{{ item.cycle.uuid }}', '{{ item.cycle.reviewee.uuid }}', '{{ item.cycle.reviewee.name|escapejs }}')"
@@ -217,6 +163,7 @@
     position: relative;
     display: inline-flex;
 }
+.campaign-list{display:flex;flex-direction:column;gap:.75rem}.cycle-summary-row{display:grid;grid-template-columns:minmax(260px,2fr) minmax(180px,1fr) auto;gap:1.25rem;align-items:center;padding:1rem;border:1px solid var(--border);border-radius:10px}.cycle-summary-row>div:first-child{display:flex;flex-direction:column}.cycle-summary-row small,.cycle-summary-progress span{color:var(--text-secondary);font-size:.85rem}.cycle-summary-progress .progress{margin-top:.35rem}.cycle-summary-actions{display:flex;gap:.5rem;align-items:center}.cycle-summary-actions form{margin:0}@media(max-width:800px){.cycle-summary-row{grid-template-columns:1fr}.cycle-summary-actions{justify-content:flex-start}}
 </style>
 
 <script>

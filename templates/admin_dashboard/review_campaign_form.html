@@ -1,0 +1,149 @@
+{% extends "admin_dashboard/base.html" %}
+
+{% block title %}Create Review Cycle{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Create Review Cycle</h1>
+        <p>Choose who will take part, what they will complete, and when it is due.</p>
+    </div>
+</div>
+
+<form method="post" id="campaignForm" style="max-width: 760px;">
+    {% csrf_token %}
+    <input type="hidden" name="campaign_flow" value="1">
+
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">1. Who is this for?</h2></div>
+        <div class="card-body">
+            <div style="display:flex; gap:1rem; margin-bottom:1rem;">
+                <label class="selection-card">
+                    <input type="radio" name="target_type" value="team" checked>
+                    <span><strong>Team</strong><small>Invite a team you manage</small></span>
+                </label>
+                <label class="selection-card">
+                    <input type="radio" name="target_type" value="individual">
+                    <span><strong>Individual</strong><small>Send this to one person</small></span>
+                </label>
+            </div>
+            <div id="teamTarget">
+                <label for="team" class="form-label">Team *</label>
+                <select name="team" id="team" class="form-control">
+                    <option value="">Select a team…</option>
+                    {% for team in teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}
+                </select>
+                <label class="checkbox-row">
+                    <input type="checkbox" name="include_descendants" value="1">
+                    Include nested teams
+                </label>
+            </div>
+            <div id="individualTarget" style="display:none;">
+                <label for="individual" class="form-label">Individual *</label>
+                <select name="individual" id="individual" class="form-control">
+                    <option value="">Select an individual…</option>
+                    {% for person in reviewees %}<option value="{{ person.id }}">{{ person.name }} ({{ person.email }})</option>{% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">2. What should they complete?</h2></div>
+        <div class="card-body">
+            <div class="form-group">
+                <label for="cycle_type" class="form-label">Review type *</label>
+                <select name="cycle_type" id="cycle_type" class="form-control" required>
+                    <option value="peer">Peer review</option>
+                    <option value="self">Self-assessment</option>
+                    <option value="manager">Manager assessment</option>
+                </select>
+                <small id="typeHelp">Members will nominate colleagues to review them.</small>
+            </div>
+            <div class="form-group">
+                <label for="questionnaire" class="form-label">Questionnaire *</label>
+                <select name="questionnaire" id="questionnaire" class="form-control" required>
+                    <option value="">Select a questionnaire…</option>
+                    {% for q in questionnaires %}
+                    <option value="{{ q.id }}"
+                            data-peer="{{ q.allow_peer_review|yesno:'1,0' }}"
+                            data-self="{{ q.allow_self_assessment|yesno:'1,0' }}"
+                            data-manager="{{ q.allow_manager_assessment|yesno:'1,0' }}">
+                        {{ q.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" id="minimumPeerReviewers">
+                <label for="minimum_peer_reviewers" class="form-label">Minimum peer reviewers *</label>
+                <input type="number" name="minimum_peer_reviewers" id="minimum_peer_reviewers" class="form-control" value="3" min="1" max="50" required>
+                <small>Each member must select at least this many people before invitations are sent.</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">3. Schedule</h2></div>
+        <div class="card-body schedule-grid">
+            <div>
+                <label for="start_date" class="form-label">Start date</label>
+                <div class="date-picker-field">
+                    <input type="date" name="start_date" id="start_date" class="form-control">
+                    <button type="button" class="calendar-button" data-date-picker="start_date" aria-label="Open start date calendar" title="Choose from calendar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v14h-17V6a2 2 0 0 1 2-2Z"/></svg>
+                    </button>
+                </div>
+            </div>
+            <div>
+                <label for="due_date" class="form-label">Due date *</label>
+                <div class="date-picker-field">
+                    <input type="date" name="due_date" id="due_date" class="form-control" required>
+                    <button type="button" class="calendar-button" data-date-picker="due_date" aria-label="Open due date calendar" title="Choose from calendar">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v14h-17V6a2 2 0 0 1 2-2Z"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:flex; gap:.75rem;">
+        <button class="btn btn-primary" type="submit">Create cycle and send invitations</button>
+        <a class="btn btn-secondary" href="{% url 'admin_dashboard' %}">Cancel</a>
+    </div>
+</form>
+
+<style>
+.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+</style>
+<script>
+const typeHelp = {peer:'Members will nominate colleagues to review them.',self:'Each selected member will complete their own assessment.',manager:'Team members will anonymously assess their manager.'};
+function updateCampaignForm(){
+  const target=document.querySelector('input[name="target_type"]:checked').value;
+  const type=document.getElementById('cycle_type').value;
+  document.getElementById('teamTarget').style.display=target==='team'?'block':'none';
+  document.getElementById('individualTarget').style.display=target==='individual'?'block':'none';
+  const managerOption=document.querySelector('#cycle_type option[value="manager"]');
+  managerOption.disabled=target==='individual';
+  if(target==='individual'&&type==='manager'){document.getElementById('cycle_type').value='peer';}
+  const selectedType=document.getElementById('cycle_type').value;
+  document.getElementById('typeHelp').textContent=typeHelp[selectedType];
+  const minimumPeers=document.getElementById('minimumPeerReviewers');
+  minimumPeers.style.display=selectedType==='peer'?'block':'none';
+  document.getElementById('minimum_peer_reviewers').required=selectedType==='peer';
+  const questionnaire=document.getElementById('questionnaire');
+  [...questionnaire.options].forEach(option=>{
+    if(!option.value)return;
+    option.hidden=option.dataset[selectedType]!=='1';
+    option.disabled=option.hidden;
+  });
+  if(questionnaire.selectedOptions[0]?.disabled)questionnaire.value='';
+}
+document.querySelectorAll('input[name="target_type"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
+document.getElementById('cycle_type').addEventListener('change',updateCampaignForm);
+document.querySelectorAll('[data-date-picker]').forEach(button=>button.addEventListener('click',()=>{
+  const input=document.getElementById(button.dataset.datePicker);
+  if(typeof input.showPicker==='function'){input.showPicker();}else{input.focus();input.click();}
+}));
+updateCampaignForm();
+</script>
+{% endblock %}

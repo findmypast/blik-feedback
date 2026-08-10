@@ -1,0 +1,33 @@
+{% extends "admin_dashboard/base.html" %}
+{% load static feedback_tags %}
+
+{% block title %}Feedback Report – {{ cycle.reviewee.name }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/reports.css' %}">
+<style>
+.dashboard-report{max-width:1100px;margin:0 auto}.report-overview{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.25rem}.report-overview .card-body{display:flex;flex-direction:column;gap:.25rem}.report-overview strong{font-size:1.35rem;color:var(--primary)}.report-overview span{color:var(--text-secondary);font-size:.85rem}.dashboard-report .report-section,.dashboard-report .insight-card,.dashboard-report .section-report{border:1px solid var(--border);border-radius:10px;background:var(--bg-card);box-shadow:none;padding:1.25rem;margin-bottom:1rem}.dashboard-report .chart-container{box-shadow:none!important;border:1px solid var(--border)}@media(max-width:800px){.report-overview{grid-template-columns:1fr 1fr}}@media(max-width:520px){.report-overview{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-report">
+    {{ report.report_data.charts|json_script:"chart-data" }}
+    <div class="page-header">
+        <div><h1>{{ cycle.reviewee.name }} – Feedback Report</h1><p>{{ cycle.questionnaire.name }} · Generated {{ report.generated_at|date:"j F Y" }}</p></div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;"><a href="{% if cycle.campaign %}{% url 'review_campaign_detail' cycle.campaign.uuid %}{% else %}{% url 'review_cycle_detail' cycle.uuid %}{% endif %}" class="btn btn-secondary">Back to summary</a><a href="{% url 'reports:regenerate_report' cycle.uuid %}" class="btn btn-primary">Regenerate report</a></div>
+    </div>
+    <div class="report-overview">
+        <div class="card"><div class="card-body"><span>Person</span><strong>{{ cycle.reviewee.name }}</strong></div></div>
+        <div class="card"><div class="card-body"><span>Status</span><strong>{{ cycle.status|title }}</strong></div></div>
+        <div class="card"><div class="card-body"><span>Responses</span><strong>{{ summary.total_responses }}</strong></div></div>
+        <div class="card"><div class="card-body"><span>Overall rating</span><strong>{{ report.report_data.insights.overall_sentiment.rating|default:"Not available" }}</strong></div></div>
+    </div>
+    {% include "reports/_report_content.html" %}
+</div>
+<script src="{% static 'js/chart.min.js' %}"></script>
+<script src="{% static 'js/report-charts.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{const element=document.getElementById('chart-data');if(!element)return;const data=JSON.parse(element.textContent);if(document.getElementById('sectionRadarChart'))renderSectionRadarChart('sectionRadarChart',data);if(document.getElementById('gapChart'))renderGapChart('gapChart',data);});
+</script>
+{% endblock %}

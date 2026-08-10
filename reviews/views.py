@@ -80,10 +80,7 @@ def feedback_form(request, token):
 
     # Check if already completed
     if reviewer_token.is_completed:
-        return render(request, 'reviews/feedback_complete.html', {
-            'token': reviewer_token,
-            'cycle': reviewer_token.cycle,
-        })
+        return redirect('admin_dashboard')
 
     cycle = reviewer_token.cycle
 
@@ -278,7 +275,7 @@ def submit_feedback(request, token):
                     # Log error but don't fail the submission
                     print(f"Error auto-generating report for cycle {cycle.id}: {e}")
 
-        return JsonResponse({'success': True, 'redirect': f'/feedback/{token}/complete/'})
+        return JsonResponse({'success': True, 'redirect': '/dashboard/'})
 
     except Exception as e:
         logger.exception('Error submitting feedback')
@@ -286,13 +283,10 @@ def submit_feedback(request, token):
 
 
 def feedback_complete(request, token):
-    """Confirmation page after feedback submission"""
+    """Legacy completion URL; completed assessments return to the dashboard."""
     reviewer_token = get_object_or_404(ReviewerToken, token=token)
 
     if not reviewer_token.is_completed:
         return redirect('feedback_form', token=token)
 
-    return render(request, 'reviews/feedback_complete.html', {
-        'token': reviewer_token,
-        'cycle': reviewer_token.cycle,
-    })
+    return redirect('admin_dashboard')

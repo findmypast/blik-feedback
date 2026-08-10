@@ -1,0 +1,20 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>Reports</h1><p>Completed feedback reports available within your scope</p></div></div>
+<div class="card"><div class="card-body">
+{% if reports %}<div class="table-wrapper"><table class="table report-table">
+<thead><tr><th>Name</th><th>Email</th><th>Cycle</th><th>Questionnaire</th><th>Generated</th><th>Status</th><th>Actions</th></tr></thead>
+<tbody>{% for report in reports %}<tr>
+    <td><strong>{{ report.cycle.reviewee.name }}</strong></td>
+    <td>{{ report.cycle.reviewee.email }}</td>
+    <td>{{ report.cycle.start_date|default:report.cycle.created_at|date:"j F Y" }} – {{ report.cycle.get_cycle_type_display|title }}</td>
+    <td>{{ report.cycle.questionnaire.name }}</td>
+    <td>{{ report.generated_at|date:"j F Y" }}</td>
+    <td><span class="badge badge-success">Ready</span></td>
+    <td><span class="report-actions"><a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' report.cycle.uuid %}">View report</a><a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' report.cycle.uuid %}">Regenerate report</a></span></td>
+</tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="empty-state"><h3>No reports yet</h3><p>Reports will appear here when a cycle is ended and has completed feedback.</p><a class="btn btn-primary" href="{% url 'review_cycle_list' %}">View cycles</a></div>{% endif %}
+</div></div>
+<style>.report-table td{vertical-align:middle}.report-table td:nth-child(2),.report-table td:nth-child(4),.report-table td:nth-child(5){color:var(--text-secondary)}.report-actions{display:flex;gap:.5rem;justify-content:flex-end;flex-wrap:wrap}</style>
+{% endblock %}

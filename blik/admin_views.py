@@ -19,15 +19,18 @@ from datetime import date
 
 from accounts.models import (
     Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
-    TeamLeadRevocation,
+    TeamLeadRevocation, TeamMembership,
 )
 from accounts.permissions import can_view_all_reports, visible_cycles
 from accounts.authorization import (
     can_edit_questionnaire, descendant_team_ids, visible_reviewees,
-    visible_invitations, visible_profiles,
+    visible_invitations, visible_profiles, manageable_teams,
 )
-from reviews.models import ReviewCycle, ReviewerToken
-from reviews.services import assign_tokens_to_emails, send_reviewer_invitations
+from reviews.models import ReviewCampaign, ReviewCycle, ReviewerToken
+from reviews.services import (
+    assign_tokens_to_emails, send_reviewer_invitations,
+    send_reviewee_notifications,
+)
 from questionnaires.models import Questionnaire
 from reports.models import Report
 from core.models import Organization
@@ -73,8 +76,13 @@ def dashboard(request):
     # Get subscription status
     subscription_status = get_subscription_status(org) if org else None
 
-    # Recent activity
-    recent_cycles = cycles_qs.all()[:5]
+    # Recent reports the current user is permitted to see.
+    recent_reports = Report.objects.filter(
+        cycle__in=cycles_qs,
+        available=True,
+    ).select_related(
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
+    ).order_by('-generated_at')[:6]
 
     # Pending reviews (tokens not completed)
     pending_tokens = ReviewerToken.objects.filter(
@@ -83,9 +91,119 @@ def dashboard(request):
         cycle__status='active'
     ).count()
 
+    campaigns_qs = (
+        ReviewCampaign.objects.filter(
+            organization=org, cycles__in=cycles_qs
+        )
+        .select_related('team', 'individual', 'questionnaire')
+        .annotate(
+            cycle_count=Count('cycles', distinct=True),
+            invitation_count=Count('cycles__tokens', distinct=True),
+            completed_invitation_count=Count(
+                'cycles__tokens',
+                filter=Q(cycles__tokens__completed_at__isnull=False),
+                distinct=True,
+            ),
+        )
+        .distinct()
+        .order_by('-created_at')
+    )
+    active_campaigns = []
+    completed_campaigns = []
+    reviewee_names_by_email = {
+        email.lower(): name
+        for email, name in Reviewee.objects.for_organization(org).filter(
+            is_active=True
+        ).exclude(email='').values_list('email', 'name')
+        if email
+    }
+    today = timezone.localdate()
+    for campaign in campaigns_qs:
+        days_remaining = (
+            (campaign.due_date - today).days if campaign.due_date else None
+        )
+        scoped_cycles = visible_cycles(
+            request.user,
+            campaign.cycles.select_related('reviewee').prefetch_related('tokens', 'report'),
+        ).order_by('reviewee__name')
+        people = []
+        all_complete = True
+        scoped_completed = 0
+        scoped_total = 0
+        for cycle in scoped_cycles:
+            tokens = list(cycle.tokens.all())
+            completed_count = sum(token.is_completed for token in tokens)
+            if cycle.status != 'completed':
+                all_complete = False
+            scoped_completed += completed_count
+            scoped_total += len(tokens)
+            people.append({
+                'cycle': cycle,
+                'is_own_cycle': bool(request.user.email) and (
+                    cycle.reviewee.email.lower() == request.user.email.lower()
+                ),
+                'tokens': tokens,
+                'reviewers': [
+                    {
+                        'token': token,
+                        'name': reviewee_names_by_email.get(
+                            (token.reviewer_email or '').lower(),
+                            token.reviewer_email or 'Reviewer not assigned',
+                        ),
+                    }
+                    for token in tokens
+                ],
+                'completed_count': completed_count,
+                'total_count': len(tokens),
+                'completion_rate': (
+                    completed_count / len(tokens) * 100 if tokens else 0
+                ),
+                'awaiting_nominations': campaign.cycle_type == 'peer' and not tokens,
+                'report': getattr(cycle, 'report', None),
+            })
+        card = {
+            'campaign': campaign,
+            'people': people,
+            'can_manage': _can_manage_campaign(request.user, campaign, org),
+            'days_remaining': days_remaining,
+            'due_soon': days_remaining is not None and 0 <= days_remaining <= 7,
+            'overdue': days_remaining is not None and days_remaining < 0,
+            'completed_count': scoped_completed,
+            'total_count': scoped_total,
+            'completion_rate': scoped_completed / scoped_total * 100 if scoped_total else 0,
+        }
+        if (
+            card['can_manage']
+            and campaign.status == 'active'
+            and campaign.cycle_type != 'peer'
+        ):
+            card['add_candidates'] = _campaign_add_candidates(campaign)
+        if people and all_complete:
+            completed_campaigns.append(card)
+        else:
+            active_campaigns.append(card)
+
+    pending_peer_nominations = cycles_qs.filter(
+        campaign__cycle_type='peer',
+        campaign__status='active',
+        reviewee__email__iexact=request.user.email,
+        tokens__isnull=True,
+    ).select_related('campaign', 'questionnaire')
+
+    my_review_tasks = ReviewerToken.objects.filter(
+        cycle__reviewee__organization=org,
+        cycle__status='active',
+        reviewer_email__iexact=request.user.email,
+        completed_at__isnull=True,
+    ).select_related(
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
+    ).order_by('cycle__due_date', 'created_at') if request.user.email else ReviewerToken.objects.none()
+
     # Completion stats for active cycles
     active_cycles_data = []
-    for cycle in cycles_qs.filter(status='active').select_related('reviewee'):
+    for cycle in cycles_qs.filter(
+        status='active', campaign__isnull=True
+    ).select_related('reviewee'):
         total_tokens = cycle.tokens.count()
         completed_tokens = cycle.tokens.filter(completed_at__isnull=False).count()
         completion_rate = (completed_tokens / total_tokens * 100) if total_tokens > 0 else 0
@@ -99,14 +217,6 @@ def dashboard(request):
 
     # Completed cycles with report availability
     completed_cycles_data = []
-    for cycle in cycles_qs.filter(status='completed').select_related('reviewee').order_by('-created_at')[:10]:
-        # Check if report exists
-        report_exists = Report.objects.filter(cycle=cycle).exists()
-
-        completed_cycles_data.append({
-            'cycle': cycle,
-            'report_exists': report_exists,
-        })
 
     # Check if user has seen welcome modal
     has_seen_welcome = False
@@ -127,9 +237,13 @@ def dashboard(request):
         'active_cycles': active_cycles,
         'completed_cycles': completed_cycles,
         'pending_tokens': pending_tokens,
-        'recent_cycles': recent_cycles,
+        'recent_reports': recent_reports,
         'active_cycles_data': active_cycles_data,
         'completed_cycles_data': completed_cycles_data,
+        'active_campaigns': active_campaigns,
+        'completed_campaigns': completed_campaigns,
+        'pending_peer_nominations': pending_peer_nominations,
+        'my_review_tasks': my_review_tasks,
         'subscription_status': subscription_status,
         'has_seen_welcome': has_seen_welcome,
         'user_has_reviewed': user_has_reviewed,
@@ -199,11 +313,15 @@ def team_list(request):
             for revocation in grant.revocations.all():
                 grant_ids -= descendant_team_ids(revocation.team)
             visible_team_ids.update(grant_ids)
-        own_team_id = Reviewee.objects.for_organization(org).filter(
+        own_reviewee = Reviewee.objects.for_organization(org).filter(
             Q(profile=profile) | Q(email__iexact=request.user.email)
-        ).values_list('team_id', flat=True).first()
-        if own_team_id:
-            visible_team_ids.add(own_team_id)
+        ).first()
+        if own_reviewee:
+            visible_team_ids.update(
+                own_reviewee.team_memberships.values_list('team_id', flat=True)
+            )
+            if own_reviewee.team_id:
+                visible_team_ids.add(own_reviewee.team_id)
 
         # Preserve the hierarchy so a nested team is always shown beneath its parents.
         teams_by_id = {team.id: team for team in all_teams}
@@ -213,9 +331,11 @@ def team_list(request):
                 visible_team_ids.add(parent_id)
                 parent_id = teams_by_id[parent_id].parent_id
 
-    roster_reviewees = Reviewee.objects.for_organization(org).filter(
-        profile__isnull=False, team__isnull=False
-    ).select_related('profile__user', 'team')
+    roster_reviewees = list(Reviewee.objects.for_organization(org).filter(
+        profile__isnull=False,
+    ).filter(
+        Q(team__isnull=False) | Q(team_memberships__isnull=False)
+    ).select_related('profile__user', 'team').prefetch_related('team_memberships').distinct())
     pending_invitations = OrganizationInvitation.objects.filter(
         organization=org, accepted_at__isnull=True, team__isnull=False
     ).select_related('team')
@@ -228,7 +348,10 @@ def team_list(request):
              'reviewee': r, 'is_org_admin': r.profile.user.has_perm(
                  'accounts.can_manage_organization'
              ), 'is_manager': r.profile_id == team.manager_id}
-            for r in roster_reviewees if r.team_id == team.id
+            for r in roster_reviewees if (
+                r.team_id == team.id
+                or any(m.team_id == team.id for m in r.team_memberships.all())
+            )
         ]
         if team.manager_id and not any(
             member['profile'].id == team.manager_id for member in members
@@ -272,6 +395,15 @@ def team_list(request):
         else:
             team_tree.append(card)
 
+    current_reviewee = Reviewee.objects.for_organization(org).filter(
+        Q(profile__user=request.user) | Q(email__iexact=request.user.email)
+    ).select_related('team').prefetch_related('teams').first()
+    current_teams = list(current_reviewee.teams.all()) if current_reviewee else []
+    if current_reviewee and current_reviewee.team and all(
+        team.id != current_reviewee.team_id for team in current_teams
+    ):
+        current_teams.insert(0, current_reviewee.team)
+
     # Get subscription status
     subscription_status = get_subscription_status(org) if org else None
 
@@ -282,9 +414,9 @@ def team_list(request):
         'per_page': per_page,
         'organization': org,
         'organization_teams': Team.objects.for_organization(org).select_related('parent'),
-        'current_reviewee': Reviewee.objects.for_organization(org).filter(
-            Q(profile__user=request.user) | Q(email__iexact=request.user.email)
-        ).select_related('team').first(),
+        'current_reviewee': current_reviewee,
+        'current_teams': current_teams,
+        'current_team_ids': {team.id for team in current_teams},
         'team_cards': list(team_cards_by_id.values()),
         'team_tree': team_tree,
         'can_edit_any_team': is_org_admin or any(
@@ -292,6 +424,13 @@ def team_list(request):
         ),
         'editing_team_id': request.GET.get('edit', ''),
         'show_create_team': request.GET.get('create') == '1',
+        'pending_peer_cycle': ReviewCycle.objects.filter(
+            reviewee__organization=org,
+            reviewee__email__iexact=request.user.email,
+            campaign__cycle_type='peer',
+            campaign__status='active',
+            status='active',
+        ).order_by('-created_at').first(),
     }
     if is_org_admin:
         context.update({
@@ -308,8 +447,10 @@ def team_list(request):
         # that they manage. Do not expose members of unrelated teams in the
         # edit control.
         context['organization_reviewees'] = Reviewee.objects.for_organization(org).filter(
-            Q(team__isnull=True) | Q(team__manager=request.user.profile)
-        ).select_related('profile__user', 'team').order_by('name')
+            Q(team__isnull=True)
+            | Q(team__manager=request.user.profile)
+            | Q(team_memberships__team__manager=request.user.profile)
+        ).select_related('profile__user', 'team').prefetch_related('teams').distinct().order_by('name')
 
     return render(request, 'admin_dashboard/team.html', context)
 
@@ -387,25 +528,59 @@ def manage_team_structure(request):
                     pk=request.POST.get('reviewee'),
                 )
                 team_id = request.POST.get('team') or None
+                remove_team_id = request.POST.get('remove_from_team') or (
+                    reviewee.team_id if not team_id else None
+                )
                 destination = (get_object_or_404(Team, organization=org, pk=team_id)
                                if team_id else None)
-                if destination is None and request.POST.get(
+                removal_team = (get_object_or_404(
+                    Team, organization=org, pk=remove_team_id
+                ) if remove_team_id else None)
+                if removal_team and request.POST.get(
                     'confirmation', ''
                 ).strip().lower() != 'delete':
                     raise ValidationError('Type delete to confirm removing this team member.')
-                manages_current = reviewee.team and reviewee.team.manager_id == request.user.profile.id
+                if not destination and not removal_team:
+                    raise ValidationError('Select a team membership to add or remove.')
+                manages_current = removal_team and removal_team.manager_id == request.user.profile.id
                 manages_destination = destination and destination.manager_id == request.user.profile.id
                 if not is_org_admin:
-                    can_remove_or_move = bool(manages_current) and (
-                        destination is None or bool(manages_destination)
+                    existing_team_ids = set(
+                        reviewee.team_memberships.values_list('team_id', flat=True)
                     )
-                    can_assign_unassigned = reviewee.team_id is None and bool(manages_destination)
-                    if not (can_remove_or_move or can_assign_unassigned):
+                    if reviewee.team_id:
+                        existing_team_ids.add(reviewee.team_id)
+                    manages_existing = Team.objects.filter(
+                        id__in=existing_team_ids, manager=request.user.profile
+                    ).exists()
+                    can_add = bool(manages_destination) and (
+                        not existing_team_ids or manages_existing
+                    )
+                    if not (manages_current or can_add):
                         raise PermissionDenied
-                reviewee.team = destination
-                reviewee.full_clean()
-                reviewee.save(update_fields=['team', 'updated_at'])
-                messages.success(request, f'Team membership updated for {reviewee.name}.')
+                if destination:
+                    TeamMembership.objects.get_or_create(
+                        reviewee=reviewee, team=destination
+                    )
+                    if reviewee.team_id is None:
+                        reviewee.team = destination
+                        reviewee.save(update_fields=['team', 'updated_at'])
+                    messages.success(
+                        request, f'{reviewee.name} added to {destination.name}.'
+                    )
+                else:
+                    TeamMembership.objects.filter(
+                        reviewee=reviewee, team=removal_team
+                    ).delete()
+                    if reviewee.team_id == removal_team.id:
+                        replacement = reviewee.team_memberships.select_related(
+                            'team'
+                        ).first()
+                        reviewee.team = replacement.team if replacement else None
+                        reviewee.save(update_fields=['team', 'updated_at'])
+                    messages.success(
+                        request, f'{reviewee.name} removed from {removal_team.name}.'
+                    )
 
             elif action == 'cancel_team_invitation':
                 invitation = get_object_or_404(
@@ -1080,6 +1255,9 @@ def questionnaire_create(request):
                 is_default=is_default,
                 organization=org,
                 created_by=request.user,
+                allow_peer_review=request.POST.get('allow_peer_review') == 'on',
+                allow_self_assessment=request.POST.get('allow_self_assessment') == 'on',
+                allow_manager_assessment=request.POST.get('allow_manager_assessment') == 'on',
             )
             messages.success(request, f'Questionnaire "{questionnaire.name}" created successfully.')
             return redirect('questionnaire_edit', questionnaire_id=questionnaire.id)
@@ -1117,6 +1295,9 @@ def questionnaire_edit(request, questionnaire_id):
             questionnaire.name = request.POST.get('name', questionnaire.name)
             questionnaire.description = request.POST.get('description', '')
             questionnaire.is_default = request.POST.get('is_default') == 'on'
+            questionnaire.allow_peer_review = request.POST.get('allow_peer_review') == 'on'
+            questionnaire.allow_self_assessment = request.POST.get('allow_self_assessment') == 'on'
+            questionnaire.allow_manager_assessment = request.POST.get('allow_manager_assessment') == 'on'
 
             try:
                 questionnaire.save()
@@ -1545,6 +1726,33 @@ def review_cycle_list(request):
 
     cycles_qs = visible_cycles(request.user, cycles_qs)
 
+    campaign_qs = (
+        ReviewCampaign.objects.filter(organization=org, cycles__in=cycles_qs)
+        .select_related('team', 'individual', 'questionnaire')
+        .annotate(
+            participant_count=Count('cycles', distinct=True),
+            response_count=Count(
+                'cycles__tokens',
+                filter=Q(cycles__tokens__completed_at__isnull=False),
+                distinct=True,
+            ),
+            request_count=Count('cycles__tokens', distinct=True),
+        )
+        .distinct()
+        .order_by('-start_date', '-created_at')
+    )
+    campaigns = []
+    for campaign in campaign_qs:
+        scoped_cycles = visible_cycles(request.user, campaign.cycles.all())
+        completed_people = scoped_cycles.filter(status='completed').count()
+        campaigns.append({
+            'campaign': campaign,
+            'participant_count': scoped_cycles.count(),
+            'completed_people': completed_people,
+            'all_complete': scoped_cycles.exists() and completed_people == scoped_cycles.count(),
+            'can_manage': _can_manage_campaign(request.user, campaign, org),
+        })
+
     cycles_qs = cycles_qs.prefetch_related(
         'questionnaire__sections__questions'
     ).annotate(
@@ -1588,9 +1796,25 @@ def review_cycle_list(request):
         'cycles': cycles,  # Paginated object
         'questionnaires': questionnaires,
         'per_page': per_page,
+        'campaigns': campaigns,
     }
 
     return render(request, 'admin_dashboard/review_cycle_list.html', context)
+
+
+@login_required
+def report_list(request):
+    """List generated reports within the user's effective authorization scope."""
+    cycles = visible_cycles(
+        request.user,
+        ReviewCycle.objects.for_organization(request.organization),
+    )
+    reports = Report.objects.filter(
+        cycle__in=cycles, available=True
+    ).select_related(
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
+    ).order_by('-generated_at')
+    return render(request, 'admin_dashboard/report_list.html', {'reports': reports})
 
 
 @login_required
@@ -1630,6 +1854,9 @@ def renew_review_cycle(request, cycle_uuid):
 @login_required
 def review_cycle_create(request):
     """Create a new review cycle (single or bulk)"""
+    if request.method == 'POST' and request.POST.get('campaign_flow') == '1':
+        return _create_review_campaign(request)
+
     if request.method == 'POST':
         creation_mode = request.POST.get('creation_mode', 'single')
         questionnaire_id = request.POST.get('questionnaire')
@@ -1803,7 +2030,476 @@ def review_cycle_create(request):
             messages.error(request, f'Error creating review cycle: {str(e)}')
             return redirect('review_cycle_create')
 
-    # GET request - show form
+    # Keep the existing one-click teammate request working until peer
+    # nominations move to their dedicated form.
+    if request.GET.get('reviewer_email'):
+        return _render_legacy_cycle_form(request)
+
+    return _render_campaign_form(request)
+
+
+def _render_campaign_form(request):
+    org = request.organization
+    teams = manageable_teams(request.user, org).select_related('manager__user').order_by('name')
+    reviewees = visible_reviewees(
+        request.user,
+        Reviewee.objects.for_organization(org).filter(is_active=True),
+        org,
+    ).order_by('name')
+    questionnaires = Questionnaire.objects.for_organization(org).filter(
+        is_active=True
+    ).order_by('-is_default', 'name')
+    return render(request, 'admin_dashboard/review_campaign_form.html', {
+        'teams': teams,
+        'reviewees': reviewees,
+        'questionnaires': questionnaires,
+    })
+
+
+def _create_review_campaign(request):
+    from reviews.campaign_services import launch_campaign, questionnaire_supports
+
+    org = request.organization
+    target_type = request.POST.get('target_type')
+    cycle_type = request.POST.get('cycle_type')
+    if target_type not in dict(ReviewCampaign.TARGET_CHOICES):
+        messages.error(request, 'Select either a team or an individual.')
+        return redirect('review_cycle_create')
+    if cycle_type not in dict(ReviewCampaign.TYPE_CHOICES):
+        messages.error(request, 'Select a valid review type.')
+        return redirect('review_cycle_create')
+    try:
+        minimum_peer_reviewers = int(request.POST.get('minimum_peer_reviewers', 1))
+    except (TypeError, ValueError):
+        minimum_peer_reviewers = 0
+    if cycle_type == 'peer' and not 1 <= minimum_peer_reviewers <= 50:
+        messages.error(request, 'Minimum peer reviewers must be between 1 and 50.')
+        return redirect('review_cycle_create')
+    if cycle_type != 'peer':
+        minimum_peer_reviewers = 1
+
+    try:
+        start_date = date.fromisoformat(request.POST['start_date']) if request.POST.get('start_date') else None
+        due_date = date.fromisoformat(request.POST['due_date']) if request.POST.get('due_date') else None
+    except ValueError:
+        messages.error(request, 'Enter valid start and due dates.')
+        return redirect('review_cycle_create')
+    if start_date and due_date and due_date < start_date:
+        messages.error(request, 'The due date cannot be before the start date.')
+        return redirect('review_cycle_create')
+
+    questionnaire = get_object_or_404(
+        Questionnaire.objects.for_organization(org).filter(is_active=True),
+        id=request.POST.get('questionnaire'),
+    )
+    if not questionnaire_supports(questionnaire, cycle_type):
+        messages.error(request, 'That questionnaire is not available for the selected review type.')
+        return redirect('review_cycle_create')
+
+    team = None
+    individual = None
+    if target_type == 'team':
+        team = get_object_or_404(
+            manageable_teams(request.user, org), id=request.POST.get('team')
+        )
+    else:
+        individual = get_object_or_404(
+            visible_reviewees(
+                request.user,
+                Reviewee.objects.for_organization(org).filter(is_active=True),
+                org,
+            ),
+            id=request.POST.get('individual'),
+        )
+
+    campaign = ReviewCampaign.objects.create(
+        organization=org,
+        created_by=request.user,
+        questionnaire=questionnaire,
+        target_type=target_type,
+        team=team,
+        individual=individual,
+        include_descendants=(
+            target_type == 'team' and request.POST.get('include_descendants') == '1'
+        ),
+        cycle_type=cycle_type,
+        minimum_peer_reviewers=minimum_peer_reviewers,
+        start_date=start_date,
+        due_date=due_date,
+    )
+    try:
+        launch_campaign(campaign)
+    except ValidationError as exc:
+        campaign.delete()
+        messages.error(request, '; '.join(exc.messages))
+        return redirect('review_cycle_create')
+
+    from reviews.services import send_campaign_invitations
+    transaction.on_commit(lambda c=campaign: send_campaign_invitations(c))
+    messages.success(
+        request,
+        f'{campaign.get_cycle_type_display()} campaign created. Invitations are being sent.',
+    )
+    return redirect('admin_dashboard')
+
+
+@login_required
+def nominate_peer_reviewers(request, cycle_uuid):
+    """Create or edit the reviewer list for one peer-campaign participant."""
+    org = request.organization
+    cycle = get_object_or_404(
+        ReviewCycle.objects.select_related('campaign', 'reviewee', 'questionnaire'),
+        uuid=cycle_uuid,
+        reviewee__organization=org,
+        campaign__cycle_type='peer',
+        campaign__status='active',
+    )
+    is_reviewee = bool(request.user.email) and (
+        cycle.reviewee.email.lower() == request.user.email.lower()
+    )
+    if not is_reviewee and not _can_manage_campaign(request.user, cycle.campaign, org):
+        raise Http404
+    candidates = Reviewee.objects.for_organization(org).filter(
+        is_active=True,
+    ).exclude(id=cycle.reviewee_id).order_by('name')
+    existing_emails = set(
+        cycle.tokens.exclude(reviewer_email__isnull=True).values_list(
+            'reviewer_email', flat=True
+        )
+    )
+    protected_emails = set(
+        cycle.tokens.filter(
+            Q(claimed_at__isnull=False) | Q(completed_at__isnull=False)
+        ).exclude(reviewer_email__isnull=True).values_list('reviewer_email', flat=True)
+    )
+
+    if request.method == 'POST':
+        selected_ids = request.POST.getlist('reviewers')
+        selected = list(candidates.filter(id__in=selected_ids))
+        selected_emails = {person.email for person in selected if person.email}
+        desired_emails = selected_emails | protected_emails
+        minimum_reviewers = cycle.campaign.minimum_peer_reviewers
+        if len(desired_emails) < minimum_reviewers:
+            messages.error(
+                request,
+                f'Select at least {minimum_reviewers} peer reviewer(s). '
+                f'You currently have {len(desired_emails)} selected.',
+            )
+        else:
+            removed_count, _ = cycle.tokens.filter(
+                category='peer',
+                claimed_at__isnull=True,
+                completed_at__isnull=True,
+            ).exclude(reviewer_email__in=desired_emails).delete()
+            tokens = [
+                ReviewerToken.objects.create(
+                    cycle=cycle,
+                    category='peer',
+                    reviewer_email=person.email,
+                )
+                for person in selected
+                if person.email and person.email not in existing_emails
+            ]
+            if tokens:
+                token_ids = [token.id for token in tokens]
+                transaction.on_commit(
+                    lambda c=cycle, ids=token_ids: send_reviewer_invitations(c, ids)
+                )
+            messages.success(
+                request,
+                f'Reviewer list updated: {len(tokens)} added and {removed_count} removed.',
+            )
+            return redirect(
+                'review_campaign_detail', campaign_uuid=cycle.campaign.uuid
+            ) if _can_manage_campaign(request.user, cycle.campaign, org) else redirect(
+                'admin_dashboard'
+            )
+
+    preselected = request.GET.get('candidate', '')
+    return render(request, 'admin_dashboard/peer_nomination_form.html', {
+        'cycle': cycle,
+        'candidates': candidates,
+        'existing_emails': existing_emails,
+        'protected_emails': protected_emails,
+        'preselected': preselected,
+        'is_editing': bool(existing_emails),
+        'minimum_reviewers': cycle.campaign.minimum_peer_reviewers,
+    })
+
+
+@login_required
+def review_campaign_detail(request, campaign_uuid):
+    """Scoped campaign summary with participant progress and report links."""
+    org = request.organization
+    campaign = get_object_or_404(
+        ReviewCampaign.objects.select_related('team', 'individual', 'questionnaire'),
+        uuid=campaign_uuid,
+        organization=org,
+    )
+    can_manage = (
+        request.user.has_perm('accounts.can_manage_organization')
+        or campaign.created_by_id == request.user.id
+        or (
+            campaign.team_id
+            and manageable_teams(request.user, org).filter(id=campaign.team_id).exists()
+        )
+    )
+    cycles = visible_cycles(
+        request.user,
+        campaign.cycles.select_related('reviewee').prefetch_related('tokens', 'report'),
+    ).order_by('reviewee__name')
+    if not cycles.exists():
+        raise Http404
+    rows = []
+    reviewer_names = {
+        email.lower(): name
+        for email, name in Reviewee.objects.for_organization(org).filter(
+            is_active=True
+        ).exclude(email='').values_list('email', 'name')
+        if email
+    }
+    completed_people = 0
+    completed_responses = 0
+    total_responses = 0
+    for cycle in cycles:
+        tokens = list(cycle.tokens.all())
+        cycle_completed = sum(token.is_completed for token in tokens)
+        completed_responses += cycle_completed
+        total_responses += len(tokens)
+        if cycle.status == 'completed':
+            completed_people += 1
+        rows.append({
+            'cycle': cycle,
+            'tokens': tokens,
+            'reviewers': [
+                {
+                    'token': token,
+                    'name': reviewer_names.get(
+                        (token.reviewer_email or '').lower(),
+                        token.reviewer_email or 'Reviewer not assigned',
+                    ),
+                }
+                for token in tokens
+            ],
+            'completed_count': cycle_completed,
+            'completion_rate': cycle_completed / len(tokens) * 100 if tokens else 0,
+            'report': getattr(cycle, 'report', None),
+        })
+    return render(request, 'admin_dashboard/review_campaign_detail.html', {
+        'campaign': campaign,
+        'rows': rows,
+        'can_manage': can_manage,
+        'participant_count': len(rows),
+        'completed_people': completed_people,
+        'completed_responses': completed_responses,
+        'total_responses': total_responses,
+        'completion_rate': completed_responses / total_responses * 100 if total_responses else 0,
+        'add_candidates': (
+            _campaign_add_candidates(campaign)
+            if can_manage
+            and campaign.status == 'active'
+            and campaign.cycle_type != 'peer' else []
+        ),
+    })
+
+
+def _can_manage_campaign(user, campaign, organization):
+    return bool(
+        user.has_perm('accounts.can_manage_organization')
+        or campaign.created_by_id == user.id
+        or (
+            campaign.team_id
+            and manageable_teams(user, organization).filter(id=campaign.team_id).exists()
+        )
+    )
+
+
+def _campaign_add_candidates(campaign):
+    """Return eligible people in the campaign's configured audience."""
+    from reviews.campaign_services import campaign_members
+
+    candidates = campaign_members(campaign).exclude(email='')
+    if campaign.cycle_type == 'self':
+        return candidates.exclude(id__in=campaign.cycles.values('reviewee_id'))
+    if campaign.cycle_type == 'manager':
+        cycle = campaign.cycles.first()
+        if not cycle:
+            return candidates.none()
+        return candidates.exclude(id=cycle.reviewee_id).exclude(
+            email__in=cycle.tokens.exclude(reviewer_email__isnull=True).values(
+                'reviewer_email'
+            )
+        )
+    return candidates.none()
+
+
+@login_required
+@require_POST
+def add_campaign_participant(request, campaign_uuid):
+    """Add a participant to an active self or manager assessment campaign."""
+    campaign = get_object_or_404(
+        ReviewCampaign.objects.select_related('team'),
+        uuid=campaign_uuid,
+        organization=request.organization,
+        status='active',
+    )
+    if not _can_manage_campaign(request.user, campaign, request.organization):
+        raise PermissionDenied
+    if campaign.cycle_type not in {'self', 'manager'}:
+        raise Http404
+
+    person = get_object_or_404(
+        _campaign_add_candidates(campaign), id=request.POST.get('reviewee')
+    )
+    if campaign.cycle_type == 'self':
+        from reviews.campaign_services import _create_cycle
+
+        cycle = _create_cycle(campaign, person)
+        ReviewerToken.objects.create(
+            cycle=cycle, category='self', reviewer_email=person.email
+        )
+        transaction.on_commit(lambda c=cycle: send_reviewee_notifications(c))
+    else:
+        cycle = get_object_or_404(campaign.cycles.all())
+        token = ReviewerToken.objects.create(
+            cycle=cycle, category='direct_report', reviewer_email=person.email
+        )
+        transaction.on_commit(
+            lambda c=cycle, token_id=token.id: send_reviewer_invitations(
+                c, [token_id]
+            )
+        )
+
+    messages.success(request, f'{person.name} was added and invited.')
+    if request.POST.get('return_to') == 'campaign_detail':
+        return redirect('review_campaign_detail', campaign_uuid=campaign.uuid)
+    return redirect('admin_dashboard')
+
+
+@login_required
+@require_POST
+def send_campaign_cycle_reminder(request, campaign_uuid, cycle_uuid):
+    campaign = get_object_or_404(
+        ReviewCampaign, uuid=campaign_uuid, organization=request.organization
+    )
+    cycle = get_object_or_404(
+        campaign.cycles.select_related('reviewee'), uuid=cycle_uuid
+    )
+    is_reviewee = bool(request.user.email) and (
+        cycle.reviewee.email.lower() == request.user.email.lower()
+    )
+    if not is_reviewee and not _can_manage_campaign(
+        request.user, campaign, request.organization
+    ):
+        raise PermissionDenied
+
+    if campaign.cycle_type == 'peer' and not cycle.tokens.exists():
+        from reviews.services import send_peer_nomination_invitation
+        result = send_peer_nomination_invitation(cycle)
+    else:
+        from reviews.services import send_reminder_emails
+        result = send_reminder_emails(cycle)
+    if result['sent']:
+        messages.success(request, f'Sent {result["sent"]} reminder email(s).')
+    elif result['errors']:
+        messages.error(request, '; '.join(result['errors']))
+    else:
+        messages.info(request, 'There are no outstanding reminders for this person.')
+    return redirect(
+        'review_campaign_detail', campaign_uuid=campaign.uuid
+    ) if _can_manage_campaign(request.user, campaign, request.organization) else redirect(
+        'admin_dashboard'
+    )
+
+
+@login_required
+@require_POST
+def send_campaign_reviewer_reminder(request, campaign_uuid, cycle_uuid, token_id):
+    """Send or resend the invitation for one nominated peer."""
+    campaign = get_object_or_404(
+        ReviewCampaign, uuid=campaign_uuid, organization=request.organization
+    )
+    if not _can_manage_campaign(request.user, campaign, request.organization):
+        raise PermissionDenied
+    cycle = get_object_or_404(campaign.cycles.all(), uuid=cycle_uuid)
+    token = get_object_or_404(
+        cycle.tokens.all(), id=token_id, completed_at__isnull=True
+    )
+    if token.invitation_sent_at:
+        from reviews.services import send_reminder_emails
+        result = send_reminder_emails(cycle, [token.id])
+    else:
+        result = send_reviewer_invitations(cycle, [token.id])
+    if result['sent']:
+        messages.success(request, f'Invitation sent to {token.reviewer_email}.')
+    elif result['errors']:
+        messages.error(request, '; '.join(result['errors']))
+    else:
+        messages.info(request, 'No invitation was sent.')
+    return redirect('admin_dashboard')
+
+
+@login_required
+@require_POST
+def renew_review_campaign(request, campaign_uuid):
+    source = get_object_or_404(
+        ReviewCampaign, uuid=campaign_uuid, organization=request.organization
+    )
+    if not _can_manage_campaign(request.user, source, request.organization):
+        raise PermissionDenied
+    if source.cycles.exclude(status='completed').exists() or not source.cycles.exists():
+        messages.error(request, 'Only completed campaigns can be renewed.')
+        return redirect('admin_dashboard')
+
+    from reviews.campaign_services import renew_campaign
+    from reviews.services import send_campaign_invitations
+    campaign = renew_campaign(source, request.user)
+    transaction.on_commit(lambda c=campaign: send_campaign_invitations(c))
+    messages.success(request, 'The campaign was renewed and invitations are being sent.')
+    return redirect('admin_dashboard')
+
+
+@login_required
+@require_POST
+def close_review_campaign(request, campaign_uuid):
+    """End every active cycle in a campaign and generate its reports."""
+    campaign = get_object_or_404(
+        ReviewCampaign, uuid=campaign_uuid, organization=request.organization
+    )
+    if not _can_manage_campaign(request.user, campaign, request.organization):
+        raise PermissionDenied
+    active_cycles = list(campaign.cycles.filter(status='active').select_related('reviewee'))
+    if not active_cycles:
+        messages.info(request, 'This campaign is already complete.')
+        return redirect('admin_dashboard')
+    without_feedback = [
+        cycle.reviewee.name for cycle in active_cycles
+        if not cycle.tokens.filter(completed_at__isnull=False).exists()
+    ]
+    if without_feedback:
+        messages.error(
+            request,
+            'Cannot end this campaign yet. No completed feedback exists for: '
+            + ', '.join(without_feedback),
+        )
+        return redirect('admin_dashboard')
+    from reports.services import generate_report
+    for cycle in active_cycles:
+        cycle.tokens.filter(claimed_at__isnull=True, completed_at__isnull=True).delete()
+        cycle.status = 'completed'
+        cycle.save(update_fields=['status', 'updated_at'])
+        generate_report(cycle)
+    campaign.status = 'completed'
+    campaign.save(update_fields=['status', 'updated_at'])
+    messages.success(
+        request,
+        f'Ended {campaign.get_cycle_type_display()} campaign and generated its reports.',
+    )
+    return redirect('admin_dashboard')
+
+
+def _render_legacy_cycle_form(request):
+    # GET request - show the original individual reviewer form.
     org = request.organization or (request.user.profile.organization if hasattr(request.user, 'profile') else None)
 
     # Filter reviewees based on user permissions
@@ -1933,6 +2629,7 @@ def review_cycle_detail(request, cycle_uuid):
         'completion_rate': completion_rate,
         'claimed_completion_rate': claimed_completion_rate,
         'report_exists': report_exists,
+        'can_manage_cycle': _can_manage_cycle(request.user, cycle, request.organization),
     }
 
     return render(request, 'admin_dashboard/review_cycle_detail.html', context)
@@ -1972,6 +2669,9 @@ def close_cycle(request, cycle_uuid):
 
     cycle = get_cycle_or_404(request, cycle_uuid)
 
+    if not _can_manage_cycle(request.user, cycle, request.organization):
+        raise PermissionDenied
+
     if cycle.status != 'active':
         messages.warning(request, 'This cycle is already completed.')
         return redirect('review_cycle_detail', cycle_uuid=cycle.uuid)
@@ -2010,6 +2710,34 @@ def close_cycle(request, cycle_uuid):
         messages.error(request, f'Cycle closed but error generating report: {str(e)}')
 
     return redirect('review_cycle_detail', cycle_uuid=cycle_uuid)
+
+
+def _can_manage_cycle(user, cycle, organization):
+    if cycle.campaign_id:
+        return _can_manage_campaign(user, cycle.campaign, organization)
+    return bool(
+        user.has_perm('accounts.can_manage_organization')
+        or cycle.created_by_id == user.id
+    )
+
+
+@login_required
+@require_POST
+def delete_review_cycle(request, cycle_uuid):
+    """Permanently delete a cycle after an explicit typed confirmation."""
+    cycle = get_cycle_or_404(request, cycle_uuid)
+    if not _can_manage_cycle(request.user, cycle, request.organization):
+        raise PermissionDenied
+    if request.POST.get('confirmation', '').strip().upper() != 'DELETE':
+        messages.error(request, 'Type DELETE to confirm cycle deletion.')
+        return redirect('review_cycle_detail', cycle_uuid=cycle.uuid)
+    reviewee_name = cycle.reviewee.name
+    campaign = cycle.campaign
+    cycle.delete()
+    if campaign and not campaign.cycles.exists():
+        campaign.delete()
+    messages.success(request, f'Deleted the review cycle for {reviewee_name}.')
+    return redirect('review_cycle_list')
 
 
 @login_required

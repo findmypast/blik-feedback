@@ -61,6 +61,16 @@
                     </label>
                 </div>
 
+                <div class="form-group" style="margin-top: 1.5rem;">
+                    <label class="form-label">Available for</label>
+                    <div style="display:grid;gap:.6rem;">
+                        <label style="display:flex;align-items:center;gap:.5rem;"><input type="checkbox" name="allow_peer_review" {% if not questionnaire or questionnaire.allow_peer_review %}checked{% endif %}> Peer reviews</label>
+                        <label style="display:flex;align-items:center;gap:.5rem;"><input type="checkbox" name="allow_self_assessment" {% if not questionnaire or questionnaire.allow_self_assessment %}checked{% endif %}> Self-assessments</label>
+                        <label style="display:flex;align-items:center;gap:.5rem;"><input type="checkbox" name="allow_manager_assessment" {% if questionnaire.allow_manager_assessment %}checked{% endif %}> Manager assessments</label>
+                    </div>
+                    <small style="color:var(--text-secondary);">These choices control when this questionnaire appears during cycle creation.</small>
+                </div>
+
                 <div style="display: flex; gap: 1rem; margin-top: 2rem;">
                     {% if questionnaire %}
                     <button type="submit" class="btn btn-primary">Update Information</button>

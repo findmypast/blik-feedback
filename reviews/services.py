@@ -271,6 +271,57 @@ def send_reviewee_notifications(cycle, request=None):
     return stats
 
 
+def send_campaign_invitations(campaign):
+    """Send the appropriate launch email for every assessment in a campaign."""
+    stats = {'sent': 0, 'errors': []}
+    if campaign.cycle_type == 'self':
+        for cycle in campaign.cycles.all():
+            result = send_reviewee_notifications(cycle)
+            stats['sent'] += result['sent']
+            stats['errors'].extend(result['errors'])
+        return stats
+    if campaign.cycle_type == 'manager':
+        for cycle in campaign.cycles.all():
+            result = send_reviewer_invitations(cycle)
+            stats['sent'] += result['sent']
+            stats['errors'].extend(result['errors'])
+        return stats
+
+    for cycle in campaign.cycles.select_related('reviewee', 'questionnaire'):
+        result = send_peer_nomination_invitation(cycle)
+        stats['sent'] += result['sent']
+        stats['errors'].extend(result['errors'])
+    return stats
+
+
+def send_peer_nomination_invitation(cycle):
+    """Invite one reviewee to nominate peers for their campaign cycle."""
+    stats = {'sent': 0, 'errors': []}
+    dashboard_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/"
+    if not cycle.reviewee.email:
+        return stats
+    try:
+        campaign = cycle.campaign
+        context = {
+            'reviewee': cycle.reviewee,
+            'campaign': campaign,
+            'questionnaire_name': cycle.questionnaire.name,
+            'dashboard_url': dashboard_url,
+        }
+        send_email(
+            subject=f'Select your peer reviewers: {cycle.questionnaire.name}',
+            message=render_to_string('emails/peer_nomination_invitation.txt', context),
+            recipient_list=[cycle.reviewee.email],
+            html_message=render_to_string('emails/peer_nomination_invitation.html', context),
+        )
+        stats['sent'] += 1
+    except Exception as exc:
+        stats['errors'].append(
+            f'Failed to send peer nomination invitation to {cycle.reviewee.email}: {exc}'
+        )
+    return stats
+
+
 def send_close_check_emails(dry_run=False):
     """
     Send check-in emails to reviewees whose invite-link cycles have been

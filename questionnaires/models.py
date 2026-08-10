@@ -34,6 +34,9 @@ class Questionnaire(TimeStampedModel):
     description = models.TextField(blank=True)
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    allow_peer_review = models.BooleanField(default=True)
+    allow_self_assessment = models.BooleanField(default=True)
+    allow_manager_assessment = models.BooleanField(default=False)
 
     objects = QuestionnaireManager()
 

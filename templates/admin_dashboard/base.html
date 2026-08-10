@@ -55,9 +55,7 @@
                 <li><a href="{% url 'reviewee_list' %}" {% if 'reviewee' in request.resolver_match.url_name %}class="active"{% endif %}>Reviewees</a></li>
                 <li><a href="{% url 'questionnaire_list' %}" {% if 'questionnaire' in request.resolver_match.url_name %}class="active"{% endif %}>Questionnaires</a></li>
                 <li><a href="{% url 'review_cycle_list' %}" {% if 'cycle' in request.resolver_match.url_name %}class="active"{% endif %}>Cycles</a></li>
-                {% if user.is_superuser and HAS_STRIPE_CONFIGURED %}
-                <li><a href="{% url 'product_review_list' %}" {% if 'product_review' in request.resolver_match.url_name %}class="active"{% endif %}>Reviews</a></li>
-                {% endif %}
+                <li><a href="{% url 'report_list' %}" {% if 'report' in request.resolver_match.url_name %}class="active"{% endif %}>Reports</a></li>
                 <li><a href="{% url 'settings' %}" {% if request.resolver_match.url_name == 'settings' %}class="active"{% endif %}>Settings</a></li>
                 <li><a href="{% url 'profile' %}" {% if request.resolver_match.url_name == 'profile' %}class="active"{% endif %} title="{{ user.username }}">Profile</a></li>
                 <li>

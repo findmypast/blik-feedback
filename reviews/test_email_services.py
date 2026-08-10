@@ -12,7 +12,9 @@ from accounts.factories import RevieweeFactory
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
+from reviews.models import ReviewCampaign
 from reviews.services import (
+    send_peer_nomination_invitation,
     send_reviewee_notifications,
     send_reviewer_invitations,
 )
@@ -89,3 +91,37 @@ class SendRevieweeNotificationsTests(TestCase):
         )
         self.assertIn('https://public.example.com/', rendered)
         self.assertNotIn('proxy.internal', rendered)
+
+
+@override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
+class SendPeerNominationInvitationTests(TestCase):
+    @patch('reviews.services.send_email')
+    def test_includes_campaign_minimum_peer_reviewers(self, mock_send_email):
+        org = OrganizationFactory()
+        creator = UserFactory()
+        questionnaire = QuestionnaireFactory(organization=org)
+        campaign = ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='individual',
+            cycle_type='peer',
+            minimum_peer_reviewers=4,
+        )
+        cycle = ReviewCycleFactory(
+            reviewee=RevieweeFactory(
+                organization=org, email='reviewee@example.com',
+            ),
+            questionnaire=questionnaire,
+            created_by=creator,
+            campaign=campaign,
+        )
+
+        stats = send_peer_nomination_invitation(cycle)
+
+        self.assertEqual(stats['sent'], 1)
+        rendered = (
+            mock_send_email.call_args.kwargs['message']
+            + mock_send_email.call_args.kwargs['html_message']
+        )
+        self.assertIn('at least 4 colleagues', rendered)

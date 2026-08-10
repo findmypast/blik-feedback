@@ -29,7 +29,10 @@ def clone_questionnaire_for_organization(questionnaire, organization):
         name=questionnaire.name,
         description=questionnaire.description,
         is_default=False,  # Only templates should be marked as default
-        is_active=questionnaire.is_active
+        is_active=questionnaire.is_active,
+        allow_peer_review=questionnaire.allow_peer_review,
+        allow_self_assessment=questionnaire.allow_self_assessment,
+        allow_manager_assessment=questionnaire.allow_manager_assessment,
     )
 
     # Clone all sections

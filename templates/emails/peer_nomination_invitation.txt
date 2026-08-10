@@ -1,0 +1,8 @@
+Hello {{ reviewee.name }},
+
+You have been invited to take part in a peer review using {{ questionnaire_name }}.
+
+Please sign in to Blik and select at least {{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }} you would like to request feedback from:
+{{ dashboard_url }}
+
+{% if campaign.due_date %}Please make your selections and complete the review process by {{ campaign.due_date|date:"j F Y" }}.{% endif %}

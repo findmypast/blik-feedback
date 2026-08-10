@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.views.decorators.http import require_http_methods
 from accounts.permissions import can_view_all_reports
+from accounts.authorization import visible_cycles
 from reviews.models import ReviewCycle
 from .models import Report
 from .services import generate_report, get_report_summary, apply_display_anonymization
@@ -21,7 +22,10 @@ def get_cycle_or_404(request, cycle_uuid):
     )
     in_org = (not request.organization
               or cycle.reviewee.organization_id == request.organization.id)
-    if not in_org or not can_view_all_reports(request.user):
+    can_access = visible_cycles(
+        request.user, ReviewCycle.objects.filter(pk=cycle.pk), request.organization
+    ).exists()
+    if not in_org or not can_access:
         raise Http404
     return cycle
 
@@ -39,10 +43,24 @@ def view_report(request, cycle_uuid):
         cycle = get_object_or_404(
             ReviewCycle.objects.select_related('reviewee'), uuid=cycle_uuid
         )
-        if not is_own_cycle(request.user, cycle):
+        can_access = visible_cycles(
+            request.user, ReviewCycle.objects.filter(pk=cycle.pk), request.organization
+        ).exists()
+        if not is_own_cycle(request.user, cycle) and not can_access:
             raise Http404
         report = Report.objects.filter(cycle=cycle).first() or generate_report(cycle)
-        return redirect('reports:reviewee_report', access_token=report.access_token)
+        if is_own_cycle(request.user, cycle):
+            return redirect('reports:reviewee_report', access_token=report.access_token)
+        summary = get_report_summary(report)
+        display_data = apply_display_anonymization(
+            report.report_data,
+            min_threshold=cycle.organization.min_responses_for_anonymity,
+        )
+        return render(request, 'reports/admin_view_report.html', {
+            'cycle': cycle, 'report': report, 'display_data': display_data,
+            'summary': summary, 'questionnaire': cycle.questionnaire,
+            'is_admin_view': True,
+        })
 
     cycle = get_cycle_or_404(request, cycle_uuid)
 
@@ -70,7 +88,7 @@ def view_report(request, cycle_uuid):
         'is_admin_view': True,
     }
 
-    return render(request, 'reports/view_report.html', context)
+    return render(request, 'reports/admin_view_report.html', context)
 
 
 @login_required

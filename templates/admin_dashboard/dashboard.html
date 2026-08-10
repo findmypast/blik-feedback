@@ -269,99 +269,55 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
-<!-- Active and Completed Cycles in Two Columns on Wide Screens -->
-<div class="dashboard-grid">
-    <!-- Active Cycles Progress -->
-    {% if active_cycles_data %}
-    <div class="card mb-2">
-        <div class="card-header">
-            <h2 class="card-title">Active Cycles</h2>
-        </div>
-        <div class="card-body">
-            <div class="table-wrapper">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Reviewee</th>
-                        <th>Progress</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in active_cycles_data %}
-                    <tr>
-                        <td>
-                            <div style="font-weight: 500;">{{ item.cycle.reviewee.name }}</div>
-                            <div style="font-size: 0.875rem; color: #64748b;">{{ item.cycle.reviewee.email }}</div>
-                        </td>
-                        <td style="width: 200px;">
-                            <div style="margin-bottom: 0.25rem; font-size: 0.75rem; color: #64748b;">
-                                {{ item.completed_tokens }} / {{ item.total_tokens }} ({{ item.completion_rate|floatformat:0 }}%)
-                            </div>
-                            <div class="progress">
-                                <div class="progress-bar" style="width: {{ item.completion_rate }}%;"></div>
-                            </div>
-                        </td>
-                        <td>
-                            <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+{% if pending_peer_nominations or my_review_tasks %}
+<div class="card mb-2" style="border-left:4px solid var(--primary);">
+    <div class="card-header"><h2 class="card-title">To do</h2></div>
+    <div class="card-body">
+        {% for cycle in pending_peer_nominations %}
+        <div class="todo-row">
+            <div>
+                <strong>Select peer reviewers</strong>
+                <div style="font-size:.875rem;color:var(--text-secondary);">Select the colleagues you would like feedback from{% if cycle.campaign.due_date %} by {{ cycle.campaign.due_date|date:"M d, Y" }}{% endif %}.</div>
             </div>
+            <a href="{% url 'nominate_peer_reviewers' cycle.uuid %}" class="btn btn-primary btn-sm">Select peer reviewers</a>
         </div>
-    </div>
-    {% endif %}
-
-    <!-- Completed Cycles -->
-    {% if completed_cycles_data %}
-    <div class="card mb-2">
-        <div class="card-header">
-            <h2 class="card-title">Completed Cycles</h2>
-        </div>
-        <div class="card-body">
-            <div class="table-wrapper">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Reviewee</th>
-                        <th>Completed</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in completed_cycles_data %}
-                    <tr>
-                        <td>
-                            <div style="font-weight: 500;">{{ item.cycle.reviewee.name }}</div>
-                            <div style="font-size: 0.875rem; color: #64748b;">{{ item.cycle.reviewee.email }}</div>
-                        </td>
-                        <td style="color: #64748b; font-size: 0.875rem;">
-                            {{ item.cycle.created_at|date:"M d, Y" }}
-                        </td>
-                        <td>
-                            {% if item.report_exists %}
-                            <a href="{% url 'reports:view_report' item.cycle.uuid %}" class="btn btn-sm btn-primary">View Report</a>
-                            {% else %}
-                            <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+        {% endfor %}
+        {% for task in my_review_tasks %}
+        <div class="todo-row">
+            <div>
+                <strong>{{ task.get_category_display }} for {{ task.cycle.reviewee.name }}</strong>
+                <div style="font-size:.875rem;color:var(--text-secondary);">{{ task.cycle.questionnaire.name }}{% if task.cycle.due_date %} · Due {{ task.cycle.due_date|date:"M d, Y" }}{% endif %}</div>
             </div>
+            <a href="{% url 'reviews:feedback_form' task.token %}" class="btn btn-primary btn-sm">{% if task.claimed_at %}Continue{% else %}Start{% endif %}</a>
         </div>
+        {% endfor %}
     </div>
-    {% endif %}
 </div>
+<style>.todo-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border)}.todo-row:first-child{padding-top:0}.todo-row:last-child{padding-bottom:0;border-bottom:0}@media(max-width:650px){.todo-row{align-items:flex-start;flex-direction:column}}</style>
+{% endif %}
 
-<!-- Recent Activity -->
-{% if recent_cycles %}
+{% if active_campaigns %}
+<div class="card mb-2">
+    <div class="card-header"><h2 class="card-title">Active Cycles</h2></div>
+    <div class="card-body">
+        {% for item in active_campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=False %}{% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if completed_campaigns %}
+<div class="card mb-2">
+    <div class="card-header"><h2 class="card-title">Completed Cycles</h2></div>
+    <div class="card-body">
+        {% for item in completed_campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=True %}{% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if recent_reports %}
 <div class="card">
     <div class="card-header">
-        <h2 class="card-title">Recent Review Cycles</h2>
+        <h2 class="card-title">Recent Reports</h2>
         <a href="{% url 'review_cycle_list' %}" class="btn btn-sm btn-secondary">View All</a>
     </div>
     <div class="card-body">
@@ -377,25 +333,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 </tr>
             </thead>
             <tbody>
-                {% for cycle in recent_cycles %}
+                {% for report in recent_reports %}
                 <tr>
                     <td>
-                        <div style="font-weight: 500;">{{ cycle.reviewee.name }}</div>
-                        <div style="font-size: 0.875rem; color: #64748b;">{{ cycle.reviewee.email }}</div>
+                        <div style="font-weight: 500;">{{ report.cycle.reviewee.name }}</div>
+                        <div style="font-size: 0.875rem; color: #64748b;">{{ report.cycle.reviewee.email }}</div>
                     </td>
-                    <td>{{ cycle.questionnaire.name }}</td>
+                    <td>{{ report.cycle.questionnaire.name }}</td>
                     <td style="color: #64748b; font-size: 0.875rem;">
-                        {{ cycle.created_at|date:"M d, Y" }}
+                        {{ report.generated_at|date:"M d, Y" }}
                     </td>
+                    <td><span class="badge badge-success">Ready</span></td>
                     <td>
-                        {% if cycle.status == 'active' %}
-                        <span class="badge badge-warning">Active</span>
-                        {% else %}
-                        <span class="badge badge-success">Completed</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <a href="{% url 'review_cycle_detail' cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
+                        <a href="{% url 'reports:view_report' report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>
+                        <a href="{% url 'reports:regenerate_report' report.cycle.uuid %}" class="btn btn-sm btn-secondary">Regenerate report</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -405,6 +356,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 {% else %}
+{% if not active_campaigns and not completed_campaigns %}
 <div class="card">
     <div class="card-body">
         <div class="empty-state">
@@ -414,6 +366,7 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 </div>
+{% endif %}
 {% endif %}
 
 <!-- Review Modal -->

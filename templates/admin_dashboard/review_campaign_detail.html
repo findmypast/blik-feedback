@@ -1,0 +1,55 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}{{ campaign.get_cycle_type_display|title }} Cycle{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ campaign.start_date|default:campaign.created_at|date:"j F Y" }} – {{ campaign.get_cycle_type_display|title }} Cycle</h1>
+        <p>{{ campaign.questionnaire.name }}{% if campaign.team %} · {{ campaign.team.name }}{% if campaign.include_descendants %} and nested teams{% endif %}{% else %} · {{ campaign.individual.name }}{% endif %} · Due {{ campaign.due_date|date:"j F Y"|default:"date not set" }}</p>
+    </div>
+    <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to cycles</a>
+</div>
+
+<div class="campaign-stats">
+    <div class="card"><div class="card-body"><strong>{{ participant_count }}</strong><span>Participants</span></div></div>
+    <div class="card"><div class="card-body"><strong>{{ completed_people }}</strong><span>People complete</span></div></div>
+    <div class="card"><div class="card-body"><strong>{{ completed_responses }} / {{ total_responses }}</strong><span>Reviews complete</span></div></div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header"><div><h2 class="card-title">Cycle Summary</h2><small>{{ completion_rate|floatformat:0 }}% of requested reviews completed</small></div></div>
+    <div class="card-body"><div class="progress"><div class="progress-bar" style="width:{{ completion_rate }}%;"></div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2 class="card-title">Participants and Reports</h2></div>
+    <div class="card-body campaign-participants">
+        {% if campaign.cycle_type != 'peer' %}<div class="summary-head"><span>Name</span><span>Email</span><span>Status</span><span>Actions</span></div>{% endif %}
+        {% for row in rows %}
+        {% if campaign.cycle_type == 'peer' %}
+        <section class="summary-peer-group">
+            <header><div><strong>{{ row.cycle.reviewee.name }}</strong><span>{{ row.cycle.reviewee.email }}</span></div><span>{{ row.completed_count }} / {{ row.tokens|length }} complete</span></header>
+            <div class="summary-actions peer-detail-actions">{% if row.cycle.status == 'completed' %}{% if row.report %}<a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' row.cycle.uuid %}">View report</a>{% if can_manage %}<a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' row.cycle.uuid %}">Regenerate report</a>{% endif %}{% else %}<a class="btn btn-sm btn-primary" href="{% url 'generate_report' row.cycle.uuid %}">Generate report</a>{% endif %}{% elif can_manage %}<a class="btn btn-sm btn-secondary" href="{% url 'nominate_peer_reviewers' row.cycle.uuid %}">Add or remove peers</a><form method="post" action="{% url 'close_cycle' row.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary">End cycle</button></form>{% endif %}</div>
+            <div class="peer-head"><span>Name</span><span>Email</span><span>Status</span><span>Actions</span></div>
+            {% for reviewer in row.reviewers %}<div class="peer-line"><strong>{{ reviewer.name }}</strong><span>{{ reviewer.token.reviewer_email }}</span><span>{% if reviewer.token.completed_at %}<span class="badge badge-success">Complete</span>{% elif reviewer.token.claimed_at %}<span class="badge badge-warning">In progress</span>{% elif reviewer.token.invitation_sent_at %}<span class="badge badge-secondary">Invited</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}</span><span>{% if can_manage and not reviewer.token.completed_at %}<form method="post" action="{% url 'send_campaign_reviewer_reminder' campaign.uuid row.cycle.uuid reviewer.token.id %}">{% csrf_token %}<button class="btn btn-sm btn-secondary">{% if reviewer.token.invitation_sent_at %}Resend invitation{% else %}Send invitation{% endif %}</button></form>{% endif %}</span></div>{% empty %}<div class="summary-empty">Awaiting reviewer selections.</div>{% endfor %}
+        </section>
+        {% else %}
+        <div class="summary-line">
+            <strong>{{ row.cycle.reviewee.name }}</strong><span>{{ row.cycle.reviewee.email }}</span><span>{% if row.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif row.completed_count %}<span class="badge badge-warning">In progress · {{ row.completed_count }} / {{ row.tokens|length }}</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}</span>
+            <span class="summary-actions">{% if row.cycle.status == 'completed' %}{% if row.report %}<a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' row.cycle.uuid %}">View report</a>{% if can_manage %}<a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' row.cycle.uuid %}">Regenerate report</a>{% endif %}{% elif can_manage %}<a class="btn btn-sm btn-primary" href="{% url 'generate_report' row.cycle.uuid %}">Generate report</a>{% endif %}{% elif can_manage %}<form method="post" action="{% url 'send_campaign_cycle_reminder' campaign.uuid row.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-secondary">Resend invitation</button></form><form method="post" action="{% url 'close_cycle' row.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary">End cycle</button></form>{% endif %}</span>
+            </div>
+        {% endif %}
+        {% endfor %}
+        {% if campaign.cycle_type != 'peer' and add_candidates %}
+        <form class="add-participant" method="post" action="{% url 'add_campaign_participant' campaign.uuid %}">{% csrf_token %}
+            <input type="hidden" name="return_to" value="campaign_detail">
+            <label for="addCampaignPerson">Add someone</label>
+            <select id="addCampaignPerson" name="reviewee" class="form-control" required><option value="">Select a person</option>{% for candidate in add_candidates %}<option value="{{ candidate.id }}">{{ candidate.name }} — {{ candidate.email }}</option>{% endfor %}</select>
+            <button class="btn btn-sm btn-secondary" type="submit">Add and invite</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+<style>
+.campaign-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem}.campaign-stats .card-body{display:flex;flex-direction:column}.campaign-stats strong{font-size:1.6rem;color:var(--primary)}.campaign-stats span,.card-header small,.muted{color:var(--text-secondary)}.summary-head,.summary-line,.peer-head,.peer-line{display:grid;grid-template-columns:minmax(130px,1fr) minmax(200px,1.4fr) minmax(140px,.9fr) auto;gap:1rem;align-items:center}.summary-head,.peer-head{padding:.55rem .75rem;color:var(--text-secondary);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.summary-line{padding:.75rem;border-top:1px solid var(--border)}.peer-line{padding:.75rem;margin:.35rem .65rem;border:1px solid var(--border);border-radius:6px}.summary-line>span:nth-child(2),.peer-line>span:nth-child(2){color:var(--text-secondary)}.summary-actions{display:flex;justify-content:flex-end;gap:.5rem;flex-wrap:wrap}.summary-actions form,.peer-line form{margin:0}.summary-peer-group{border:1px solid var(--border);border-radius:8px;margin:.85rem 0;overflow:hidden}.summary-peer-group>header{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.9rem;background:var(--bg-light);border-bottom:1px solid var(--border)}.summary-peer-group>header>div:first-child{display:flex;flex-direction:column}.summary-peer-group>header>div:first-child span{color:var(--text-secondary);font-size:.85rem}.peer-detail-actions{padding:.75rem .75rem 0}.peer-line{background:var(--bg-light)}.summary-empty{padding:.75rem;margin:.35rem .65rem .75rem;color:var(--text-secondary);border:1px solid var(--border);border-radius:6px}.add-participant{display:grid;grid-template-columns:auto minmax(220px,1fr) auto;gap:.75rem;align-items:end;padding:.9rem .75rem;border-top:1px solid var(--border)}.add-participant label{font-weight:600}@media(max-width:700px){.campaign-stats{grid-template-columns:1fr}.summary-head,.peer-head{display:none}.summary-line,.peer-line,.add-participant{grid-template-columns:1fr}.summary-actions{justify-content:flex-start}.summary-peer-group>header{align-items:flex-start;flex-direction:column}}
+</style>
+{% endblock %}

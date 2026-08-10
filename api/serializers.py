@@ -136,6 +136,9 @@ class QuestionnaireSerializer(serializers.ModelSerializer):
             "description",
             "is_default",
             "is_active",
+            "allow_peer_review",
+            "allow_self_assessment",
+            "allow_manager_assessment",
             "created_at",
             "updated_at",
             "sections",
@@ -153,7 +156,11 @@ class QuestionnaireListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Questionnaire
-        fields = ["uuid", "name", "description", "is_default", "is_active"]
+        fields = [
+            "uuid", "name", "description", "is_default", "is_active",
+            "allow_peer_review", "allow_self_assessment",
+            "allow_manager_assessment",
+        ]
 
 
 # =============================================================================
