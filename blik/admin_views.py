@@ -15,6 +15,7 @@ from django.views.decorators.http import require_POST
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from datetime import timedelta
+from datetime import date
 
 from accounts.models import (
     Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
@@ -1593,11 +1594,58 @@ def review_cycle_list(request):
 
 
 @login_required
+@require_POST
+def renew_review_cycle(request, cycle_uuid):
+    """Renew a visible cycle without modifying its historical responses."""
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+
+    source_cycle = get_cycle_or_404(request, cycle_uuid)
+    start_date = request.POST.get('start_date') or None
+    due_date = request.POST.get('due_date') or None
+    try:
+        start_date = date.fromisoformat(start_date) if start_date else None
+        due_date = date.fromisoformat(due_date) if due_date else None
+    except ValueError:
+        messages.error(request, 'Enter valid start and due dates.')
+        return redirect('review_cycle_list')
+    if start_date and due_date and due_date < start_date:
+        messages.error(request, 'The due date cannot be before the start date.')
+        return redirect('review_cycle_list')
+
+    from reviews.cycle_services import renew_cycle
+    cycle = renew_cycle(
+        source_cycle,
+        request.user,
+        start_date=start_date,
+        due_date=due_date,
+    )
+    messages.success(
+        request,
+        f'Renewed the cycle for {cycle.reviewee.name}. Review the copied participants before sending invitations.',
+    )
+    return redirect('review_cycle_detail', cycle_uuid=cycle.uuid)
+
+
+@login_required
 def review_cycle_create(request):
     """Create a new review cycle (single or bulk)"""
     if request.method == 'POST':
         creation_mode = request.POST.get('creation_mode', 'single')
         questionnaire_id = request.POST.get('questionnaire')
+        cycle_type = request.POST.get('cycle_type', '360')
+        if cycle_type not in dict(ReviewCycle.TYPE_CHOICES):
+            messages.error(request, 'Invalid review cycle type.')
+            return redirect('review_cycle_create')
+        try:
+            start_date = date.fromisoformat(request.POST['start_date']) if request.POST.get('start_date') else None
+            due_date = date.fromisoformat(request.POST['due_date']) if request.POST.get('due_date') else None
+        except ValueError:
+            messages.error(request, 'Enter valid start and due dates.')
+            return redirect('review_cycle_create')
+        if start_date and due_date and due_date < start_date:
+            messages.error(request, 'The due date cannot be before the start date.')
+            return redirect('review_cycle_create')
 
         if not questionnaire_id:
             messages.error(request, 'Questionnaire is required.')
@@ -1631,7 +1679,10 @@ def review_cycle_create(request):
                             reviewee=reviewee,
                             questionnaire=questionnaire,
                             created_by=request.user,
-                            status='active'
+                            status='active',
+                            cycle_type=cycle_type,
+                            start_date=start_date,
+                            due_date=due_date,
                         )
                         created_cycles.append(cycle)
 
@@ -1664,7 +1715,10 @@ def review_cycle_create(request):
                     reviewee=reviewee,
                     questionnaire=questionnaire,
                     created_by=request.user,
-                    status='active'
+                    status='active',
+                    cycle_type=cycle_type,
+                    start_date=start_date,
+                    due_date=due_date,
                 )
 
                 # Send notification emails to reviewee. Defer to after the
@@ -1779,6 +1833,7 @@ def review_cycle_create(request):
         'questionnaires': questionnaires,
         'can_create_for_others': hasattr(request.user, 'profile') and request.user.profile.can_create_cycles_for_others,
         'prefill_peer_email': request.GET.get('reviewer_email', '').strip(),
+        'cycle_types': ReviewCycle.TYPE_CHOICES,
     }
 
     return render(request, 'admin_dashboard/review_cycle_form.html', context)

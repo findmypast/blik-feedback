@@ -229,6 +229,10 @@ class ReviewCycleSerializer(serializers.ModelSerializer):
             "questionnaire",
             "questionnaire_detail",
             "status",
+            "cycle_type",
+            "start_date",
+            "due_date",
+            "renewed_from",
             "created_by",
             "created_at",
             "updated_at",
@@ -306,7 +310,10 @@ class ReviewCycleCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ReviewCycle
-        fields = ["uuid", "reviewee", "questionnaire", "reviewer_emails", "send_invitations", "tokens"]
+        fields = [
+            "uuid", "reviewee", "questionnaire", "cycle_type", "start_date",
+            "due_date", "reviewer_emails", "send_invitations", "tokens",
+        ]
         read_only_fields = ["uuid", "tokens"]
 
     def __init__(self, *args, **kwargs):
@@ -341,6 +348,11 @@ class ReviewCycleCreateSerializer(serializers.ModelSerializer):
         Ensure reviewee and questionnaire belong to organization.
         """
         org = self.context["request"].organization
+        if data.get("start_date") and data.get("due_date"):
+            if data["due_date"] < data["start_date"]:
+                raise serializers.ValidationError(
+                    {"due_date": "The due date cannot be before the start date."}
+                )
 
         if "reviewee" in data and data["reviewee"].organization != org:
             raise serializers.ValidationError(
@@ -407,6 +419,9 @@ class ReviewCycleListSerializer(serializers.ModelSerializer):
             "questionnaire",
             "questionnaire_name",
             "status",
+            "cycle_type",
+            "start_date",
+            "due_date",
             "created_at",
             "completion_percentage",
         ]

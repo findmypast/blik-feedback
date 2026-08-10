@@ -52,6 +52,7 @@ urlpatterns = [
     path('dashboard/cycles/create/', admin_views.review_cycle_create, name='review_cycle_create'),
     path('dashboard/cycles/bulk/send-invitations/', admin_views.bulk_send_invitations, name='bulk_send_invitations'),
     path('dashboard/cycles/<uuid:cycle_uuid>/', admin_views.review_cycle_detail, name='review_cycle_detail'),
+    path('dashboard/cycles/<uuid:cycle_uuid>/renew/', admin_views.renew_review_cycle, name='renew_review_cycle'),
     path('dashboard/cycles/<uuid:cycle_uuid>/invitations/', admin_views.manage_invitations, name='manage_invitations'),
     path('dashboard/cycles/<uuid:cycle_uuid>/invitations/assign/', admin_views.assign_invitations, name='assign_invitations'),
     path('dashboard/cycles/<uuid:cycle_uuid>/invitations/send/', admin_views.send_invitations, name='send_invitations'),

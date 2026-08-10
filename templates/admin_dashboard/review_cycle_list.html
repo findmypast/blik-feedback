@@ -21,6 +21,7 @@
                     <th>Reviewee</th>
                     <th>Questionnaire</th>
                     <th>Status</th>
+                    <th>Schedule</th>
                     <th>Progress</th>
                     <th>Created</th>
                     <th>Actions</th>
@@ -45,6 +46,14 @@
                         <span class="badge badge-warning">Active</span>
                         {% else %}
                         <span class="badge badge-success">Completed</span>
+                        {% endif %}
+                    </td>
+                    <td style="color: #64748b; font-size: 0.875rem;">
+                        <div>{{ item.cycle.get_cycle_type_display }}</div>
+                        {% if item.cycle.start_date or item.cycle.due_date %}
+                        <div style="font-size: 0.75rem; margin-top: 0.125rem;">
+                            {{ item.cycle.start_date|date:"M d, Y"|default:"Not set" }} – {{ item.cycle.due_date|date:"M d, Y"|default:"No due date" }}
+                        </div>
                         {% endif %}
                     </td>
                     <td>
@@ -137,6 +146,10 @@
                             </div>
 
                             <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
+                            <form method="post" action="{% url 'renew_review_cycle' item.cycle.uuid %}" style="margin: 0; display: inline;">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-secondary">Renew</button>
+                            </form>
                         </div>
                         {% else %}
                         <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>

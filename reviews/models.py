@@ -15,6 +15,13 @@ class ReviewCycle(TimeStampedModel):
         ('completed', 'Completed'),
     ]
 
+    TYPE_CHOICES = [
+        ('360', '360 feedback'),
+        ('peer', 'Peer review'),
+        ('self', 'Self-assessment'),
+        ('manager', 'Manager review'),
+    ]
+
     # Public UUID for external references (API, URLs)
     uuid = models.UUIDField(
         default=uuid.uuid4,
@@ -41,6 +48,17 @@ class ReviewCycle(TimeStampedModel):
         related_name='created_review_cycles'
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+    cycle_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='360')
+    start_date = models.DateField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    renewed_from = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='renewals',
+        help_text='The previous cycle whose settings and reviewer list were reused.',
+    )
     close_check_sent_at = models.DateTimeField(
         null=True,
         blank=True,
