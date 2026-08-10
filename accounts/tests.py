@@ -161,6 +161,10 @@ class UserInvitationTestCase(TestCase):
         team = Team.objects.get(organization=self.org, name='Product')
         self.assertEqual(team.manager, self.profile)
         self.assertEqual(
+            Reviewee.objects.get(organization=self.org, email=self.user.email).team,
+            team,
+        )
+        self.assertEqual(
             OrganizationInvitation.objects.get(email='first-member@test.local').team,
             team,
         )
@@ -291,6 +295,19 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertFalse(Team.objects.filter(pk=self.child_team.id).exists())
         self.member_reviewee.refresh_from_db()
         self.assertIsNone(self.member_reviewee.team)
+
+    def test_assigning_manager_also_assigns_manager_to_team(self):
+        managed_team = Team.objects.create(organization=self.org, name='Managed')
+        self.member_reviewee.team = None
+        self.member_reviewee.save(update_fields=['team', 'updated_at'])
+
+        managed_team.manager = self.member_profile
+        managed_team.full_clean()
+        managed_team.save(update_fields=['manager'])
+
+        self.member_reviewee.refresh_from_db()
+        self.assertEqual(self.member_reviewee.team, managed_team)
+        self.assertEqual(self.member_reviewee.profile, self.member_profile)
 
     def test_team_with_subteams_must_be_emptied_before_removal(self):
         self.parent_team.manager = self.member_profile

@@ -225,9 +225,28 @@ def team_list(request):
             {'name': r.name, 'email': r.email, 'status': 'active', 'profile': r.profile,
              'reviewee': r, 'is_org_admin': r.profile.user.has_perm(
                  'accounts.can_manage_organization'
-             )}
+             ), 'is_manager': r.profile_id == team.manager_id}
             for r in roster_reviewees if r.team_id == team.id
         ]
+        if team.manager_id and not any(
+            member['profile'].id == team.manager_id for member in members
+        ):
+            manager_reviewee = Reviewee.objects.for_organization(org).filter(
+                Q(profile=team.manager)
+                | Q(email__iexact=team.manager.user.email)
+            ).select_related('profile__user').first()
+            if manager_reviewee:
+                members.insert(0, {
+                    'name': manager_reviewee.name,
+                    'email': manager_reviewee.email,
+                    'status': 'active',
+                    'profile': team.manager,
+                    'reviewee': manager_reviewee,
+                    'is_org_admin': team.manager.user.has_perm(
+                        'accounts.can_manage_organization'
+                    ),
+                    'is_manager': True,
+                })
         members.extend({
             'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
             'email': invite.email, 'status': 'pending', 'profile': None,

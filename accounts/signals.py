@@ -6,7 +6,7 @@ from django.dispatch import receiver
 from django.contrib.auth import get_user_model
 from core.models import Organization
 from core.email import send_welcome_email
-from .models import UserProfile
+from .models import Team, UserProfile
 
 User = get_user_model()
 
@@ -43,3 +43,29 @@ def create_reviewee_from_user(sender, instance, created, **kwargs):
             )
 
 
+@receiver(post_save, sender=Team)
+def keep_team_manager_in_team(sender, instance, **kwargs):
+    """A team's primary manager is always also a member of that team."""
+    if not instance.manager_id:
+        return
+
+    from accounts.models import Reviewee
+
+    manager = instance.manager
+    reviewee = Reviewee.objects.filter(
+        organization=instance.organization,
+        email__iexact=manager.user.email,
+    ).first()
+    if reviewee is None:
+        reviewee = Reviewee(
+            organization=instance.organization,
+            profile=manager,
+            name=manager.user.get_full_name() or manager.user.username,
+            email=manager.user.email,
+        )
+    else:
+        reviewee.profile = manager
+    if reviewee.team_id is None:
+        reviewee.team = instance
+    reviewee.full_clean()
+    reviewee.save()

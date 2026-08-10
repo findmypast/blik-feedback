@@ -39,7 +39,7 @@
                         <summary class="btn btn-sm btn-secondary" aria-label="Actions for {{ member.name }}" style="list-style:none; cursor:pointer; font-size:1.15rem; line-height:1;">⋯</summary>
                         <div style="position:static; min-width:190px; margin-top:.35rem; padding:.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.15); display:flex; flex-direction:column; gap:.35rem;">
                             {% if perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('permissions-{{ member.profile.id }}').style.display='flex';">Edit permissions</button>{% endif %}
-                            {% if member.reviewee %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}
+                            {% if member.reviewee and not member.is_manager %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}
                             {% if member.invitation %}<form method="post" action="{% url 'manage_team_structure' %}" onsubmit="return confirm('Cancel this pending invitation?');">{% csrf_token %}<input type="hidden" name="action" value="cancel_team_invitation"><input type="hidden" name="invitation" value="{{ member.invitation.id }}"><button class="btn btn-sm btn-secondary" style="width:100%;" type="submit">Cancel invitation</button></form>{% endif %}
                         </div>
                     </details>
@@ -56,7 +56,7 @@
                         </div>
                     </div>
                     {% endif %}
-                    {% if card.can_edit and member.reviewee %}
+                    {% if card.can_edit and member.reviewee and not member.is_manager %}
                     <div id="remove-member-{{ member.reviewee.id }}" role="dialog" aria-modal="true" aria-labelledby="remove-title-{{ member.reviewee.id }}" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
                         <div style="width:min(460px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
                             <h2 id="remove-title-{{ member.reviewee.id }}" style="margin-top:0;">Remove {{ member.name }}?</h2>
