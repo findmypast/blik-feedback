@@ -33,6 +33,7 @@ urlpatterns = [
     path('dashboard/settings/webhooks/<int:webhook_id>/delete/', admin_views.delete_webhook, name='delete_webhook'),
     path('dashboard/team/', admin_views.team_list, name='team_list'),
     path('dashboard/team/update-permissions/', admin_views.update_user_permissions, name='update_user_permissions'),
+    path('dashboard/team/structure/', admin_views.manage_team_structure, name='manage_team_structure'),
     path('dashboard/team/gdpr/', admin_views.gdpr_management, name='gdpr_management'),
     path('dashboard/team/gdpr/user/<int:user_id>/delete/', admin_views.gdpr_delete_user_view, name='gdpr_delete_user'),
     path('dashboard/team/gdpr/reviewee/<int:reviewee_id>/delete/', admin_views.gdpr_delete_reviewee_view, name='gdpr_delete_reviewee'),

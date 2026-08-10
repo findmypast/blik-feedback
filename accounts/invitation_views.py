@@ -7,7 +7,9 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.urls import reverse
-from accounts.models import OrganizationInvitation
+from django.db import transaction
+from django.core.exceptions import ValidationError
+from accounts.models import OrganizationInvitation, Reviewee, Team
 from accounts.permissions import organization_admin_required
 from core.email import send_email
 from subscriptions.utils import check_user_limit
@@ -23,6 +25,11 @@ def send_invitation(request):
     """
     if request.method == 'POST':
         email = request.POST.get('email', '').strip().lower()
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        team_id = request.POST.get('team')
+        create_team = request.POST.get('create_team') == 'on' or team_id == '__new__'
+        team_name = request.POST.get('team_name', '').strip()
 
         # Get organization from request or user's profile
         org = request.organization
@@ -34,8 +41,8 @@ def send_invitation(request):
             return redirect('admin_dashboard')
 
         if not email:
-            messages.error(request, 'Email address is required.')
-            return redirect('admin_dashboard')
+            messages.error(request, 'Email is required.')
+            return redirect('team_list')
 
         # Check user limit
         allowed, error_message = check_user_limit(request)
@@ -54,13 +61,35 @@ def send_invitation(request):
             messages.info(request, f'Invitation already sent to {email}')
             return redirect('admin_dashboard')
 
-        # Create new invitation
-        invitation = OrganizationInvitation.objects.create(
-            organization=org,
-            email=email,
-            invited_by=request.user,
-            expires_at=timezone.now() + timedelta(days=7)
-        )
+        try:
+            with transaction.atomic():
+                if create_team:
+                    if not team_name:
+                        raise ValidationError('Enter a name for the new team.')
+                    team = Team(
+                        organization=org,
+                        name=team_name,
+                        manager=request.user.profile,
+                    )
+                    team.full_clean()
+                    team.save()
+                elif team_id:
+                    team = get_object_or_404(Team, pk=team_id, organization=org)
+                else:
+                    raise ValidationError('Select a team or create a new one.')
+
+                invitation = OrganizationInvitation.objects.create(
+                    organization=org,
+                    email=email,
+                    first_name=first_name,
+                    last_name=last_name,
+                    team=team,
+                    invited_by=request.user,
+                    expires_at=timezone.now() + timedelta(days=7)
+                )
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+            return redirect('team_list')
 
         # Build invitation URL
         invite_url = request.build_absolute_uri(
@@ -72,7 +101,7 @@ def send_invitation(request):
             send_email(
                 subject=f'Invitation to join {org.name} on Blik',
                 message=f'''
-Hello,
+Hello{f' {first_name}' if first_name else ''},
 
 You've been invited to join {org.name} on Blik 360 Feedback Platform.
 
@@ -91,7 +120,8 @@ Best regards,
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2>You're Invited!</h2>
-        <p>You've been invited to join <strong>{org.name}</strong> on Blik 360 Feedback Platform.</p>
+        <p>Hello{f' {first_name}' if first_name else ''},</p>
+        <p>You've been invited to join <strong>{org.name}</strong> on the <strong>{team.name}</strong> team in Blik 360 Feedback Platform.</p>
         <p style="margin: 30px 0;">
             <a href="{invite_url}" style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 8px;">Accept Invitation</a>
         </p>
@@ -149,6 +179,29 @@ def accept_invitation(request, token):
                 existing_user,
                 can_create_cycles_for_others=invitation.organization.default_users_can_create_cycles
             )
+
+        if invitation.first_name or invitation.last_name:
+            existing_user.first_name = invitation.first_name
+            existing_user.last_name = invitation.last_name
+            existing_user.save(update_fields=['first_name', 'last_name'])
+        reviewee, _ = Reviewee.objects.get_or_create(
+            organization=invitation.organization,
+            email__iexact=invitation.email,
+            defaults={
+                'email': invitation.email,
+                'name': (
+                    f'{invitation.first_name} {invitation.last_name}'.strip()
+                    or existing_user.get_full_name()
+                    or invitation.email
+                ),
+            },
+        )
+        invited_name = f'{invitation.first_name} {invitation.last_name}'.strip()
+        if invited_name:
+            reviewee.name = invited_name
+        reviewee.profile = profile
+        reviewee.team = invitation.team
+        reviewee.save(update_fields=['name', 'profile', 'team', 'updated_at'])
 
         # Mark invitation accepted
         invitation.accepted_at = timezone.now()

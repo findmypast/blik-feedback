@@ -1,362 +1,66 @@
 {% extends "admin_dashboard/base.html" %}
 
-{% block title %}Team Management{% endblock %}
+{% block title %}My Teams{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div>
-        <h1>Team Management</h1>
-        <p class="page-description">Manage users and send invitations</p>
-        {% if subscription_status.has_subscription %}
-        <p style="font-size: 0.875rem; color: #10b981; margin-top: 0.25rem;">
-            {{ subscription_status.current_users }} team members (unlimited)
-        </p>
-        {% endif %}
+        <h1>My Teams</h1>
+        <p class="page-description">People and teams in {{ organization.name }}</p>
     </div>
-    <div style="display: flex; gap: 0.75rem;">
+    <div style="display:flex; gap:.75rem;">
         {% if perms.accounts.can_manage_organization %}
-        <a href="{% url 'gdpr_management' %}" class="btn btn-secondary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 6px; vertical-align: text-bottom;">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
-            GDPR Data Management
-        </a>
+        <a href="{% url 'team_list' %}?create=1" class="btn btn-primary">Create team</a>
         {% endif %}
         {% if perms.accounts.can_invite_members %}
-        <button type="button" class="btn btn-primary" onclick="document.getElementById('invite-modal').style.display='flex'">
-            Invite User
-        </button>
+        <button class="btn btn-secondary" type="button" onclick="document.getElementById('invite-modal').style.display='flex'">Invite user</button>
         {% endif %}
     </div>
 </div>
 
-<!-- Invite Modal -->
-<div id="invite-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000;">
-    <div style="background: var(--bg-card); padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
-        <h2 style="margin-top: 0;">Send Invitation</h2>
-        <form method="post" action="{% url 'send_invitation' %}">
-            {% csrf_token %}
-            <div class="form-group">
-                <label for="email">Email Address</label>
-                <input type="email" id="email" name="email" class="form-control" required autofocus>
-                <small class="help-text">The user will receive an email with instructions to join</small>
-            </div>
-            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('invite-modal').style.display='none'">Cancel</button>
-                <button type="submit" class="btn btn-primary">Send Invitation</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Active Users -->
 <div class="card mb-2">
-    <div class="card-header">
-        <h2 class="card-title">Active Users ({{ users.paginator.count }})</h2>
-    </div>
-    <div class="card-body">
-        {% if users %}
-        <!-- Desktop table -->
-        <div class="table-responsive d-none d-md-block">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Email</th>
-                        <th>Role</th>
-                        <th>Joined</th>
-                        <th>Permissions</th>
-                        {% if perms.accounts.can_manage_organization %}
-                        <th>Actions</th>
-                        {% endif %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for user_profile in users %}
-                    <tr>
-                        <td>
-                            <strong>{{ user_profile.user.first_name|default:user_profile.user.username }}</strong>
-                            {% if user_profile.user.last_name %}{{ user_profile.user.last_name }}{% endif %}
-                            {% if user_profile.user.id == request.user.id %}
-                                <span class="badge" style="background: #6b7280; color: white; font-size: 11px; margin-left: 4px;">You</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ user_profile.user.email }}</td>
-                        <td>
-                            {% if user_profile.user.is_superuser %}
-                                <span class="badge" style="background: #7c3aed; color: white;">Super Admin</span>
-                            {% elif user_profile.is_org_admin %}
-                                <span class="badge" style="background: #059669; color: white;">Organization Admin</span>
-                            {% else %}
-                                <span class="badge" style="background: #6b7280; color: white;">Member</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ user_profile.user.date_joined|date:"M d, Y" }}</td>
-                        <td>
-                            {% if user_profile.can_create_cycles_for_others %}
-                                <span class="badge" style="background: #0ea5e9; color: white;">Can manage cycles</span>
-                            {% else %}
-                                <span class="badge" style="background: #f59e0b; color: white;">Self-only</span>
-                            {% endif %}
-                        </td>
-                        {% if perms.accounts.can_manage_organization %}
-                        <td>
-                            {% if user_profile.user.id != request.user.id and not user_profile.user.is_superuser %}
-                            <button type="button" class="btn btn-sm btn-secondary" onclick="showManagePermissionsModal({{ user_profile.id }}, '{{ user_profile.user.username }}', {{ user_profile.is_org_admin|lower }}, {{ user_profile.can_create_cycles_for_others|lower }})">
-                                Manage
-                            </button>
-                            {% else %}
-                            <span style="color: var(--text-tertiary); font-size: 12px;">—</span>
-                            {% endif %}
-                        </td>
-                        {% endif %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Mobile card list -->
-        <div class="d-md-none">
-            {% for user_profile in users %}
-            <div class="mobile-card">
-                <div class="mobile-card-header">
-                    <div>
-                        <strong>{{ user_profile.user.first_name|default:user_profile.user.username }}</strong>
-                        {% if user_profile.user.last_name %}{{ user_profile.user.last_name }}{% endif %}
-                        {% if user_profile.user.id == request.user.id %}
-                            <span class="badge" style="background: #6b7280; color: white; font-size: 11px; margin-left: 4px;">You</span>
-                        {% endif %}
-                    </div>
-                    <div>
-                        {% if user_profile.user.is_superuser %}
-                            <span class="badge" style="background: #7c3aed; color: white; font-size: 11px;">Super Admin</span>
-                        {% elif user_profile.is_org_admin %}
-                            <span class="badge" style="background: #059669; color: white; font-size: 11px;">Organization Admin</span>
-                        {% else %}
-                            <span class="badge" style="background: #6b7280; color: white; font-size: 11px;">Member</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="mobile-card-body">
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Email</span>
-                        <span>{{ user_profile.user.email }}</span>
-                    </div>
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Joined</span>
-                        <span>{{ user_profile.user.date_joined|date:"M d, Y" }}</span>
-                    </div>
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Permissions</span>
-                        <span>
-                            {% if user_profile.can_create_cycles_for_others %}
-                                <span class="badge" style="background: #0ea5e9; color: white; font-size: 11px;">Can manage cycles</span>
-                            {% else %}
-                                <span class="badge" style="background: #f59e0b; color: white; font-size: 11px;">Self-only</span>
-                            {% endif %}
-                        </span>
-                    </div>
-                    {% if perms.accounts.can_manage_organization %}
-                        {% if user_profile.user.id != request.user.id and not user_profile.user.is_superuser %}
-                        <button type="button" class="btn btn-sm btn-secondary" style="width: 100%; margin-top: 0.5rem;" onclick="showManagePermissionsModal({{ user_profile.id }}, '{{ user_profile.user.username }}', {{ user_profile.is_org_admin|lower }}, {{ user_profile.can_create_cycles_for_others|lower }})">
-                            Manage Permissions
-                        </button>
-                        {% endif %}
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p style="color: var(--text-secondary); text-align: center; padding: 2rem;">No users found</p>
-        {% endif %}
-    </div>
-
-    {% if users.has_other_pages %}
-    <div class="card-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="color: var(--text-secondary); font-size: 0.875rem;">Items per page:</span>
-            <select onchange="window.location.href='?per_page=' + this.value" style="padding: 0.25rem 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-secondary);">
-                <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
-                <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
-                <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
-            </select>
-        </div>
-        <div class="pagination">
-            {% if users.has_previous %}
-                <a href="?page=1&per_page={{ per_page }}" class="pagination-link">First</a>
-                <a href="?page={{ users.previous_page_number }}&per_page={{ per_page }}" class="pagination-link">Previous</a>
-            {% endif %}
-
-            <span class="pagination-info">
-                Page {{ users.number }} of {{ users.paginator.num_pages }}
-            </span>
-
-            {% if users.has_next %}
-                <a href="?page={{ users.next_page_number }}&per_page={{ per_page }}" class="pagination-link">Next</a>
-                <a href="?page={{ users.paginator.num_pages }}&per_page={{ per_page }}" class="pagination-link">Last</a>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
-</div>
-
-<!-- Pending Invitations -->
-<div class="card">
-    <div class="card-header">
-        <h2 class="card-title">Pending Invitations ({{ invitations.count }})</h2>
-    </div>
-    <div class="card-body">
-        {% if invitations %}
-        <!-- Desktop table -->
-        <div class="table-responsive d-none d-md-block">
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Email</th>
-                        <th>Invited By</th>
-                        <th>Sent</th>
-                        <th>Expires</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for invitation in invitations %}
-                    <tr>
-                        <td>{{ invitation.email }}</td>
-                        <td>{{ invitation.invited_by.username }}</td>
-                        <td>{{ invitation.created_at|date:"M d, Y" }}</td>
-                        <td>{{ invitation.expires_at|date:"M d, Y" }}</td>
-                        <td>
-                            {% if invitation.is_valid %}
-                                <span class="badge" style="background: #059669; color: white;">Active</span>
-                            {% else %}
-                                <span class="badge" style="background: #dc2626; color: white;">Expired</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Mobile card list -->
-        <div class="d-md-none">
-            {% for invitation in invitations %}
-            <div class="mobile-card">
-                <div class="mobile-card-header">
-                    <div><strong>{{ invitation.email }}</strong></div>
-                    <div>
-                        {% if invitation.is_valid %}
-                            <span class="badge" style="background: #059669; color: white; font-size: 11px;">Active</span>
-                        {% else %}
-                            <span class="badge" style="background: #dc2626; color: white; font-size: 11px;">Expired</span>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="mobile-card-body">
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Invited By</span>
-                        <span>{{ invitation.invited_by.username }}</span>
-                    </div>
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Sent</span>
-                        <span>{{ invitation.created_at|date:"M d, Y" }}</span>
-                    </div>
-                    <div class="mobile-card-row">
-                        <span class="mobile-card-label">Expires</span>
-                        <span>{{ invitation.expires_at|date:"M d, Y" }}</span>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p style="color: var(--text-secondary); text-align: center; padding: 2rem;">No pending invitations</p>
-        {% endif %}
+    <div class="card-body" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem;">
+        <div><small class="help-text">Organization</small><div><strong>{{ organization.name }}</strong></div></div>
+        <div><small class="help-text">Your team</small><div><strong>{% if current_reviewee.team %}{{ current_reviewee.team.name }}{% else %}Not assigned{% endif %}</strong></div></div>
     </div>
 </div>
 
-<!-- Manage Permissions Modal -->
-{% if perms.accounts.can_manage_organization %}
-<div id="manage-permissions-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000;">
-    <div style="background: var(--bg-card); padding: 2rem; border-radius: 12px; max-width: 500px; width: 90%;">
-        <h2 style="margin-top: 0;">Manage User Permissions</h2>
-        <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
-            Update permissions for <strong id="modal-username"></strong>
-        </p>
-        <form method="post" action="{% url 'update_user_permissions' %}">
-            {% csrf_token %}
-            <input type="hidden" id="modal-user-id" name="user_profile_id">
-
-            <div class="form-group">
-                <label class="form-label">Role</label>
-                <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-                    <div class="form-check">
-                        <input type="radio" id="role-admin" name="role" value="admin" class="form-check-input">
-                        <label for="role-admin" style="display: inline; font-weight: normal;">
-                            <strong>Organization Admin</strong>
-                            <small style="display: block; color: var(--text-secondary); margin-left: 24px;">
-                                Can invite members, manage organization settings, and delete organization
-                            </small>
-                        </label>
-                    </div>
-                    <div class="form-check">
-                        <input type="radio" id="role-member" name="role" value="member" class="form-check-input">
-                        <label for="role-member" style="display: inline; font-weight: normal;">
-                            <strong>Member</strong>
-                            <small style="display: block; color: var(--text-secondary); margin-left: 24px;">
-                                Regular team member with limited permissions
-                            </small>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Additional Permissions</label>
-                <div class="form-check">
-                    <input type="checkbox" id="can-manage-cycles" name="can_create_cycles_for_others" class="form-check-input">
-                    <label for="can-manage-cycles" style="display: inline; font-weight: normal;">
-                        Can create review cycles for others
-                        <small style="display: block; color: var(--text-secondary); margin-left: 24px;">
-                            Without this, user can only create cycles for themselves
-                        </small>
-                    </label>
-                </div>
-            </div>
-
-            <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                <button type="button" class="btn btn-secondary" onclick="hideManagePermissionsModal()">Cancel</button>
-                <button type="submit" class="btn btn-primary">Update Permissions</button>
-            </div>
+{% if show_create_team and perms.accounts.can_manage_organization %}
+<div class="card mb-2">
+    <div class="card-header"><h2 class="card-title">Create team</h2></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'manage_team_structure' %}" style="display:grid; grid-template-columns:2fr 2fr 2fr auto; gap:.75rem; align-items:end;">
+            {% csrf_token %}<input type="hidden" name="action" value="create_team">
+            <div class="form-group"><label>Team name</label><input class="form-control" name="name" required></div>
+            <div class="form-group"><label>Manager</label><select class="form-control" name="manager" required><option value="">Select manager</option>{% for profile in organization_profiles %}<option value="{{ profile.id }}">{{ profile.user.get_full_name|default:profile.user.email }}</option>{% endfor %}</select></div>
+            <div class="form-group"><label>Parent team</label><select class="form-control" name="parent"><option value="">No parent</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}</select></div>
+            <button class="btn btn-primary" type="submit">Create</button>
+            <a class="btn btn-secondary" href="{% url 'team_list' %}">Cancel</a>
         </form>
     </div>
 </div>
+{% endif %}
 
-<script>
-function showManagePermissionsModal(userId, username, isStaff, canCreateCycles) {
-    document.getElementById('modal-user-id').value = userId;
-    document.getElementById('modal-username').textContent = username;
+<div style="display:flex; flex-direction:column; gap:1rem;">
+{% for card in team_tree %}{% include "admin_dashboard/_team_node.html" with card=card depth=0 %}
+{% empty %}<div class="card"><div class="card-body"><p class="help-text">You are not assigned to a team yet.</p></div></div>{% endfor %}
+</div>
 
-    // Set role radio buttons
-    if (isStaff) {
-        document.getElementById('role-admin').checked = true;
-    } else {
-        document.getElementById('role-member').checked = true;
-    }
-
-    // Set can create cycles checkbox
-    document.getElementById('can-manage-cycles').checked = canCreateCycles;
-
-    document.getElementById('manage-permissions-modal').style.display = 'flex';
-}
-
-function hideManagePermissionsModal() {
-    document.getElementById('manage-permissions-modal').style.display = 'none';
-}
-</script>
+{% if perms.accounts.can_invite_members %}
+<div id="invite-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); align-items:center; justify-content:center; z-index:1000;">
+    <div style="background:var(--bg-card); padding:2rem; border-radius:12px; max-width:500px; width:90%;"><h2>Invite user</h2>
+        <form method="post" action="{% url 'send_invitation' %}">{% csrf_token %}
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;"><div class="form-group"><label>First name <small>(optional)</small></label><input class="form-control" name="first_name"></div><div class="form-group"><label>Last name <small>(optional)</small></label><input class="form-control" name="last_name"></div></div>
+            <div class="form-group"><label>Email</label><input class="form-control" type="email" name="email" required></div>
+            <div class="form-group"><label for="invite-team-select">Team</label><select id="invite-team-select" class="form-control" name="team" required onchange="const box=document.getElementById('invite-new-team'); const input=document.getElementById('invite-team-name'); const creating=this.value==='__new__'; box.style.display=creating?'block':'none'; input.disabled=!creating; input.required=creating;"><option value="">Select team</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}<option value="__new__" {% if not organization_teams %}selected{% endif %}>+ Create a new team</option></select></div>
+            <div id="invite-new-team" class="form-group" style="display:{% if organization_teams %}none{% else %}block{% endif %}; padding:.75rem; border:1px solid var(--border-color); border-radius:8px;">
+                <label for="invite-team-name">New team name</label>
+                <input id="invite-team-name" class="form-control" name="team_name" {% if organization_teams %}disabled{% else %}required{% endif %} placeholder="e.g. Product">
+                <small class="help-text">You will become this team’s manager.</small>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:.75rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('invite-modal').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Send invitation</button></div>
+        </form>
+    </div>
+</div>
 {% endif %}
 {% endblock %}

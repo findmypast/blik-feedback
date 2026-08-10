@@ -59,10 +59,6 @@
                 <li><a href="{% url 'product_review_list' %}" {% if 'product_review' in request.resolver_match.url_name %}class="active"{% endif %}>Reviews</a></li>
                 {% endif %}
                 <li><a href="{% url 'settings' %}" {% if request.resolver_match.url_name == 'settings' %}class="active"{% endif %}>Settings</a></li>
-                {% if user.is_superuser %}
-                <li><a href="{% url 'superuser_create_organization' %}" {% if request.resolver_match.url_name == 'superuser_create_organization' %}class="active"{% endif %}>Create Org</a></li>
-                <li><a href="/admin/">Admin</a></li>
-                {% endif %}
                 <li><a href="{% url 'profile' %}" {% if request.resolver_match.url_name == 'profile' %}class="active"{% endif %} title="{{ user.username }}">Profile</a></li>
                 <li>
                     <form method="post" action="{% url 'logout' %}" style="display: inline; margin: 0;">

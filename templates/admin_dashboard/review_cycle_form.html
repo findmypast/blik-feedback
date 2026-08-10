@@ -112,7 +112,7 @@
                     </svg>
                 </div>
             </div>
-            <div class="card-body" id="inviteFormBody" style="display: none;">
+            <div class="card-body" id="inviteFormBody" style="display: {% if prefill_peer_email %}block{% else %}none{% endif %};">
                 <p style="color: #64748b; margin-bottom: 1.5rem;">
                     Enter email addresses for reviewers now, or skip and add them later. Separate multiple emails with commas or newlines.
                 </p>
@@ -151,7 +151,7 @@
                         class="form-control"
                         rows="3"
                         placeholder="peer1@example.com, peer2@example.com"
-                    ></textarea>
+                    >{{ prefill_peer_email }}</textarea>
                     <div style="font-size: 0.875rem; color: #64748b; margin-top: 0.5rem;">
                         Colleagues at the same level
                     </div>

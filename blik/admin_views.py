@@ -3,7 +3,8 @@ Admin dashboard views for Blik
 """
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, Http404
+from django.core.exceptions import ValidationError, PermissionDenied
 from django.template.loader import render_to_string
 from django.contrib import messages
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -15,8 +16,14 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from datetime import timedelta
 
-from accounts.models import Reviewee, UserProfile, OrganizationInvitation
+from accounts.models import (
+    Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
+    TeamLeadRevocation,
+)
 from accounts.permissions import can_view_all_reports, visible_cycles
+from accounts.authorization import (
+    descendant_team_ids, visible_reviewees, visible_invitations, visible_profiles,
+)
 from reviews.models import ReviewCycle, ReviewerToken
 from reviews.services import assign_tokens_to_emails, send_reviewer_invitations
 from questionnaires.models import Questionnaire
@@ -49,7 +56,9 @@ def dashboard(request):
     org = request.organization
 
     # Get statistics filtered by organization
-    reviewees_qs = Reviewee.objects.for_organization(org).filter(is_active=True)
+    reviewees_qs = visible_reviewees(
+        request.user, Reviewee.objects.for_organization(org).filter(is_active=True), org
+    )
     cycles_qs = visible_cycles(
         request.user,
         ReviewCycle.objects.for_organization(org).select_related('reviewee', 'questionnaire')
@@ -139,7 +148,11 @@ def team_list(request):
         return redirect('admin_dashboard')
 
     # Get all active (non-anonymized) users in this organization
-    users_qs = UserProfile.objects.for_organization(org).select_related('user').order_by('-user__date_joined')
+    users_qs = visible_profiles(
+        request.user,
+        UserProfile.objects.for_organization(org).select_related('user'),
+        org,
+    ).order_by('-user__date_joined')
 
     # Get per_page from request, default to 25
     per_page = request.GET.get('per_page', '25')
@@ -165,10 +178,78 @@ def team_list(request):
         user_profile.is_org_admin = user_profile.user.has_perm('accounts.can_manage_organization')
 
     # Get pending invitations
-    invitations = OrganizationInvitation.objects.filter(
-        organization=org,
-        accepted_at__isnull=True
+    invitations = visible_invitations(
+        request.user,
+        OrganizationInvitation.objects.filter(organization=org, accepted_at__isnull=True),
+        org,
     ).order_by('-created_at')
+
+    is_org_admin = request.user.has_perm('accounts.can_manage_organization')
+    all_teams = list(Team.objects.for_organization(org).select_related('parent', 'manager__user'))
+    if is_org_admin:
+        visible_team_ids = {team.id for team in all_teams}
+    else:
+        profile = request.user.profile
+        visible_team_ids = {team.id for team in all_teams if team.manager_id == profile.id}
+        for grant in profile.team_lead_grants.select_related('team').prefetch_related('revocations'):
+            grant_ids = (descendant_team_ids(grant.team) if grant.include_descendants
+                         else {grant.team_id})
+            for revocation in grant.revocations.all():
+                grant_ids -= descendant_team_ids(revocation.team)
+            visible_team_ids.update(grant_ids)
+        own_team_id = Reviewee.objects.for_organization(org).filter(
+            Q(profile=profile) | Q(email__iexact=request.user.email)
+        ).values_list('team_id', flat=True).first()
+        if own_team_id:
+            visible_team_ids.add(own_team_id)
+
+        # Preserve the hierarchy so a nested team is always shown beneath its parents.
+        teams_by_id = {team.id: team for team in all_teams}
+        for team_id in list(visible_team_ids):
+            parent_id = teams_by_id.get(team_id).parent_id if teams_by_id.get(team_id) else None
+            while parent_id:
+                visible_team_ids.add(parent_id)
+                parent_id = teams_by_id[parent_id].parent_id
+
+    roster_reviewees = Reviewee.objects.for_organization(org).filter(
+        profile__isnull=False, team__isnull=False
+    ).select_related('profile__user', 'team')
+    pending_invitations = OrganizationInvitation.objects.filter(
+        organization=org, accepted_at__isnull=True, team__isnull=False
+    ).select_related('team')
+    team_cards_by_id = {}
+    for team in all_teams:
+        if team.id not in visible_team_ids:
+            continue
+        members = [
+            {'name': r.name, 'email': r.email, 'status': 'active', 'profile': r.profile,
+             'reviewee': r, 'is_org_admin': r.profile.user.has_perm(
+                 'accounts.can_manage_organization'
+             )}
+            for r in roster_reviewees if r.team_id == team.id
+        ]
+        members.extend({
+            'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
+            'email': invite.email, 'status': 'pending', 'profile': None,
+            'reviewee': None, 'invitation': invite,
+        } for invite in pending_invitations if invite.team_id == team.id)
+        team_cards_by_id[team.id] = {
+            'team': team,
+            'members': members,
+            'can_edit': is_org_admin or team.manager_id == request.user.profile.id,
+            'manager_name': (
+                team.manager.user.get_full_name() or team.manager.user.email
+                if team.manager else 'Not assigned'
+            ),
+            'children': [],
+        }
+    team_tree = []
+    for card in team_cards_by_id.values():
+        parent_card = team_cards_by_id.get(card['team'].parent_id)
+        if parent_card:
+            parent_card['children'].append(card)
+        else:
+            team_tree.append(card)
 
     # Get subscription status
     subscription_status = get_subscription_status(org) if org else None
@@ -178,9 +259,213 @@ def team_list(request):
         'invitations': invitations,
         'subscription_status': subscription_status,
         'per_page': per_page,
+        'organization': org,
+        'organization_teams': Team.objects.for_organization(org).select_related('parent'),
+        'current_reviewee': Reviewee.objects.for_organization(org).filter(
+            Q(profile__user=request.user) | Q(email__iexact=request.user.email)
+        ).select_related('team').first(),
+        'team_cards': list(team_cards_by_id.values()),
+        'team_tree': team_tree,
+        'can_edit_any_team': is_org_admin or any(
+            card['can_edit'] for card in team_cards_by_id.values()
+        ),
+        'editing_team_id': request.GET.get('edit', ''),
+        'show_create_team': request.GET.get('create') == '1',
     }
+    if is_org_admin:
+        context.update({
+            'organization_profiles': UserProfile.objects.for_organization(org).select_related('user'),
+            'organization_reviewees': Reviewee.objects.for_organization(org).select_related(
+                'profile__user', 'team', 'reporting_manager__user'
+            ).order_by('name'),
+            'team_lead_grants': TeamLeadGrant.objects.filter(
+                team__organization=org
+            ).select_related('profile__user', 'team').prefetch_related('revocations__team'),
+        })
+    else:
+        # Managers may assign unassigned people or move people between teams
+        # that they manage. Do not expose members of unrelated teams in the
+        # edit control.
+        context['organization_reviewees'] = Reviewee.objects.for_organization(org).filter(
+            Q(team__isnull=True) | Q(team__manager=request.user.profile)
+        ).select_related('profile__user', 'team').order_by('name')
 
     return render(request, 'admin_dashboard/team.html', context)
+
+
+@login_required
+@require_POST
+def manage_team_structure(request):
+    """Manage hierarchy, person assignments, lead grants, and revocations."""
+    org = request.organization
+    if not org:
+        raise Http404
+
+    action = request.POST.get('action')
+    is_org_admin = request.user.has_perm('accounts.can_manage_organization')
+    if not is_org_admin and action not in {
+        'set_member_team', 'cancel_team_invitation', 'update_team', 'delete_team'
+    }:
+        raise PermissionDenied
+    try:
+        with transaction.atomic():
+            if action == 'create_team':
+                parent_id = request.POST.get('parent') or None
+                manager = get_object_or_404(
+                    UserProfile, organization=org, pk=request.POST.get('manager')
+                )
+                team = Team(
+                    organization=org,
+                    name=request.POST.get('name', '').strip(),
+                    parent=(get_object_or_404(Team, organization=org, pk=parent_id)
+                            if parent_id else None),
+                    manager=manager,
+                )
+                team.full_clean()
+                team.save()
+                messages.success(request, f'Team “{team.name}” created.')
+
+            elif action == 'update_team':
+                team = get_object_or_404(
+                    Team.objects.for_organization(org), pk=request.POST.get('team')
+                )
+                if not is_org_admin and team.manager_id != request.user.profile.id:
+                    raise PermissionDenied
+                parent_id = request.POST.get('parent') or None
+                team.name = request.POST.get('name', '').strip()
+                team.parent = (get_object_or_404(Team, organization=org, pk=parent_id)
+                               if parent_id else None)
+                if is_org_admin:
+                    team.manager = get_object_or_404(
+                        UserProfile, organization=org, pk=request.POST.get('manager')
+                    )
+                team.full_clean()
+                team.save()
+                messages.success(request, f'Team “{team.name}” updated.')
+
+            elif action == 'delete_team':
+                team = get_object_or_404(
+                    Team.objects.for_organization(org), pk=request.POST.get('team')
+                )
+                if not is_org_admin and team.manager_id != request.user.profile.id:
+                    raise PermissionDenied
+                if team.children.exists():
+                    raise ValidationError(
+                        'Move or remove this team’s subteams before deleting it.'
+                    )
+                team_name = team.name
+                team.delete()
+                messages.success(
+                    request,
+                    f'Team “{team_name}” removed. Its members are now unassigned.'
+                )
+
+            elif action == 'set_member_team':
+                reviewee = get_object_or_404(
+                    Reviewee.objects.for_organization(org).select_related('team'),
+                    pk=request.POST.get('reviewee'),
+                )
+                team_id = request.POST.get('team') or None
+                destination = (get_object_or_404(Team, organization=org, pk=team_id)
+                               if team_id else None)
+                if destination is None and request.POST.get(
+                    'confirmation', ''
+                ).strip().lower() != 'delete':
+                    raise ValidationError('Type delete to confirm removing this team member.')
+                manages_current = reviewee.team and reviewee.team.manager_id == request.user.profile.id
+                manages_destination = destination and destination.manager_id == request.user.profile.id
+                if not is_org_admin:
+                    can_remove_or_move = bool(manages_current) and (
+                        destination is None or bool(manages_destination)
+                    )
+                    can_assign_unassigned = reviewee.team_id is None and bool(manages_destination)
+                    if not (can_remove_or_move or can_assign_unassigned):
+                        raise PermissionDenied
+                reviewee.team = destination
+                reviewee.full_clean()
+                reviewee.save(update_fields=['team', 'updated_at'])
+                messages.success(request, f'Team membership updated for {reviewee.name}.')
+
+            elif action == 'cancel_team_invitation':
+                invitation = get_object_or_404(
+                    OrganizationInvitation.objects.select_related('team'),
+                    pk=request.POST.get('invitation'),
+                    organization=org,
+                    accepted_at__isnull=True,
+                )
+                if not is_org_admin and (
+                    not invitation.team
+                    or invitation.team.manager_id != request.user.profile.id
+                ):
+                    raise PermissionDenied
+                email = invitation.email
+                invitation.delete()
+                messages.success(request, f'Pending invitation for {email} removed.')
+
+            elif action == 'assign_reviewee':
+                reviewee = get_object_or_404(
+                    Reviewee.objects.for_organization(org), pk=request.POST.get('reviewee')
+                )
+                team_id = request.POST.get('team') or None
+                manager_id = request.POST.get('reporting_manager') or None
+                profile_id = request.POST.get('profile') or None
+                reviewee.team = (get_object_or_404(Team, organization=org, pk=team_id)
+                                  if team_id else None)
+                reviewee.reporting_manager = (get_object_or_404(
+                    UserProfile, organization=org, pk=manager_id
+                ) if manager_id else None)
+                reviewee.profile = (get_object_or_404(
+                    UserProfile, organization=org, pk=profile_id
+                ) if profile_id else None)
+                reviewee.full_clean()
+                reviewee.save(update_fields=['team', 'reporting_manager', 'profile', 'updated_at'])
+                messages.success(request, f'Assignments updated for {reviewee.name}.')
+
+            elif action == 'save_grant':
+                profile = get_object_or_404(
+                    UserProfile, organization=org, pk=request.POST.get('profile')
+                )
+                team = get_object_or_404(Team, organization=org, pk=request.POST.get('team'))
+                grant, _ = TeamLeadGrant.objects.get_or_create(profile=profile, team=team)
+                grant.include_descendants = request.POST.get('include_descendants') == 'on'
+                grant.full_clean()
+                grant.save()
+                messages.success(request, 'Team lead grant saved.')
+
+            elif action == 'delete_grant':
+                grant = get_object_or_404(
+                    TeamLeadGrant, pk=request.POST.get('grant'), team__organization=org
+                )
+                grant.delete()
+                messages.success(request, 'Team lead grant removed.')
+
+            elif action == 'add_revocation':
+                grant = get_object_or_404(
+                    TeamLeadGrant, pk=request.POST.get('grant'), team__organization=org
+                )
+                team = get_object_or_404(Team, organization=org, pk=request.POST.get('team'))
+                if not grant.include_descendants or team.id not in descendant_team_ids(
+                    grant.team, include_self=False
+                ):
+                    raise ValidationError('Only a descendant inherited by this grant can be revoked.')
+                revocation = TeamLeadRevocation(grant=grant, team=team)
+                revocation.full_clean()
+                revocation.save()
+                messages.success(request, f'Access to “{team.name}” and its subtree revoked.')
+
+            elif action == 'delete_revocation':
+                revocation = get_object_or_404(
+                    TeamLeadRevocation,
+                    pk=request.POST.get('revocation'),
+                    grant__team__organization=org,
+                )
+                revocation.delete()
+                messages.success(request, 'Team revocation removed.')
+            else:
+                raise ValidationError('Unknown team management action.')
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
+    return redirect('team_list')
 
 
 @login_required
@@ -268,7 +553,9 @@ def reviewee_list(request):
 
     org = request.organization
     # Filter out anonymized reviewees (those with @deleted.invalid emails)
-    reviewees_qs = Reviewee.objects.for_organization(org).filter(is_active=True).annotate(
+    reviewees_qs = visible_reviewees(
+        request.user, Reviewee.objects.for_organization(org).filter(is_active=True), org
+    ).annotate(
         cycle_count=Count('review_cycles')
     ).order_by('name')
 
@@ -400,7 +687,9 @@ def reviewee_edit(request, reviewee_id):
         )
         return redirect('reviewee_list')
 
-    reviewee = get_object_or_404(Reviewee, id=reviewee_id)
+    reviewee = get_object_or_404(visible_reviewees(
+        request.user, Reviewee.objects.for_organization(request.organization), request.organization
+    ), id=reviewee_id)
 
     if request.method == 'POST':
         reviewee.name = request.POST.get('name', reviewee.name)
@@ -435,7 +724,9 @@ def reviewee_delete(request, reviewee_id):
         )
         return redirect('reviewee_list')
 
-    reviewee = get_object_or_404(Reviewee, id=reviewee_id)
+    reviewee = get_object_or_404(visible_reviewees(
+        request.user, Reviewee.objects.for_organization(request.organization), request.organization
+    ), id=reviewee_id)
 
     if request.method == 'POST':
         reviewee.is_active = False
@@ -470,7 +761,9 @@ def quick_cycle_create(request, reviewee_id):
         return redirect('reviewee_list')
 
     org = request.organization
-    reviewee = get_object_or_404(Reviewee, id=reviewee_id, organization=org, is_active=True)
+    reviewee = get_object_or_404(visible_reviewees(
+        request.user, Reviewee.objects.for_organization(org), org
+    ), id=reviewee_id, is_active=True)
     questionnaire_id = request.POST.get('questionnaire_id')
     source_cycle_uuid = request.POST.get('source_cycle_uuid')  # Optional: specific cycle to copy from
 
@@ -1297,7 +1590,11 @@ def review_cycle_create(request):
                 # send any emails here — the admin confirms sending on the
                 # follow-up bulk_send_invitations page. This prevents the
                 # request from stalling on SMTP and avoids surprise blasts.
-                reviewees = Reviewee.objects.for_organization(org).filter(is_active=True)
+                reviewees = visible_reviewees(
+                    request.user,
+                    Reviewee.objects.for_organization(org).filter(is_active=True),
+                    org,
+                )
 
                 with transaction.atomic():
                     for reviewee in reviewees:
@@ -1329,7 +1626,9 @@ def review_cycle_create(request):
                     messages.error(request, 'Reviewee is required for single cycle creation.')
                     return redirect('review_cycle_create')
 
-                reviewee = Reviewee.objects.for_organization(org).get(id=reviewee_id)
+                reviewee = visible_reviewees(
+                    request.user, Reviewee.objects.for_organization(org), org
+                ).get(id=reviewee_id)
 
                 # Create review cycle (no tokens created here)
                 cycle = ReviewCycle.objects.create(
@@ -1427,12 +1726,16 @@ def review_cycle_create(request):
     # Filter reviewees based on user permissions
     if hasattr(request.user, 'profile') and not request.user.profile.can_create_cycles_for_others:
         # User can only create cycles for themselves
-        reviewees = Reviewee.objects.for_organization(org).filter(
+        reviewees = visible_reviewees(
+            request.user, Reviewee.objects.for_organization(org), org
+        ).filter(
             is_active=True,
             email=request.user.email
         ).order_by('name')
     else:
-        reviewees = Reviewee.objects.for_organization(org).filter(is_active=True).order_by('name')
+        reviewees = visible_reviewees(
+            request.user, Reviewee.objects.for_organization(org), org
+        ).filter(is_active=True).order_by('name')
 
     # Only show questionnaires from user's organization.
     # Prefetch sections/questions so report_type_label doesn't N+1 per option.
@@ -1446,6 +1749,7 @@ def review_cycle_create(request):
         'reviewees': reviewees,
         'questionnaires': questionnaires,
         'can_create_for_others': hasattr(request.user, 'profile') and request.user.profile.can_create_cycles_for_others,
+        'prefill_peer_email': request.GET.get('reviewer_email', '').strip(),
     }
 
     return render(request, 'admin_dashboard/review_cycle_form.html', context)
@@ -1464,12 +1768,12 @@ def bulk_send_invitations(request):
     org = request.organization
     uuids = request.session.get('pending_invitation_cycles', [])
 
-    cycles_qs = (
+    cycles_qs = visible_cycles(request.user, (
         ReviewCycle.objects
         .select_related('reviewee', 'questionnaire')
         .prefetch_related('questionnaire__sections__questions')
         .filter(uuid__in=uuids)
-    )
+    ))
     if org:
         cycles_qs = cycles_qs.filter(reviewee__organization=org)
     cycles = list(cycles_qs.order_by('reviewee__name'))
