@@ -12,7 +12,9 @@ from accounts.factories import (
 )
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
-from accounts.models import OrganizationInvitation, Reviewee, Team
+from accounts.models import (
+    OrganizationInvitation, OrganizationRole, Reviewee, Team, UserProfile,
+)
 
 
 class DashboardTestCase(TestCase):
@@ -188,6 +190,207 @@ class UserInvitationTestCase(TestCase):
         )
 
 
+class OrganizationPeopleSettingsTestCase(TestCase):
+    def setUp(self):
+        from accounts.permissions import assign_organization_admin
+
+        self.org = OrganizationFactory(name='FindMyPast')
+        self.admin = UserFactory(email='admin@example.com', first_name='Zoe', last_name='Admin')
+        self.admin_profile = UserProfileFactory(user=self.admin, organization=self.org)
+        assign_organization_admin(self.admin)
+        self.member = UserFactory(email='unassigned@example.com', first_name='Amy', last_name='Member')
+        self.member_profile = UserProfileFactory(user=self.member, organization=self.org)
+        self.member_reviewee = Reviewee.objects.get(
+            organization=self.org, email=self.member.email
+        )
+        self.member_reviewee.profile = self.member_profile
+        self.member_reviewee.name = 'Unassigned Member'
+        self.member_reviewee.save(update_fields=['profile', 'name', 'updated_at'])
+        self.client.force_login(self.admin)
+
+    def test_admin_sees_unassigned_people_in_settings(self):
+        response = self.client.get(reverse('settings'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'User Management')
+        self.assertContains(response, self.member.email)
+        self.assertContains(response, 'Unassigned')
+        self.assertLess(
+            response.content.index(b'Amy Member'),
+            response.content.index(b'Zoe Admin'),
+        )
+
+    def test_admin_sees_role_creation_on_organization_tab(self):
+        response = self.client.get(reverse('settings'))
+
+        self.assertContains(response, 'Roles & permissions')
+        self.assertContains(response, 'Add role')
+        self.assertContains(response, reverse('manage_organization_role'))
+
+    def test_admin_can_create_inherited_role_and_assign_it(self):
+        lead = OrganizationRole.objects.create(
+            organization=self.org,
+            name='Team Leader',
+            can_manage_teams=True,
+            can_create_cycles=True,
+        )
+        response = self.client.post(reverse('manage_organization_role'), {
+            'action': 'create',
+            'name': 'Senior Team Leader',
+            'parent_role': lead.id,
+            'can_view_reports': 'on',
+        })
+        self.assertRedirects(response, reverse('settings') + '#organization')
+        senior = OrganizationRole.objects.get(name='Senior Team Leader')
+        self.assertEqual(senior.parent, lead)
+        self.assertEqual(
+            senior.effective_permissions(),
+            {'can_manage_teams', 'can_create_cycles', 'can_view_reports'},
+        )
+
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': f'custom:{senior.id}',
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.member_profile.refresh_from_db()
+        self.assertEqual(self.member_profile.organization_role, senior)
+        self.assertTrue(self.member_profile.can_create_cycles_for_others)
+
+    def test_member_cannot_create_organization_role(self):
+        self.client.force_login(self.member)
+        response = self.client.post(reverse('manage_organization_role'), {
+            'action': 'create',
+            'name': 'Unauthorized role',
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(OrganizationRole.objects.filter(name='Unauthorized role').exists())
+
+    def test_admin_can_search_people_by_name_or_email(self):
+        response = self.client.get(reverse('settings'), {'user_q': 'unassigned@'})
+
+        self.assertContains(response, 'Amy Member')
+        self.assertNotContains(response, 'Zoe Admin')
+
+    def test_team_list_is_condensed_after_two_teams(self):
+        teams = [
+            Team.objects.create(organization=self.org, name=name)
+            for name in ('Alpha', 'Beta', 'Gamma', 'Delta')
+        ]
+        self.member_reviewee.teams.set(teams)
+
+        response = self.client.get(reverse('settings'))
+
+        self.assertContains(response, 'class="team-count-more">+2</span>')
+        self.assertContains(response, 'title="Alpha, Beta, Delta, Gamma"')
+
+    def test_admin_can_edit_email_team_permissions_and_status(self):
+        from accounts.permissions import ORG_ADMIN_GROUP
+
+        team = Team.objects.create(organization=self.org, name='Product')
+        url = reverse('manage_organization_person')
+        response = self.client.post(url, {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': 'updated@example.com',
+            'status': 'inactive',
+            'role': 'admin',
+            'can_create_cycles_for_others': 'on',
+            'teams': [team.id],
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.member.refresh_from_db()
+        self.member_profile.refresh_from_db()
+        self.assertFalse(self.member.is_active)
+        self.assertEqual(self.member.email, 'updated@example.com')
+        self.assertTrue(self.member.groups.filter(name=ORG_ADMIN_GROUP).exists())
+        self.assertTrue(self.member_profile.can_create_cycles_for_others)
+        self.assertEqual(
+            set(self.member_profile.reviewee.teams.values_list('id', flat=True)),
+            {team.id},
+        )
+
+    def test_remove_preserves_reviewee_history_but_removes_membership(self):
+        reviewee = self.member_reviewee
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'remove',
+            'user_profile_id': self.member_profile.id,
+            'confirmation': 'delete',
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.member.refresh_from_db()
+        reviewee.refresh_from_db()
+        self.assertFalse(self.member.is_active)
+        self.assertFalse(UserProfile.objects.filter(pk=self.member_profile.id).exists())
+        self.assertIsNone(reviewee.profile)
+        self.assertFalse(reviewee.is_active)
+
+    def test_edit_can_create_team_managed_by_editor(self):
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': 'member',
+            'add_team': '__new__',
+            'new_team_name': 'Odyssey',
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        team = Team.objects.get(organization=self.org, name='Odyssey')
+        self.assertEqual(team.manager, self.admin_profile)
+        self.assertTrue(team.members.filter(pk=self.member_reviewee.pk).exists())
+        self.assertTrue(team.members.filter(profile=self.admin_profile).exists())
+
+    def test_admin_can_edit_own_email_and_team_membership(self):
+        team = Team.objects.create(organization=self.org, name='Own Team')
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.admin_profile.id,
+            'email': 'new-admin@example.com',
+            'status': 'active',
+            'role': 'admin',
+            'teams': [team.id],
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.email, 'new-admin@example.com')
+        self.assertTrue(team.members.filter(profile=self.admin_profile).exists())
+
+    def test_team_owner_can_be_reassigned_while_editing_user(self):
+        team = Team.objects.create(
+            organization=self.org, name='Managed Team', manager=self.member_profile
+        )
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': 'member',
+            f'manager_for_{team.id}': self.admin_profile.id,
+        })
+        self.assertRedirects(response, reverse('settings') + '#people')
+        team.refresh_from_db()
+        self.assertEqual(team.manager, self.admin_profile)
+        self.assertTrue(team.members.filter(profile=self.admin_profile).exists())
+
+    def test_admin_cannot_manage_person_from_another_organization(self):
+        other_profile = UserProfileFactory(
+            user=UserFactory(email='other@example.com'),
+            organization=OrganizationFactory(),
+        )
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': other_profile.id,
+            'email': 'changed@example.com',
+            'status': 'active',
+            'role': 'member',
+        })
+        self.assertEqual(response.status_code, 404)
+
+
 class TeamHierarchyViewTestCase(TestCase):
     def setUp(self):
         self.org = OrganizationFactory(name='FindMyPast')
@@ -238,6 +441,21 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'name="campaign_flow" value="1"')
         self.assertContains(response, 'Create cycle and send invitations')
+
+    def test_add_team_member_can_open_invite_with_team_prefilled(self):
+        from accounts.permissions import assign_organization_admin
+
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+        assign_organization_admin(self.member_user)
+
+        response = self.client.get(reverse('team_list'))
+
+        self.assertContains(response, '<option value="__invite__">+ Invite New Member</option>')
+        self.assertContains(
+            response,
+            f"openTeamInvite('{self.child_team.id}', 'Research')",
+        )
 
     def test_manager_cannot_take_member_from_unmanaged_team_by_id(self):
         manager_user = UserFactory(username='manager', email='manager@example.com')
