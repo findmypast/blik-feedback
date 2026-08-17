@@ -20,6 +20,17 @@ ORG_ADMIN_GROUP = 'Organization Admin'
 ORG_MEMBER_GROUP = 'Organization Member'
 
 
+def has_organization_capability(user, capability):
+    """Check an organization role grant, preserving full administrator access."""
+    if not getattr(user, 'is_authenticated', False):
+        return False
+    if user.has_perm('accounts.can_manage_organization'):
+        return True
+    profile = getattr(user, 'profile', None)
+    role = getattr(profile, 'organization_role', None) if profile else None
+    return bool(role and capability in role.effective_permissions())
+
+
 def ensure_permission_groups():
     """
     Create default permission groups if they don't exist.

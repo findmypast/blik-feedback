@@ -6,6 +6,69 @@ from core.models import TimeStampedModel, Organization
 from core.managers import OrganizationManager
 
 
+class OrganizationRole(TimeStampedModel):
+    """An organization-defined role with optional permission inheritance."""
+
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name='roles'
+    )
+    name = models.CharField(max_length=100)
+    parent = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='children',
+        help_text='Permissions from the parent role are inherited.',
+    )
+    can_manage_users = models.BooleanField(default=False)
+    can_manage_teams = models.BooleanField(default=False)
+    can_invite_members = models.BooleanField(default=False)
+    can_create_cycles = models.BooleanField(default=False)
+    can_manage_questionnaires = models.BooleanField(default=False)
+    can_view_reports = models.BooleanField(default=False)
+
+    objects = OrganizationManager()
+
+    PERMISSION_FIELDS = (
+        'can_manage_users', 'can_manage_teams', 'can_invite_members',
+        'can_create_cycles', 'can_manage_questionnaires', 'can_view_reports',
+    )
+
+    class Meta:
+        db_table = 'organization_roles'
+        ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['organization', 'name'], name='unique_role_name_per_org'
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.parent_id:
+            if self.parent.organization_id != self.organization_id:
+                raise ValidationError({'parent': 'Parent role must belong to the same organization.'})
+            ancestor = self.parent
+            while ancestor:
+                if ancestor.pk == self.pk:
+                    raise ValidationError({'parent': 'Role hierarchy cannot contain a cycle.'})
+                ancestor = ancestor.parent
+
+    def effective_permissions(self):
+        """Return this role's grants combined with every ancestor grant."""
+        permissions = set()
+        role = self
+        visited = set()
+        while role and role.pk not in visited:
+            visited.add(role.pk)
+            permissions.update(
+                field for field in self.PERMISSION_FIELDS if getattr(role, field)
+            )
+            role = role.parent
+        return permissions
+
+
 class UserProfile(TimeStampedModel):
     """Extended user profile with organization relationship"""
     user = models.OneToOneField(
@@ -17,6 +80,14 @@ class UserProfile(TimeStampedModel):
         Organization,
         on_delete=models.CASCADE,
         related_name='users'
+    )
+    organization_role = models.ForeignKey(
+        OrganizationRole,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='members',
+        help_text='Optional organization-defined role. Administrators retain full access.',
     )
     can_create_cycles_for_others = models.BooleanField(
         default=False,
@@ -41,6 +112,13 @@ class UserProfile(TimeStampedModel):
 
     def __str__(self):
         return f"{self.user.username} - {self.organization.name}"
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.organization_role_id and (
+            self.organization_role.organization_id != self.organization_id
+        ):
+            raise ValidationError({'organization_role': 'Role must belong to the same organization.'})
 
 
 class OrganizationInvitation(TimeStampedModel):
