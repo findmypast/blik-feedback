@@ -14,12 +14,12 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1 style="margin: 0; font-size: 1.75rem;">360° Feedback Cycle Started</h1>
+            <h1 style="margin: 0; font-size: 1.75rem;">Self-Assessment Requested</h1>
         </div>
         <div class="content">
             <p>Hi <strong>{{ reviewee.name }}</strong>,</p>
 
-            <p>A new 360-degree feedback cycle has been created for you!</p>
+            <p>A self-assessment has been assigned to you.</p>
 
             <p>Please complete your <strong>self-assessment</strong> by clicking the button below:</p>
 
@@ -27,9 +27,10 @@
                 <a href="{{ self_assessment_url }}" class="button" style="background-color: #667eea !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff;">Complete Self-Assessment</a>
             </div>
 
-            <p>This is your opportunity to reflect on your own performance before receiving feedback from others.</p>
+            <p>Your progress is saved as you complete the questionnaire.</p>
 
             <p><strong>Questionnaire:</strong> {{ cycle.questionnaire.name }}</p>
+            {% if cycle.due_date %}<p><strong>Due date:</strong> {{ cycle.due_date|date:"j F Y" }}</p>{% endif %}
         </div>
         <div class="footer">
             <p>This is an automated email from your feedback system.</p>

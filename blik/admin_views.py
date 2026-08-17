@@ -5,6 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, Http404
 from django.core.exceptions import ValidationError, PermissionDenied
+from django.core.validators import validate_email
 from django.template.loader import render_to_string
 from django.contrib import messages
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -16,6 +17,7 @@ from django.urls import reverse
 from django.http import HttpResponseRedirect
 from datetime import timedelta
 from datetime import date
+import re
 
 from accounts.models import (
     Reviewee, UserProfile, OrganizationInvitation, OrganizationRole, Team, TeamLeadGrant,
@@ -24,7 +26,7 @@ from accounts.models import (
 from accounts.permissions import can_view_all_reports, visible_cycles
 from accounts.authorization import (
     can_edit_questionnaire, descendant_team_ids, visible_reviewees,
-    visible_invitations, visible_profiles, manageable_teams,
+    visible_invitations, visible_profiles, led_teams, manageable_teams,
 )
 from reviews.models import ReviewCampaign, ReviewCycle, ReviewerToken
 from reviews.services import (
@@ -41,6 +43,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _send_team_ownership_notifications(organization, transfers):
+    """Notify newly assigned team managers without failing the saved transfer."""
+    from core.email import send_email
+    from django.conf import settings
+
+    for team_name, new_manager_name, new_manager_email, assigned_by in transfers:
+        try:
+            context = {
+                'organization': organization,
+                'team_name': team_name,
+                'new_manager_name': new_manager_name,
+                'assigned_by': assigned_by,
+                'team_url': f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/team/',
+            }
+            send_email(
+                subject=f'You now manage the {team_name} team in Blik',
+                message=render_to_string('emails/team_ownership_transferred.txt', context),
+                html_message=render_to_string('emails/team_ownership_transferred.html', context),
+                recipient_list=[new_manager_email],
+            )
+        except Exception:
+            logger.exception(
+                'Failed to send team ownership notification for %s', team_name
+            )
+
+
 def get_cycle_or_404(request, cycle_uuid):
     """
     Get a ReviewCycle by UUID, filtered by organization and by what the current
@@ -51,6 +79,26 @@ def get_cycle_or_404(request, cycle_uuid):
     if request.organization:
         cycles_qs = cycles_qs.filter(reviewee__organization=request.organization)
     return get_object_or_404(visible_cycles(request.user, cycles_qs), uuid=cycle_uuid)
+
+
+def _synchronize_cycle_parent_status(cycle):
+    """Complete campaign parents once their last active child has ended."""
+    if not cycle.campaign_id:
+        return
+    campaign = cycle.campaign
+    if campaign.cycles.filter(status='active').exists():
+        return
+    if campaign.status != 'completed':
+        campaign.status = 'completed'
+        campaign.save(update_fields=['status', 'updated_at'])
+    if campaign.organizational_cycle_id:
+        parent = campaign.organizational_cycle
+        if (
+            parent.status != 'completed'
+            and not parent.campaigns.filter(status='active').exists()
+        ):
+            parent.status = 'completed'
+            parent.save(update_fields=['status', 'updated_at'])
 
 
 @login_required
@@ -89,13 +137,23 @@ def dashboard(request):
         cycle__in=cycles_qs,
         completed_at__isnull=True,
         cycle__status='active'
+    ).filter(
+        Q(cycle__campaign__isnull=True)
+        | Q(cycle__campaign__status='active')
+    ).filter(
+        Q(cycle__campaign__organizational_cycle__isnull=True)
+        | Q(cycle__campaign__organizational_cycle__status='active')
     ).count()
 
     campaigns_qs = (
         ReviewCampaign.objects.filter(
             organization=org, cycles__in=cycles_qs
         )
-        .select_related('team', 'individual', 'questionnaire')
+        .filter(
+            Q(organizational_cycle__isnull=True)
+            | Q(organizational_cycle__status='active')
+        )
+        .select_related('team', 'individual', 'questionnaire', 'organizational_cycle')
         .annotate(
             cycle_count=Count('cycles', distinct=True),
             invitation_count=Count('cycles__tokens', distinct=True),
@@ -110,6 +168,7 @@ def dashboard(request):
     )
     active_campaigns = []
     completed_campaigns = []
+    organizational_cycle_cards = {}
     reviewee_names_by_email = {
         email.lower(): name
         for email, name in Reviewee.objects.for_organization(org).filter(
@@ -122,16 +181,31 @@ def dashboard(request):
         days_remaining = (
             (campaign.due_date - today).days if campaign.due_date else None
         )
+        can_view_campaign_progress = _can_view_campaign_progress(
+            request.user, campaign, org
+        )
         scoped_cycles = visible_cycles(
             request.user,
-            campaign.cycles.select_related('reviewee').prefetch_related('tokens', 'report'),
+            campaign.cycles.select_related('reviewee', 'reviewee__team').prefetch_related(
+                'tokens__assigned_team', 'report', 'reviewee__team_memberships__team'
+            ),
         ).order_by('reviewee__name')
+        if not can_view_campaign_progress:
+            scoped_cycles = scoped_cycles.filter(
+                reviewee__email__iexact=request.user.email
+            )
         people = []
         all_complete = True
         scoped_completed = 0
         scoped_total = 0
         for cycle in scoped_cycles:
             tokens = list(cycle.tokens.all())
+            team_names = {
+                membership.team.name
+                for membership in cycle.reviewee.team_memberships.all()
+            }
+            if cycle.reviewee.team:
+                team_names.add(cycle.reviewee.team.name)
             completed_count = sum(token.is_completed for token in tokens)
             if cycle.status != 'completed':
                 all_complete = False
@@ -143,6 +217,11 @@ def dashboard(request):
                     cycle.reviewee.email.lower() == request.user.email.lower()
                 ),
                 'tokens': tokens,
+                'team_names': sorted(team_names),
+                'assigned_team_names': sorted({
+                    token.assigned_team.name
+                    for token in tokens if token.assigned_team_id
+                }),
                 'reviewers': [
                     {
                         'token': token,
@@ -164,7 +243,7 @@ def dashboard(request):
         card = {
             'campaign': campaign,
             'people': people,
-            'can_manage': _can_manage_campaign(request.user, campaign, org),
+            'can_manage': can_view_campaign_progress,
             'days_remaining': days_remaining,
             'due_soon': days_remaining is not None and 0 <= days_remaining <= 7,
             'overdue': days_remaining is not None and days_remaining < 0,
@@ -178,25 +257,67 @@ def dashboard(request):
             and campaign.cycle_type != 'peer'
         ):
             card['add_candidates'] = _campaign_add_candidates(campaign)
+        if campaign.organizational_cycle_id:
+            if card['can_manage']:
+                if campaign.organizational_cycle.status == 'active':
+                    group = organizational_cycle_cards.setdefault(
+                        campaign.organizational_cycle_id,
+                        {
+                            'cycle': campaign.organizational_cycle,
+                            'campaigns': [],
+                            'completed_count': 0,
+                            'total_count': 0,
+                            'is_organization_admin': request.user.has_perm(
+                                'accounts.can_manage_organization'
+                            ),
+                            'is_team_leader': led_teams(request.user, org).exists(),
+                        },
+                    )
+                    group['campaigns'].append(card)
+                    group['completed_count'] += card['completed_count']
+                    group['total_count'] += sum(
+                        max(person['total_count'], 1) for person in people
+                    )
+                # Completed organisation cycles belong in Cycles and Reports,
+                # not among the manager's active dashboard work.
+                continue
+            if campaign.organizational_cycle.status != 'active':
+                continue
         if people and all_complete:
             completed_campaigns.append(card)
         else:
             active_campaigns.append(card)
 
     pending_peer_nominations = cycles_qs.filter(
+        status='active',
         campaign__cycle_type='peer',
         campaign__status='active',
         reviewee__email__iexact=request.user.email,
         tokens__isnull=True,
-    ).select_related('campaign', 'questionnaire')
+    ).filter(
+        Q(campaign__organizational_cycle__isnull=True)
+        | Q(campaign__organizational_cycle__status='active')
+    ).select_related(
+        'campaign__created_by', 'campaign__organizational_cycle', 'questionnaire'
+    ).prefetch_related('reviewee__team_memberships__team')
 
     my_review_tasks = ReviewerToken.objects.filter(
         cycle__reviewee__organization=org,
         cycle__status='active',
         reviewer_email__iexact=request.user.email,
         completed_at__isnull=True,
+    ).filter(
+        Q(cycle__campaign__isnull=True)
+        | Q(cycle__campaign__status='active')
+    ).filter(
+        Q(cycle__campaign__organizational_cycle__isnull=True)
+        | Q(cycle__campaign__organizational_cycle__status='active')
     ).select_related(
-        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__created_by',
+        'cycle__campaign__created_by', 'cycle__campaign__organizational_cycle',
+        'cycle__campaign__team', 'assigned_team', 'cycle__reviewee__team',
+    ).prefetch_related(
+        'cycle__reviewee__team_memberships__team'
     ).order_by('cycle__due_date', 'created_at') if request.user.email else ReviewerToken.objects.none()
 
     # Completion stats for active cycles
@@ -242,6 +363,16 @@ def dashboard(request):
         'completed_cycles_data': completed_cycles_data,
         'active_campaigns': active_campaigns,
         'completed_campaigns': completed_campaigns,
+        'organizational_cycle_cards': [
+            {
+                **group,
+                'completion_rate': (
+                    group['completed_count'] / group['total_count'] * 100
+                    if group['total_count'] else 0
+                ),
+            }
+            for group in organizational_cycle_cards.values()
+        ],
         'pending_peer_nominations': pending_peer_nominations,
         'my_review_tasks': my_review_tasks,
         'subscription_status': subscription_status,
@@ -720,7 +851,7 @@ def update_user_permissions(request):
         # Update role and permissions
         if role == 'admin':
             assign_organization_admin(target_user)
-            messages.success(request, f'Successfully promoted {target_user.username} to Organization Admin.')
+            messages.success(request, f'Successfully promoted {target_user.username} to Organisation Admin.')
         else:  # member
             # Remove admin permissions
             assign_organization_member(target_user, can_create_cycles_for_others=False)
@@ -1728,7 +1859,9 @@ def review_cycle_list(request):
 
     campaign_qs = (
         ReviewCampaign.objects.filter(organization=org, cycles__in=cycles_qs)
-        .select_related('team', 'individual', 'questionnaire')
+        .select_related(
+            'team', 'individual', 'questionnaire', 'organizational_cycle'
+        )
         .annotate(
             participant_count=Count('cycles', distinct=True),
             response_count=Count(
@@ -1742,18 +1875,61 @@ def review_cycle_list(request):
         .order_by('-start_date', '-created_at')
     )
     campaigns = []
+    organizational_cycle_groups = {}
     for campaign in campaign_qs:
-        scoped_cycles = visible_cycles(request.user, campaign.cycles.all())
+        scoped_cycles = visible_cycles(
+            request.user,
+            campaign.cycles.select_related('reviewee').prefetch_related('tokens'),
+        ).order_by('reviewee__name')
         completed_people = scoped_cycles.filter(status='completed').count()
-        campaigns.append({
+        campaign_item = {
             'campaign': campaign,
             'participant_count': scoped_cycles.count(),
             'completed_people': completed_people,
             'all_complete': scoped_cycles.exists() and completed_people == scoped_cycles.count(),
             'can_manage': _can_manage_campaign(request.user, campaign, org),
-        })
+            'people': [],
+        }
+        completed_responses = 0
+        total_responses = 0
+        for cycle in scoped_cycles:
+            tokens = list(cycle.tokens.all())
+            completed_count = sum(token.is_completed for token in tokens)
+            completed_responses += completed_count
+            total_responses += max(len(tokens), 1)
+            campaign_item['people'].append({
+                'cycle': cycle,
+                'completed_count': completed_count,
+                'total_count': len(tokens),
+                'status_label': (
+                    'Complete' if cycle.status == 'completed'
+                    else 'Awaiting peer selection'
+                    if campaign.cycle_type == 'peer' and not tokens
+                    else 'In progress' if completed_count
+                    else 'Invitation pending'
+                ),
+            })
+        campaign_item['completed_responses'] = completed_responses
+        campaign_item['total_responses'] = total_responses
+        if campaign.organizational_cycle_id:
+            group = organizational_cycle_groups.setdefault(
+                campaign.organizational_cycle_id,
+                {
+                    'cycle': campaign.organizational_cycle,
+                    'campaigns': [],
+                    'completed_count': 0,
+                    'total_count': 0,
+                },
+            )
+            group['campaigns'].append(campaign_item)
+            group['completed_count'] += completed_responses
+            group['total_count'] += total_responses
+        else:
+            campaigns.append(campaign_item)
 
-    cycles_qs = cycles_qs.prefetch_related(
+    # Campaign cycles are represented by their grouped summaries above. Keeping
+    # them out of this table avoids showing every participant as a separate cycle.
+    cycles_qs = cycles_qs.filter(campaign__isnull=True).prefetch_related(
         'questionnaire__sections__questions'
     ).annotate(
         token_count=Count('tokens'),
@@ -1797,9 +1973,85 @@ def review_cycle_list(request):
         'questionnaires': questionnaires,
         'per_page': per_page,
         'campaigns': campaigns,
+        'organizational_cycle_groups': organizational_cycle_groups.values(),
     }
 
     return render(request, 'admin_dashboard/review_cycle_list.html', context)
+
+
+@login_required
+def organisation_cycle_detail(request, cycle_uuid):
+    """Show the authorized assessment breakdown for one organisation cycle."""
+    from reviews.models import OrganizationalReviewCycle
+
+    organisation_cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+    )
+    permitted_cycles = visible_cycles(
+        request.user,
+        ReviewCycle.objects.for_organization(request.organization),
+    )
+    campaigns = (
+        organisation_cycle.campaigns.filter(cycles__in=permitted_cycles)
+        .select_related('team', 'questionnaire')
+        .distinct()
+        .order_by('cycle_type', 'team__name', 'created_at')
+    )
+    if not campaigns.exists():
+        raise Http404
+
+    assessment_groups = []
+    completed_total = 0
+    response_total = 0
+    for campaign in campaigns:
+        cycles = visible_cycles(
+            request.user,
+            campaign.cycles.select_related('reviewee').prefetch_related('tokens'),
+        ).order_by('reviewee__name')
+        people = []
+        campaign_completed = 0
+        campaign_total = 0
+        for cycle in cycles:
+            tokens = list(cycle.tokens.all())
+            completed = sum(token.is_completed for token in tokens)
+            required_total = max(len(tokens), 1)
+            campaign_completed += completed
+            campaign_total += required_total
+            people.append({
+                'cycle': cycle,
+                'completed_count': completed,
+                'total_count': len(tokens),
+                'status_label': (
+                    'Complete' if cycle.status == 'completed'
+                    else 'Awaiting peer selection'
+                    if campaign.cycle_type == 'peer' and not tokens
+                    else 'In progress' if completed
+                    else 'Invitation pending'
+                ),
+            })
+        completed_total += campaign_completed
+        response_total += campaign_total
+        assessment_groups.append({
+            'campaign': campaign,
+            'people': people,
+            'completed_count': campaign_completed,
+            'total_count': campaign_total,
+            'can_manage': _can_manage_campaign(
+                request.user, campaign, request.organization
+            ),
+        })
+
+    return render(request, 'admin_dashboard/organisation_cycle_detail.html', {
+        'organisation_cycle': organisation_cycle,
+        'assessment_groups': assessment_groups,
+        'completed_count': completed_total,
+        'total_count': response_total,
+        'completion_rate': (
+            completed_total / response_total * 100 if response_total else 0
+        ),
+    })
 
 
 @login_required
@@ -2057,25 +2309,31 @@ def _render_campaign_form(request):
 
 
 def _create_review_campaign(request):
-    from reviews.campaign_services import launch_campaign, questionnaire_supports
+    from reviews.campaign_services import (
+        launch_campaign, launch_organizational_cycle, questionnaire_supports,
+    )
 
     org = request.organization
+    cycle_name = request.POST.get('cycle_name', '').strip()
+    if len(cycle_name) > 255:
+        messages.error(request, 'Cycle name must be 255 characters or fewer.')
+        return redirect('review_cycle_create')
     target_type = request.POST.get('target_type')
     cycle_type = request.POST.get('cycle_type')
     if target_type not in dict(ReviewCampaign.TARGET_CHOICES):
         messages.error(request, 'Select either a team or an individual.')
         return redirect('review_cycle_create')
-    if cycle_type not in dict(ReviewCampaign.TYPE_CHOICES):
+    if target_type != 'organization' and cycle_type not in dict(ReviewCampaign.TYPE_CHOICES):
         messages.error(request, 'Select a valid review type.')
         return redirect('review_cycle_create')
     try:
         minimum_peer_reviewers = int(request.POST.get('minimum_peer_reviewers', 1))
     except (TypeError, ValueError):
         minimum_peer_reviewers = 0
-    if cycle_type == 'peer' and not 1 <= minimum_peer_reviewers <= 50:
+    if (cycle_type == 'peer' or target_type == 'organization') and not 1 <= minimum_peer_reviewers <= 50:
         messages.error(request, 'Minimum peer reviewers must be between 1 and 50.')
         return redirect('review_cycle_create')
-    if cycle_type != 'peer':
+    if cycle_type != 'peer' and target_type != 'organization':
         minimum_peer_reviewers = 1
 
     try:
@@ -2087,6 +2345,101 @@ def _create_review_campaign(request):
     if start_date and due_date and due_date < start_date:
         messages.error(request, 'The due date cannot be before the start date.')
         return redirect('review_cycle_create')
+
+    if target_type == 'organization':
+        if not request.user.has_perm('accounts.can_manage_organization'):
+            raise PermissionDenied
+        audience_type = request.POST.get('organization_audience', 'entire')
+        selected_teams = None
+        selected_participants = None
+        if audience_type == 'teams':
+            selected_team_ids = set(request.POST.getlist('organization_teams'))
+            selected_teams = list(
+                Team.objects.for_organization(org).filter(id__in=selected_team_ids)
+            )
+            if not selected_team_ids or len(selected_teams) != len(selected_team_ids):
+                messages.error(request, 'Select at least one valid team.')
+                return redirect('review_cycle_create')
+        elif audience_type == 'individuals':
+            emails = {
+                value.strip().lower()
+                for value in re.split(
+                    r'[,;\n]+', request.POST.get('organization_individuals', '')
+                )
+                if value.strip()
+            }
+            try:
+                for email in emails:
+                    validate_email(email)
+            except ValidationError:
+                messages.error(request, 'Enter valid email addresses separated by commas.')
+                return redirect('review_cycle_create')
+            participant_filter = Q()
+            for email in emails:
+                participant_filter |= Q(email__iexact=email)
+            selected_participants = list(
+                Reviewee.objects.for_organization(org).filter(
+                    participant_filter, is_active=True
+                )
+            ) if emails else []
+            found_emails = {person.email.lower() for person in selected_participants}
+            missing_emails = sorted(emails - found_emails)
+            if not emails or missing_emails:
+                detail = f" Missing: {', '.join(missing_emails)}." if missing_emails else ''
+                messages.error(
+                    request,
+                    'Enter at least one active organisation member email.' + detail,
+                )
+                return redirect('review_cycle_create')
+        elif audience_type != 'entire':
+            messages.error(request, 'Select a valid organisation audience.')
+            return redirect('review_cycle_create')
+        questionnaires = {}
+        assessment_types = (
+            ('self', 'peer')
+            if audience_type == 'individuals' else ('self', 'peer', 'manager')
+        )
+        for assessment_type in assessment_types:
+            questionnaire = get_object_or_404(
+                Questionnaire.objects.for_organization(org).filter(is_active=True),
+                id=request.POST.get(f'{assessment_type}_questionnaire'),
+            )
+            if not questionnaire_supports(questionnaire, assessment_type):
+                messages.error(
+                    request,
+                    f'{questionnaire.name} is not available for {assessment_type} assessments.',
+                )
+                return redirect('review_cycle_create')
+            questionnaires[assessment_type] = questionnaire
+        try:
+            organizational_cycle = launch_organizational_cycle(
+                organization=org,
+                created_by=request.user,
+                name=cycle_name,
+                audience_type=audience_type,
+                teams=selected_teams,
+                participants=selected_participants,
+                questionnaires=questionnaires,
+                minimum_peer_reviewers=minimum_peer_reviewers,
+                start_date=start_date,
+                due_date=due_date,
+            )
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+            return redirect('review_cycle_create')
+        from reviews.services import send_organizational_cycle_invitations
+
+        def send_organizational_invitation(parent_id=organizational_cycle.id):
+            from reviews.models import OrganizationalReviewCycle
+            parent = OrganizationalReviewCycle.objects.get(pk=parent_id)
+            send_organizational_cycle_invitations(parent)
+
+        transaction.on_commit(send_organizational_invitation)
+        messages.success(
+            request,
+            'Organisation cycle created. Self, peer, and manager invitations are being sent.',
+        )
+        return redirect('admin_dashboard')
 
     questionnaire = get_object_or_404(
         Questionnaire.objects.for_organization(org).filter(is_active=True),
@@ -2115,6 +2468,7 @@ def _create_review_campaign(request):
     campaign = ReviewCampaign.objects.create(
         organization=org,
         created_by=request.user,
+        name=cycle_name,
         questionnaire=questionnaire,
         target_type=target_type,
         team=team,
@@ -2314,6 +2668,20 @@ def _can_manage_campaign(user, campaign, organization):
     )
 
 
+def _can_view_campaign_progress(user, campaign, organization):
+    """Team-wide completion data is visible only to current scoped leaders."""
+    if user.has_perm('accounts.can_manage_organization'):
+        return True
+    if campaign.target_type == 'individual':
+        return campaign.created_by_id == user.id
+    if campaign.target_type == 'organization':
+        return manageable_teams(user, organization).exists()
+    return bool(
+        campaign.team_id
+        and manageable_teams(user, organization).filter(id=campaign.team_id).exists()
+    )
+
+
 def _campaign_add_candidates(campaign):
     """Return eligible people in the campaign's configured audience."""
     from reviews.campaign_services import campaign_members
@@ -2461,6 +2829,123 @@ def renew_review_campaign(request, campaign_uuid):
 
 @login_required
 @require_POST
+def close_organizational_cycle_scope(request, cycle_uuid):
+    """End the caller's authorized portion of an organizational cycle."""
+    from reviews.models import OrganizationalReviewCycle
+
+    organizational_cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+    )
+    is_organization_admin = request.user.has_perm(
+        'accounts.can_manage_organization'
+    )
+    requested_scope = request.POST.get('scope', 'team')
+    if requested_scope not in {'team', 'organization'}:
+        raise PermissionDenied
+    leadership_teams = led_teams(request.user, request.organization)
+    if requested_scope == 'organization' and not is_organization_admin:
+        raise PermissionDenied
+    if requested_scope == 'team' and not leadership_teams.exists():
+        raise PermissionDenied
+
+    scoped_cycles = ReviewCycle.objects.filter(
+        campaign__organizational_cycle=organizational_cycle,
+        status='active',
+    ).select_related('campaign', 'reviewee')
+    if requested_scope == 'team':
+        team_ids = leadership_teams.values_list('id', flat=True)
+        scoped_reviewees = Reviewee.objects.for_organization(
+            request.organization
+        ).filter(
+            Q(team_id__in=team_ids)
+            | Q(team_memberships__team_id__in=team_ids)
+            | Q(profile__managed_teams__id__in=team_ids)
+        ).distinct()
+        scoped_cycles = scoped_cycles.filter(reviewee__in=scoped_reviewees)
+    active_cycles = list(scoped_cycles)
+    if not active_cycles:
+        messages.info(request, 'There are no active cycles in your scope.')
+        return redirect('admin_dashboard')
+
+    incomplete_items = []
+    completion_counts = {}
+    for cycle in active_cycles:
+        required = (
+            cycle.campaign.minimum_peer_reviewers
+            if cycle.campaign.cycle_type == 'peer' else 1
+        )
+        completed = cycle.tokens.filter(completed_at__isnull=False).count()
+        completion_counts[cycle.pk] = (completed, required)
+        if completed < required:
+            incomplete_items.append({
+                'name': cycle.reviewee.name,
+                'assessment': cycle.campaign.get_cycle_type_display(),
+                'team': (
+                    cycle.campaign.team.name
+                    if cycle.campaign.team_id
+                    else organizational_cycle.audience_label
+                ),
+                'completed': completed,
+                'required': required,
+            })
+    if incomplete_items and request.POST.get('confirm_end') != '1':
+        return render(
+            request,
+            'admin_dashboard/confirm_end_organisation_cycle.html',
+            {
+                'organizational_cycle': organizational_cycle,
+                'scope': requested_scope,
+                'scope_label': (
+                    'the entire organisation'
+                    if requested_scope == 'organization'
+                    else 'the teams you manage'
+                ),
+                'incomplete_items': incomplete_items,
+            },
+        )
+
+    from reports.services import generate_report
+
+    reports_generated = 0
+    reports_skipped = 0
+    with transaction.atomic():
+        for cycle in active_cycles:
+            cycle.tokens.filter(
+                claimed_at__isnull=True, completed_at__isnull=True
+            ).delete()
+            cycle.status = 'completed'
+            cycle.save(update_fields=['status', 'updated_at'])
+            completed, required = completion_counts[cycle.pk]
+            if completed >= required:
+                generate_report(cycle)
+                reports_generated += 1
+            else:
+                reports_skipped += 1
+        for campaign in organizational_cycle.campaigns.filter(status='active'):
+            if not campaign.cycles.filter(status='active').exists():
+                campaign.status = 'completed'
+                campaign.save(update_fields=['status', 'updated_at'])
+        if not organizational_cycle.campaigns.filter(status='active').exists():
+            organizational_cycle.status = 'completed'
+            organizational_cycle.save(update_fields=['status', 'updated_at'])
+
+    scope_label = 'organisation' if requested_scope == 'organization' else 'team'
+    report_summary = f' Generated {reports_generated} available report(s).'
+    if reports_skipped:
+        report_summary += (
+            f' Skipped {reports_skipped} report(s) without enough completed feedback.'
+        )
+    messages.success(
+        request,
+        f'Ended the {scope_label} cycle scope.{report_summary}',
+    )
+    return redirect('admin_dashboard')
+
+
+@login_required
+@require_POST
 def close_review_campaign(request, campaign_uuid):
     """End every active cycle in a campaign and generate its reports."""
     campaign = get_object_or_404(
@@ -2472,14 +2957,18 @@ def close_review_campaign(request, campaign_uuid):
     if not active_cycles:
         messages.info(request, 'This campaign is already complete.')
         return redirect('admin_dashboard')
+    minimum_completed = (
+        campaign.minimum_peer_reviewers if campaign.cycle_type == 'peer' else 1
+    )
     without_feedback = [
         cycle.reviewee.name for cycle in active_cycles
-        if not cycle.tokens.filter(completed_at__isnull=False).exists()
+        if cycle.tokens.filter(completed_at__isnull=False).count() < minimum_completed
     ]
     if without_feedback:
         messages.error(
             request,
-            'Cannot end this campaign yet. No completed feedback exists for: '
+            f'Cannot end this campaign yet. At least {minimum_completed} completed '
+            'response(s) are required for: '
             + ', '.join(without_feedback),
         )
         return redirect('admin_dashboard')
@@ -2491,6 +2980,11 @@ def close_review_campaign(request, campaign_uuid):
         generate_report(cycle)
     campaign.status = 'completed'
     campaign.save(update_fields=['status', 'updated_at'])
+    if campaign.organizational_cycle_id:
+        parent = campaign.organizational_cycle
+        if not parent.campaigns.filter(status='active').exists():
+            parent.status = 'completed'
+            parent.save(update_fields=['status', 'updated_at'])
     messages.success(
         request,
         f'Ended {campaign.get_cycle_type_display()} campaign and generated its reports.',
@@ -2679,8 +3173,15 @@ def close_cycle(request, cycle_uuid):
     # Check if there are any completed reviews
     completed_count = cycle.tokens.filter(completed_at__isnull=False).count()
 
-    if completed_count == 0:
-        messages.error(request, 'Cannot close cycle: No reviews have been completed yet.')
+    required_count = (
+        cycle.campaign.minimum_peer_reviewers
+        if cycle.campaign_id and cycle.campaign.cycle_type == 'peer' else 1
+    )
+    if completed_count < required_count:
+        messages.error(
+            request,
+            f'Cannot close cycle: At least {required_count} completed review(s) are required.',
+        )
         return redirect('review_cycle_detail', cycle_uuid=cycle_uuid)
 
     # Remove unclaimed tokens (tokens that are still active but not claimed)
@@ -2692,6 +3193,7 @@ def close_cycle(request, cycle_uuid):
     # Mark cycle as completed
     cycle.status = 'completed'
     cycle.save()
+    _synchronize_cycle_parent_status(cycle)
 
     # Generate report
     from reports.services import generate_report, send_report_ready_notification
@@ -3117,7 +3619,7 @@ def settings_view(request):
                 if editable('email'):
                     organization.email = request.POST.get('email', organization.email)
                 organization.save()
-                messages.success(request, 'Organization details updated successfully.')
+                messages.success(request, 'Organisation details updated successfully.')
 
             elif section == 'registration':
                 # Update registration settings
@@ -3128,11 +3630,6 @@ def settings_view(request):
 
             elif section == 'reports':
                 # Update report settings
-                min_responses = request.POST.get('min_responses_for_anonymity', 3)
-                try:
-                    organization.min_responses_for_anonymity = int(min_responses)
-                except (ValueError, TypeError):
-                    organization.min_responses_for_anonymity = 3
                 organization.auto_send_report_email = request.POST.get('auto_send_report_email') == 'on'
                 organization.save()
                 messages.success(request, 'Report settings updated successfully.')
@@ -3537,6 +4034,21 @@ def manage_organization_person(request):
             reviewee.team = teams[0] if teams else None
             reviewee.save(update_fields=['email', 'is_active', 'team', 'updated_at'])
             reviewee.teams.set(teams)
+            transfer_notifications = [
+                (
+                    managed_team.name,
+                    replacement.user.get_full_name() or replacement.user.email,
+                    replacement.user.email,
+                    request.user.get_full_name() or request.user.email,
+                )
+                for managed_team in managed_teams
+                if (replacement := reassignments.get(managed_team.id))
+                and replacement != profile
+            ]
+            if transfer_notifications:
+                transaction.on_commit(lambda: _send_team_ownership_notifications(
+                    organization, transfer_notifications
+                ))
         messages.success(request, f'User updated for {target.get_full_name() or target.email}.')
 
     elif action == 'remove':

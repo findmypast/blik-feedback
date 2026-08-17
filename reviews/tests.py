@@ -5,6 +5,7 @@ from unittest.mock import patch
 from questionnaires.factories import RatingQuestionFactory
 from reviews.factories import ReviewerTokenFactory
 from accounts.factories import UserProfileFactory
+from accounts.models import Reviewee
 from core.factories import OrganizationFactory, UserFactory
 
 
@@ -47,3 +48,25 @@ class FeedbackCompletionRedirectTests(TestCase):
         )
 
         self.assertRedirects(response, reverse('admin_dashboard'))
+
+    def test_legacy_self_email_claims_existing_assigned_token(self):
+        token = ReviewerTokenFactory(
+            cycle__reviewee=Reviewee.objects.get(
+                organization=self.organization, email=self.user.email
+            ),
+            category='self',
+            reviewer_email=self.user.email,
+        )
+
+        response = self.client.get(
+            reverse(
+                'reviews:claim_token',
+                args=[token.cycle.invitation_token_self],
+            ),
+            {'force_claim': '1'},
+        )
+
+        self.assertRedirects(
+            response, reverse('reviews:feedback_form', args=[token.token])
+        )
+        self.assertEqual(token.cycle.tokens.count(), 1)

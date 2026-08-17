@@ -1,4 +1,6 @@
 from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.views.decorators.http import require_http_methods
@@ -8,6 +10,13 @@ from reviews.models import ReviewCycle
 from .models import Report
 from .services import generate_report, get_report_summary, apply_display_anonymization
 import uuid
+
+
+def report_threshold(cycle):
+    """Use the peer campaign minimum, retaining the legacy fallback."""
+    if cycle.campaign_id and cycle.campaign.cycle_type == 'peer':
+        return cycle.campaign.minimum_peer_reviewers
+    return cycle.organization.min_responses_for_anonymity
 
 
 def get_cycle_or_404(request, cycle_uuid):
@@ -48,13 +57,18 @@ def view_report(request, cycle_uuid):
         ).exists()
         if not is_own_cycle(request.user, cycle) and not can_access:
             raise Http404
-        report = Report.objects.filter(cycle=cycle).first() or generate_report(cycle)
+        try:
+            report = Report.objects.filter(cycle=cycle).first() or generate_report(cycle)
+        except ValidationError as exc:
+            return render(request, 'reports/report_not_ready.html', {
+                'cycle': cycle, 'error': '; '.join(exc.messages),
+            })
         if is_own_cycle(request.user, cycle):
             return redirect('reports:reviewee_report', access_token=report.access_token)
         summary = get_report_summary(report)
         display_data = apply_display_anonymization(
             report.report_data,
-            min_threshold=cycle.organization.min_responses_for_anonymity,
+            min_threshold=report_threshold(cycle),
         )
         return render(request, 'reports/admin_view_report.html', {
             'cycle': cycle, 'report': report, 'display_data': display_data,
@@ -68,12 +82,17 @@ def view_report(request, cycle_uuid):
     try:
         report = Report.objects.get(cycle=cycle)
     except Report.DoesNotExist:
-        report = generate_report(cycle)
+        try:
+            report = generate_report(cycle)
+        except ValidationError as exc:
+            return render(request, 'reports/report_not_ready.html', {
+                'cycle': cycle, 'error': '; '.join(exc.messages),
+            })
 
     summary = get_report_summary(report)
 
     # Apply display-level anonymization based on organization settings
-    min_threshold = cycle.organization.min_responses_for_anonymity
+    min_threshold = report_threshold(cycle)
     display_data = apply_display_anonymization(
         report.report_data,
         min_threshold=min_threshold
@@ -95,7 +114,10 @@ def view_report(request, cycle_uuid):
 def regenerate_report(request, cycle_uuid):
     """Regenerate report for a review cycle"""
     cycle = get_cycle_or_404(request, cycle_uuid)
-    generate_report(cycle)
+    try:
+        generate_report(cycle)
+    except ValidationError as exc:
+        messages.error(request, '; '.join(exc.messages))
 
     return redirect('reports:view_report', cycle_uuid=cycle.uuid)
 
@@ -138,7 +160,7 @@ def reviewee_report(request, access_token):
     summary = get_report_summary(report)
 
     # Apply display-level anonymization based on organization settings
-    min_threshold = cycle.organization.min_responses_for_anonymity
+    min_threshold = report_threshold(cycle)
     display_data = apply_display_anonymization(
         report.report_data,
         min_threshold=min_threshold

@@ -11,14 +11,27 @@
     <a href="{% url 'review_cycle_create' %}" class="btn btn-primary">Create Cycle</a>
 </div>
 
-{% if campaigns %}
+{% if organizational_cycle_groups or campaigns %}
 <div class="card mb-2">
-    <div class="card-header"><h2 class="card-title">Campaign Cycles</h2></div>
+    <div class="card-header"><h2 class="card-title">Cycles</h2></div>
     <div class="card-body campaign-list">
+        {% for group in organizational_cycle_groups %}
+        <div class="cycle-summary-row">
+            <div>
+                <span><strong>{{ group.cycle.display_name }}</strong> <span class="badge {% if group.cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ group.cycle.get_status_display }}</span></span>
+                <small>{{ group.cycle.audience_label }} · Due {{ group.cycle.due_date|date:"j F Y"|default:"date not set" }}</small>
+            </div>
+            <div class="cycle-summary-progress">
+                <span>{{ group.completed_count }} / {{ group.total_count }} reviews complete</span>
+                <div class="progress"><div class="progress-bar" style="width:{% widthratio group.completed_count group.total_count 100 %}%;"></div></div>
+            </div>
+            <div class="cycle-summary-actions"><a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View summary</a></div>
+        </div>
+        {% endfor %}
         {% for item in campaigns %}
         <div class="cycle-summary-row">
             <div>
-                <strong>{{ item.campaign.start_date|default:item.campaign.created_at|date:"j F Y" }} – {{ item.campaign.get_cycle_type_display|title }} Cycle</strong>
+                <strong>{{ item.campaign.display_name }}</strong>
                 <small>{% if item.campaign.team %}{{ item.campaign.team.name }}{% if item.campaign.include_descendants %} and nested teams{% endif %}{% else %}{{ item.campaign.individual.name }}{% endif %} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
             </div>
             <div class="cycle-summary-progress">
@@ -143,7 +156,7 @@
     </div>
     {% endif %}
 </div>
-{% else %}
+{% elif not campaigns and not organizational_cycle_groups %}
 <div class="card">
     <div class="card-body">
         <div class="empty-state">

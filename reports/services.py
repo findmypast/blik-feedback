@@ -491,6 +491,15 @@ def _calculate_chart_data(report_data, cycle):
 def generate_report(cycle):
     """Generate aggregated report for a review cycle"""
 
+    if cycle.campaign_id and cycle.campaign.cycle_type == 'peer':
+        completed = cycle.tokens.filter(completed_at__isnull=False).count()
+        required = cycle.campaign.minimum_peer_reviewers
+        if completed < required:
+            from django.core.exceptions import ValidationError
+            raise ValidationError(
+                f'At least {required} completed peer reviews are required to generate this report.'
+            )
+
     questionnaire = cycle.questionnaire
 
     # Get organization's anonymity threshold

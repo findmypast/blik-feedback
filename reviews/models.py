@@ -9,10 +9,82 @@ from core.models import Organization
 from questionnaires.models import Questionnaire, Question
 
 
+class OrganizationalReviewCycle(TimeStampedModel):
+    """Coordinates self, peer, and manager campaigns across an organization."""
+
+    STATUS_CHOICES = [('active', 'Active'), ('completed', 'Completed')]
+    AUDIENCE_CHOICES = [
+        ('individuals', 'Individual(s)'),
+        ('teams', 'Team(s)'),
+        ('entire', 'Entire organisation'),
+    ]
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    name = models.CharField(max_length=255, blank=True)
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name='organizational_review_cycles'
+    )
+    teams = models.ManyToManyField(
+        Team,
+        blank=True,
+        related_name='organizational_review_cycles',
+        help_text='Teams included in this organisation review.',
+    )
+    selected_reviewees = models.ManyToManyField(
+        Reviewee,
+        blank=True,
+        related_name='selected_organizational_review_cycles',
+    )
+    audience_type = models.CharField(
+        max_length=20,
+        choices=AUDIENCE_CHOICES,
+        default='entire',
+    )
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True,
+        related_name='created_organizational_review_cycles',
+    )
+    self_questionnaire = models.ForeignKey(
+        Questionnaire, on_delete=models.PROTECT, related_name='+')
+    peer_questionnaire = models.ForeignKey(
+        Questionnaire, on_delete=models.PROTECT, related_name='+')
+    manager_questionnaire = models.ForeignKey(
+        Questionnaire, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
+    minimum_peer_reviewers = models.PositiveSmallIntegerField(default=3)
+    start_date = models.DateField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+
+    class Meta:
+        db_table = 'organizational_review_cycles'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Organisation cycle – {self.organization}'
+
+    @property
+    def display_name(self):
+        if self.name:
+            return self.name
+        cycle_date = self.start_date or self.created_at.date()
+        return f'{cycle_date:%B %Y} Organisation Review'
+
+    @property
+    def audience_label(self):
+        if self.audience_type == 'entire':
+            return 'Entire organisation'
+        if self.audience_type == 'individuals':
+            return 'Selected individuals'
+        names = list(self.teams.order_by('name').values_list('name', flat=True))
+        return ', '.join(names) or 'Selected teams'
+
+
 class ReviewCampaign(TimeStampedModel):
     """A manager-created campaign grouping one or more individual cycles."""
 
-    TARGET_CHOICES = [('team', 'Team'), ('individual', 'Individual')]
+    TARGET_CHOICES = [
+        ('team', 'Team'), ('individual', 'Individual'),
+        ('organization', 'Organisation'),
+    ]
     TYPE_CHOICES = [
         ('peer', 'Peer review'),
         ('self', 'Self-assessment'),
@@ -25,6 +97,7 @@ class ReviewCampaign(TimeStampedModel):
     ]
 
     uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
+    name = models.CharField(max_length=255, blank=True)
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name='review_campaigns'
     )
@@ -54,6 +127,13 @@ class ReviewCampaign(TimeStampedModel):
     renewed_from = models.ForeignKey(
         'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='renewals'
     )
+    organizational_cycle = models.ForeignKey(
+        OrganizationalReviewCycle,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='campaigns',
+    )
 
     class Meta:
         db_table = 'review_campaigns'
@@ -61,6 +141,26 @@ class ReviewCampaign(TimeStampedModel):
 
     def __str__(self):
         return f'{self.get_cycle_type_display()} – {self.organization}'
+
+    @property
+    def display_name(self):
+        type_label = self.get_cycle_type_display().title()
+        if self.name:
+            return f'{self.name} — {type_label}'
+        cycle_date = self.start_date or self.created_at.date()
+        scope = f' — {self.team.name}' if self.team_id else ''
+        return f'{cycle_date:%B %Y}{scope} — {type_label} Cycle'
+
+    @property
+    def scope_label(self):
+        if self.target_type == 'organization':
+            return 'Organisation-wide'
+        if self.target_type == 'team' and self.team_id:
+            suffix = ' and nested teams' if self.include_descendants else ''
+            return f'{self.team.name}{suffix}'
+        if self.target_type == 'individual' and self.individual_id:
+            return self.individual.name
+        return 'Scope not set'
 
 
 class ReviewCycle(TimeStampedModel):
@@ -171,6 +271,15 @@ class ReviewCycle(TimeStampedModel):
         }
         return token_map.get(category)
 
+    @property
+    def participant_team_label(self):
+        if self.campaign_id and self.campaign.team_id:
+            return self.campaign.team.name
+        names = {membership.team.name for membership in self.reviewee.team_memberships.all()}
+        if self.reviewee.team_id:
+            names.add(self.reviewee.team.name)
+        return ', '.join(sorted(names)) or 'Organisation-wide'
+
 
 class ReviewerToken(TimeStampedModel):
     """Anonymous token for reviewer access"""
@@ -186,6 +295,14 @@ class ReviewerToken(TimeStampedModel):
         ReviewCycle,
         on_delete=models.CASCADE,
         related_name='tokens'
+    )
+    assigned_team = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewer_assignments',
+        help_text='Team that caused this review assignment, when applicable.',
     )
     token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, db_index=True)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
@@ -219,6 +336,17 @@ class ReviewerToken(TimeStampedModel):
     @property
     def is_completed(self):
         return self.completed_at is not None
+
+    @property
+    def assignment_team_label(self):
+        if self.assigned_team_id:
+            return self.assigned_team.name
+        if self.cycle.campaign_id and self.cycle.campaign.team_id:
+            return self.cycle.campaign.team.name
+        names = {membership.team.name for membership in self.cycle.reviewee.team_memberships.all()}
+        if self.cycle.reviewee.team_id:
+            names.add(self.cycle.reviewee.team.name)
+        return ', '.join(sorted(names)) or 'Organisation-wide'
 
 
 class Response(TimeStampedModel):

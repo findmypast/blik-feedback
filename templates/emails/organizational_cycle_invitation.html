@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;">
+    <div style="max-width:600px;margin:0 auto;padding:24px;">
+        <div style="background:#4f46e5;color:#fff;padding:32px 28px;border-radius:12px 12px 0 0;text-align:center;">
+            <div style="font-size:34px;line-height:1;margin-bottom:12px;">✨</div>
+            <h1 style="margin:0;font-size:26px;line-height:1.25;">It’s review time!</h1>
+            <p style="margin:8px 0 0;color:#e0e7ff;font-size:16px;">{{ organization.name }}</p>
+        </div>
+        <div style="background:#fff;padding:32px 30px;border:1px solid #e5e7eb;border-top:0;border-radius:0 0 12px 12px;">
+            <p>Hi <strong>{{ participant.name }}</strong>,</p>
+            <p style="line-height:1.65;">Your feedback helps celebrate great work, support development, and make our teams stronger. As part of this cycle, please complete:</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;border-collapse:separate;border-spacing:0 10px;">
+                <tr><td style="background:#f5f3ff;border:1px solid #e0e7ff;border-radius:9px;padding:15px 17px;"><strong style="color:#4338ca;">🪞 Self-assessment</strong><br><span style="color:#4b5563;font-size:14px;line-height:1.5;">Take a moment to reflect on your achievements and development.</span></td></tr>
+                <tr><td style="background:#f5f3ff;border:1px solid #e0e7ff;border-radius:9px;padding:15px 17px;"><strong style="color:#4338ca;">🤝 Peer review</strong><br><span style="color:#4b5563;font-size:14px;line-height:1.5;">Select peer reviewers separately for each team you belong to, and complete any peer reviews assigned to you.</span></td></tr>
+                {% if organizational_cycle.manager_questionnaire_id %}<tr><td style="background:#f5f3ff;border:1px solid #e0e7ff;border-radius:9px;padding:15px 17px;"><strong style="color:#4338ca;">🌱 Manager assessment</strong><br><span style="color:#4b5563;font-size:14px;line-height:1.5;">Share constructive feedback for the manager of each team you belong to.</span></td></tr>{% endif %}
+            </table>
+            {% if organizational_cycle.due_date %}<div style="background:#eef2ff;border-left:4px solid #6366f1;border-radius:6px;padding:12px 15px;margin:20px 0;color:#3730a3;"><strong>📅 Due {{ organizational_cycle.due_date|date:"j F Y" }}</strong></div>{% endif %}
+            <p style="line-height:1.65;">Everything you need is waiting on your dashboard, and your progress will be saved as you go.</p>
+            <div style="text-align:center;margin:28px 0 22px;">
+                <a href="{{ dashboard_url }}" style="display:inline-block;background:#4f46e5;color:#fff!important;-webkit-text-fill-color:#fff;padding:13px 30px;text-decoration:none;border-radius:8px;font-weight:700;">Go to Dashboard →</a>
+            </div>
+            <p style="margin-bottom:0;line-height:1.65;">Thank you for taking the time to share thoughtful feedback. 💙</p>
+            <p style="margin:18px 0 0;color:#6b7280;">The {{ organization.name }} team</p>
+        </div>
+    </div>
+</body>
+</html>

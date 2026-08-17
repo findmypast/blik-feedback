@@ -12,12 +12,46 @@ from accounts.factories import RevieweeFactory
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
-from reviews.models import ReviewCampaign
+from reviews.models import OrganizationalReviewCycle, ReviewCampaign
 from reviews.services import (
+    send_organizational_cycle_invitations,
     send_peer_nomination_invitation,
     send_reviewee_notifications,
     send_reviewer_invitations,
 )
+
+
+@override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
+class SendOrganizationalCycleInvitationTests(TestCase):
+    @patch('reviews.services.send_email')
+    def test_sends_one_consolidated_dashboard_email_per_participant(self, mock_send_email):
+        org = OrganizationFactory(name='FindMyPast')
+        participant = RevieweeFactory(
+            organization=org, name='Jamie Member', email='jamie@example.com'
+        )
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=UserFactory(),
+            self_questionnaire=questionnaire,
+            peer_questionnaire=questionnaire,
+            manager_questionnaire=questionnaire,
+            minimum_peer_reviewers=3,
+        )
+
+        stats = send_organizational_cycle_invitations(parent)
+
+        self.assertEqual(stats['sent'], 1)
+        self.assertEqual(mock_send_email.call_count, 1)
+        call = mock_send_email.call_args.kwargs
+        self.assertEqual(call['recipient_list'], [participant.email])
+        self.assertIn('FindMyPast', call['subject'])
+        rendered = call['message'] + call['html_message']
+        self.assertIn('Self-assessment', rendered)
+        self.assertIn('Peer review', rendered)
+        self.assertIn('Manager assessment', rendered)
+        self.assertIn('Go to Dashboard', rendered)
+        self.assertIn('https://public.example.com/dashboard/', rendered)
 
 
 class SendReviewerInvitationsTests(TestCase):
@@ -83,6 +117,12 @@ class SendRevieweeNotificationsTests(TestCase):
 
         send_reviewee_notifications(self.cycle, request=request)
 
+        self.assertEqual(mock_send_email.call_count, 1)
+        self.assertNotIn(
+            'Share Your 360 Feedback Links',
+            mock_send_email.call_args.kwargs['subject'],
+        )
+
         rendered = '\n'.join(
             (call.kwargs.get('html_message') or '')
             + '\n'
@@ -91,6 +131,12 @@ class SendRevieweeNotificationsTests(TestCase):
         )
         self.assertIn('https://public.example.com/', rendered)
         self.assertNotIn('proxy.internal', rendered)
+        self_token = self.cycle.tokens.get(category='self')
+        self.assertIn(
+            f'https://public.example.com/feedback/{self_token.token}/', rendered
+        )
+        self.assertNotIn('/feedback/invite/', rendered)
+        self.assertIsNotNone(self_token.invitation_sent_at)
 
 
 @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')

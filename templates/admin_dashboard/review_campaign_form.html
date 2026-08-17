@@ -15,6 +15,15 @@
     <input type="hidden" name="campaign_flow" value="1">
 
     <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header"><h2 class="card-title">Cycle details</h2></div>
+        <div class="card-body">
+            <label for="cycle_name" class="form-label">Cycle name</label>
+            <input type="text" name="cycle_name" id="cycle_name" class="form-control" maxlength="255" placeholder="For example, Q3 Development Review">
+            <small>A clear name helps people distinguish between multiple reviews. If left blank, Blik will create a name from the month and review type.</small>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-header"><h2 class="card-title">1. Who is this for?</h2></div>
         <div class="card-body">
             <div style="display:flex; gap:1rem; margin-bottom:1rem;">
@@ -26,6 +35,10 @@
                     <input type="radio" name="target_type" value="individual">
                     <span><strong>Individual</strong><small>Send this to one person</small></span>
                 </label>
+                {% if perms.accounts.can_manage_organization %}<label class="selection-card">
+                    <input type="radio" name="target_type" value="organization">
+                    <span><strong>Organisation</strong><small>Run self, peer, and manager assessments together</small></span>
+                </label>{% endif %}
             </div>
             <div id="teamTarget">
                 <label for="team" class="form-label">Team *</label>
@@ -51,6 +64,7 @@
     <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-header"><h2 class="card-title">2. What should they complete?</h2></div>
         <div class="card-body">
+            <div id="standardAssessmentFields">
             <div class="form-group">
                 <label for="cycle_type" class="form-label">Review type *</label>
                 <select name="cycle_type" id="cycle_type" class="form-control" required>
@@ -78,6 +92,36 @@
                 <label for="minimum_peer_reviewers" class="form-label">Minimum peer reviewers *</label>
                 <input type="number" name="minimum_peer_reviewers" id="minimum_peer_reviewers" class="form-control" value="3" min="1" max="50" required>
                 <small>Each member must select at least this many people before invitations are sent.</small>
+            </div>
+            </div>
+            <div id="organizationAssessmentFields" style="display:none;">
+                <div class="form-group">
+                    <label class="form-label">Who should be included? *</label>
+                    <div class="organisation-audience-options">
+                        <label><input type="radio" name="organization_audience" value="individuals"> Individual(s)</label>
+                        <label><input type="radio" name="organization_audience" value="teams"> Team(s)</label>
+                        <label><input type="radio" name="organization_audience" value="entire" checked> Entire organisation</label>
+                    </div>
+                </div>
+                <div id="organisationIndividuals" class="form-group" style="display:none;">
+                    <label class="form-label" for="organization_individuals">Member email addresses *</label>
+                    <textarea class="form-control" id="organization_individuals" name="organization_individuals" rows="3" placeholder="alex@example.com, sam@example.com"></textarea>
+                    <small>Separate multiple email addresses with commas, semicolons, or new lines.</small>
+                </div>
+                <div id="organisationTeams" class="form-group" style="display:none;">
+                    <label class="form-label">Teams *</label>
+                    <details class="team-checklist">
+                        <summary id="organisationTeamSummary">Select one or more teams</summary>
+                        <div class="team-checklist-options">
+                            {% for team in teams %}<label><input type="checkbox" name="organization_teams" value="{{ team.id }}"> <span>{{ team.name }}</span></label>{% endfor %}
+                        </div>
+                    </details>
+                </div>
+                <p class="help-text">Each selected person receives one self-assessment. Peer and manager assessments are created separately for each applicable team. People without a team do not receive a manager assessment.</p>
+                <div class="form-group"><label class="form-label" for="self_questionnaire">Self-assessment questionnaire *</label><select class="form-control" id="self_questionnaire" name="self_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_self_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                <div class="form-group"><label class="form-label" for="peer_questionnaire">Peer-review questionnaire *</label><select class="form-control" id="peer_questionnaire" name="peer_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_peer_review %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                <div class="form-group" id="organisationManagerQuestionnaire"><label class="form-label" for="manager_questionnaire">Manager-assessment questionnaire *</label><select class="form-control" id="manager_questionnaire" name="manager_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_manager_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                <div class="form-group"><label class="form-label" for="organization_minimum_peer_reviewers">Minimum peer reviewers *</label><input type="number" class="form-control" id="organization_minimum_peer_reviewers" name="minimum_peer_reviewers" value="3" min="1" max="50" disabled><small>This minimum is required for nominations and for peer-report anonymity.</small></div>
             </div>
         </div>
     </div>
@@ -113,7 +157,7 @@
 </form>
 
 <style>
-.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.organisation-audience-options{display:flex;gap:1.25rem;flex-wrap:wrap}.organisation-audience-options label{display:flex;align-items:center;gap:.4rem}.team-checklist{position:relative;border:1px solid var(--border);border-radius:6px;background:var(--bg-card)}.team-checklist summary{padding:.75rem 1rem;cursor:pointer;list-style:none}.team-checklist-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.15rem .5rem;max-height:240px;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--border);padding:.6rem}.team-checklist-options label{display:flex;align-items:center;gap:.55rem;min-width:0;padding:.5rem;border-radius:5px}.team-checklist-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.team-checklist-options label:hover{background:var(--bg-light)}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:720px){.team-checklist-options{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.team-checklist-options{grid-template-columns:1fr}}
 </style>
 <script>
 const typeHelp = {peer:'Members will nominate colleagues to review them.',self:'Each selected member will complete their own assessment.',manager:'Team members will anonymously assess their manager.'};
@@ -122,14 +166,22 @@ function updateCampaignForm(){
   const type=document.getElementById('cycle_type').value;
   document.getElementById('teamTarget').style.display=target==='team'?'block':'none';
   document.getElementById('individualTarget').style.display=target==='individual'?'block':'none';
+  const organizational=target==='organization';
+  document.getElementById('standardAssessmentFields').style.display=organizational?'none':'block';
+  document.getElementById('organizationAssessmentFields').style.display=organizational?'block':'none';
+  document.getElementById('cycle_type').required=!organizational;
+  document.getElementById('questionnaire').required=!organizational;
+  ['self_questionnaire','peer_questionnaire'].forEach(id=>document.getElementById(id).required=organizational);
+  document.getElementById('organization_minimum_peer_reviewers').disabled=!organizational;
   const managerOption=document.querySelector('#cycle_type option[value="manager"]');
   managerOption.disabled=target==='individual';
   if(target==='individual'&&type==='manager'){document.getElementById('cycle_type').value='peer';}
   const selectedType=document.getElementById('cycle_type').value;
   document.getElementById('typeHelp').textContent=typeHelp[selectedType];
   const minimumPeers=document.getElementById('minimumPeerReviewers');
-  minimumPeers.style.display=selectedType==='peer'?'block':'none';
-  document.getElementById('minimum_peer_reviewers').required=selectedType==='peer';
+  minimumPeers.style.display=!organizational&&selectedType==='peer'?'block':'none';
+  document.getElementById('minimum_peer_reviewers').required=!organizational&&selectedType==='peer';
+  document.getElementById('minimum_peer_reviewers').disabled=organizational;
   const questionnaire=document.getElementById('questionnaire');
   [...questionnaire.options].forEach(option=>{
     if(!option.value)return;
@@ -137,9 +189,23 @@ function updateCampaignForm(){
     option.disabled=option.hidden;
   });
   if(questionnaire.selectedOptions[0]?.disabled)questionnaire.value='';
+  const audience=document.querySelector('input[name="organization_audience"]:checked').value;
+  document.getElementById('organisationIndividuals').style.display=organizational&&audience==='individuals'?'block':'none';
+  document.getElementById('organisationTeams').style.display=organizational&&audience==='teams'?'block':'none';
+  document.getElementById('organization_individuals').required=organizational&&audience==='individuals';
+  const managerQuestionnaire=document.getElementById('manager_questionnaire');
+  const showManagerQuestionnaire=organizational&&audience!=='individuals';
+  document.getElementById('organisationManagerQuestionnaire').style.display=showManagerQuestionnaire?'block':'none';
+  managerQuestionnaire.required=showManagerQuestionnaire;
+  managerQuestionnaire.disabled=organizational&&audience==='individuals';
 }
 document.querySelectorAll('input[name="target_type"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
 document.getElementById('cycle_type').addEventListener('change',updateCampaignForm);
+document.querySelectorAll('input[name="organization_audience"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
+document.querySelectorAll('input[name="organization_teams"]').forEach(el=>el.addEventListener('change',()=>{
+  const count=document.querySelectorAll('input[name="organization_teams"]:checked').length;
+  document.getElementById('organisationTeamSummary').textContent=count?`${count} team${count===1?'':'s'} selected`:'Select one or more teams';
+}));
 document.querySelectorAll('[data-date-picker]').forEach(button=>button.addEventListener('click',()=>{
   const input=document.getElementById(button.dataset.datePicker);
   if(typeof input.showPicker==='function'){input.showPicker();}else{input.focus();input.click();}

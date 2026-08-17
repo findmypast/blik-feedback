@@ -38,6 +38,24 @@ def claim_token(request, invitation_token):
 
     # If coming from redirect page (has force_claim param), skip localStorage check
     if request.GET.get('force_claim'):
+        # Older self-assessment emails used the category invitation URL. Reuse
+        # the assigned self token so completion updates the dashboard task
+        # instead of creating an unrelated anonymous token.
+        if category == 'self':
+            assigned_self_token = ReviewerToken.objects.filter(
+                cycle=cycle,
+                category='self',
+                reviewer_email__iexact=cycle.reviewee.email,
+                completed_at__isnull=True,
+            ).first()
+            if assigned_self_token:
+                if assigned_self_token.claimed_at is None:
+                    assigned_self_token.claimed_at = timezone.now()
+                    assigned_self_token.save(update_fields=['claimed_at'])
+                return redirect(
+                    'reviews:feedback_form', token=assigned_self_token.token
+                )
+
         # Get available tokens (not claimed, not completed, and NOT assigned to an email)
         # This prevents invite links from claiming tokens meant for specific email invitations
         available_tokens = list(

@@ -161,13 +161,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     <div class="card">
         <div class="card-body stat-card-content">
-            <div class="stat-number success">{{ completed_cycles }}</div>
-            <div class="stat-label">Completed Cycles</div>
-        </div>
-    </div>
-
-    <div class="card">
-        <div class="card-body stat-card-content">
             <div class="stat-number secondary">{{ pending_tokens }}</div>
             <div class="stat-label">Pending Reviews</div>
         </div>
@@ -273,46 +266,74 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="card mb-2" style="border-left:4px solid var(--primary);">
     <div class="card-header"><h2 class="card-title">To do</h2></div>
     <div class="card-body">
+        <div class="table-responsive"><table class="table todo-table"><thead><tr><th>Task</th><th>Cycle</th><th>Team</th><th>Reviewee</th><th>Assigned by</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
         {% for cycle in pending_peer_nominations %}
-        <div class="todo-row">
-            <div>
-                <strong>Select peer reviewers</strong>
-                <div style="font-size:.875rem;color:var(--text-secondary);">Select the colleagues you would like feedback from{% if cycle.campaign.due_date %} by {{ cycle.campaign.due_date|date:"M d, Y" }}{% endif %}.</div>
-            </div>
-            <a href="{% url 'nominate_peer_reviewers' cycle.uuid %}" class="btn btn-primary btn-sm">Select peer reviewers</a>
-        </div>
+        <tr class="todo-assessment-peer">
+            <td><strong>Select peer reviewers</strong></td>
+            <td>{% if cycle.campaign.organizational_cycle_id %}{{ cycle.campaign.organizational_cycle.display_name }}{% else %}{{ cycle.campaign.display_name }}{% endif %}<br><small>{% if cycle.campaign.organizational_cycle_id %}{{ cycle.campaign.organizational_cycle.audience_label }}{% else %}{{ cycle.campaign.scope_label }}{% endif %}</small></td>
+            <td>{{ cycle.participant_team_label }}</td>
+            <td>{{ cycle.reviewee.name }}</td>
+            <td>{{ cycle.campaign.created_by.get_full_name|default:cycle.campaign.created_by.email|default:"System" }}</td>
+            <td>{{ cycle.campaign.due_date|date:"M d, Y"|default:"Not set" }}</td>
+            <td><span class="badge badge-secondary">Not started</span></td>
+            <td><a href="{% url 'nominate_peer_reviewers' cycle.uuid %}" class="btn btn-primary btn-sm">Select peers</a></td>
+        </tr>
         {% endfor %}
         {% for task in my_review_tasks %}
-        <div class="todo-row">
-            <div>
-                <strong>{{ task.get_category_display }} for {{ task.cycle.reviewee.name }}</strong>
-                <div style="font-size:.875rem;color:var(--text-secondary);">{{ task.cycle.questionnaire.name }}{% if task.cycle.due_date %} · Due {{ task.cycle.due_date|date:"M d, Y" }}{% endif %}</div>
-            </div>
-            <a href="{% url 'reviews:feedback_form' task.token %}" class="btn btn-primary btn-sm">{% if task.claimed_at %}Continue{% else %}Start{% endif %}</a>
-        </div>
+        <tr class="{% if task.category == 'self' %}todo-assessment-self{% elif task.category == 'direct_report' or task.category == 'manager' %}todo-assessment-manager{% else %}todo-assessment-peer{% endif %}">
+            <td>
+                {% if task.category == 'direct_report' %}<strong>Assess your manager</strong><br><small>{{ task.cycle.reviewee.name }}</small>
+                {% elif task.category == 'self' %}<strong>Self Assessment</strong>
+                {% else %}<strong>{{ task.get_category_display }}</strong><br><small>{{ task.cycle.reviewee.name }}</small>{% endif %}
+            </td>
+            <td>{% if task.cycle.campaign %}{% if task.cycle.campaign.organizational_cycle_id %}{{ task.cycle.campaign.organizational_cycle.display_name }}{% else %}{{ task.cycle.campaign.display_name }}{% endif %}<br><small>{% if task.cycle.campaign.organizational_cycle_id %}{{ task.cycle.campaign.organizational_cycle.audience_label }}{% else %}{{ task.cycle.campaign.scope_label }}{% endif %}</small>{% else %}{{ task.cycle.start_date|default:task.cycle.created_at|date:"j M Y" }} – {{ task.cycle.get_cycle_type_display|title }}{% endif %}</td>
+            <td>{{ task.assignment_team_label }}</td>
+            <td>{{ task.cycle.reviewee.name }}</td>
+            <td>{% if task.cycle.campaign %}{{ task.cycle.campaign.created_by.get_full_name|default:task.cycle.campaign.created_by.email|default:"System" }}{% else %}{{ task.cycle.created_by.get_full_name|default:task.cycle.created_by.email|default:"System" }}{% endif %}</td>
+            <td>{{ task.cycle.due_date|date:"M d, Y"|default:"Not set" }}</td>
+            <td>{% if task.claimed_at %}<span class="badge badge-warning">In progress</span>{% else %}<span class="badge badge-secondary">Not started</span>{% endif %}</td>
+            <td><a href="{% url 'reviews:feedback_form' task.token %}" class="btn btn-primary btn-sm">{% if task.claimed_at %}Continue{% else %}Start{% endif %}</a></td>
+        </tr>
         {% endfor %}
+        </tbody></table></div>
     </div>
 </div>
-<style>.todo-row{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border)}.todo-row:first-child{padding-top:0}.todo-row:last-child{padding-bottom:0;border-bottom:0}@media(max-width:650px){.todo-row{align-items:flex-start;flex-direction:column}}</style>
+<style>
+.todo-table th,.todo-table td{vertical-align:middle}.todo-table th:nth-child(n+3),.todo-table td:nth-child(n+3){text-align:center}.todo-table td:last-child{white-space:nowrap}
+</style>
 {% endif %}
 
-{% if active_campaigns %}
+{% if organizational_cycle_cards or active_campaigns %}
 <div class="card mb-2">
     <div class="card-header"><h2 class="card-title">Active Cycles</h2></div>
     <div class="card-body">
+        {% for organization_item in organizational_cycle_cards %}
+        <details class="campaign-card">
+            <summary class="organizational-cycle-header">
+                <span><strong>{{ organization_item.cycle.display_name }}</strong><small>{{ organization_item.cycle.audience_label }} · Self, peer, and manager assessments · Due {{ organization_item.cycle.due_date|date:"j F Y"|default:"date not set" }}</small></span>
+                <span class="organizational-cycle-progress">
+                    <span class="progress-track" role="progressbar" aria-label="Organisation cycle progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ organization_item.completion_rate|floatformat:0 }}"><span style="width:{{ organization_item.completion_rate|floatformat:0 }}%"></span></span>
+                    <small>{{ organization_item.completed_count }} / {{ organization_item.total_count }} complete</small>
+                </span>
+                {% if organization_item.cycle.status == 'active' %}<span class="organizational-cycle-actions">
+                    {% if organization_item.is_team_leader %}<form method="post" action="{% url 'close_organizational_cycle_scope' organization_item.cycle.uuid %}" onclick="event.stopPropagation();" onsubmit="event.stopPropagation();">{% csrf_token %}<input type="hidden" name="scope" value="team"><button class="btn btn-sm btn-secondary" type="submit">End my teams’ cycle</button></form>{% endif %}
+                    {% if organization_item.is_organization_admin %}<form method="post" action="{% url 'close_organizational_cycle_scope' organization_item.cycle.uuid %}" onclick="event.stopPropagation();" onsubmit="event.stopPropagation();">{% csrf_token %}<input type="hidden" name="scope" value="organization"><button class="btn btn-sm btn-primary" type="submit">End entire organisation cycle</button></form>{% endif %}
+                </span>{% endif %}
+                <span aria-hidden="true">▾</span>
+            </summary>
+            <div class="campaign-people">
+                {% for item in organization_item.campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=False %}{% endfor %}
+            </div>
+        </details>
+        {% endfor %}
         {% for item in active_campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=False %}{% endfor %}
     </div>
 </div>
 {% endif %}
 
-{% if completed_campaigns %}
-<div class="card mb-2">
-    <div class="card-header"><h2 class="card-title">Completed Cycles</h2></div>
-    <div class="card-body">
-        {% for item in completed_campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=True %}{% endfor %}
-    </div>
-</div>
-{% endif %}
+<style>
+.organizational-cycle-header{display:grid!important;grid-template-columns:minmax(260px,1fr) minmax(180px,280px) auto auto}.organizational-cycle-progress{display:flex!important;flex-direction:column;gap:.35rem}.progress-track{display:block;width:100%;height:.55rem;overflow:hidden;border-radius:999px;background:var(--bg-light);border:1px solid var(--border)}.progress-track>span{display:block;height:100%;background:var(--primary);border-radius:inherit}.organizational-cycle-actions{display:flex!important;flex-direction:row!important;gap:.5rem;flex-wrap:wrap}.organizational-cycle-header form{margin:0}@media(max-width:1000px){.organizational-cycle-header{grid-template-columns:1fr auto}.organizational-cycle-progress,.organizational-cycle-actions{grid-column:1/-1}}
+</style>
 
 {% if recent_reports %}
 <div class="card">
@@ -356,7 +377,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 {% else %}
-{% if not active_campaigns and not completed_campaigns %}
+{% if not organizational_cycle_cards and not active_campaigns and not completed_campaigns %}
 <div class="card">
     <div class="card-body">
         <div class="empty-state">

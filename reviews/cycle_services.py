@@ -30,6 +30,7 @@ def renew_cycle(source_cycle, created_by, *, start_date=None, due_date=None):
             cycle=cycle,
             category=token.category,
             reviewer_email=token.reviewer_email,
+            assigned_team=token.assigned_team,
         )
         for token in source_cycle.tokens.all()
     ])

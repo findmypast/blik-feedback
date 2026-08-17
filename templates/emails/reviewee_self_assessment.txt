@@ -1,12 +1,15 @@
 Hi {{ reviewee.name }},
 
-A new 360-degree feedback cycle has been created for you!
+A self-assessment has been assigned to you.
 
 Please complete your self-assessment by clicking the link below:
 
 {{ self_assessment_url }}
 
-This is your opportunity to reflect on your own performance before receiving feedback from others.
+Your progress is saved as you complete the questionnaire.
+
+{% if cycle.due_date %}Due date: {{ cycle.due_date|date:"j F Y" }}
+{% endif %}
 
 Questionnaire: {{ cycle.questionnaire.name }}
 

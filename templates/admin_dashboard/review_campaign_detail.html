@@ -1,9 +1,10 @@
 {% extends "admin_dashboard/base.html" %}
-{% block title %}{{ campaign.get_cycle_type_display|title }} Cycle{% endblock %}
+{% block title %}{{ campaign.display_name }}{% endblock %}
 {% block content %}
 <div class="page-header">
     <div>
-        <h1>{{ campaign.start_date|default:campaign.created_at|date:"j F Y" }} – {{ campaign.get_cycle_type_display|title }} Cycle</h1>
+        <h1>{{ campaign.display_name }}</h1>
+        <p>{{ campaign.scope_label }}</p>
         <p>{{ campaign.questionnaire.name }}{% if campaign.team %} · {{ campaign.team.name }}{% if campaign.include_descendants %} and nested teams{% endif %}{% else %} · {{ campaign.individual.name }}{% endif %} · Due {{ campaign.due_date|date:"j F Y"|default:"date not set" }}</p>
     </div>
     <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to cycles</a>

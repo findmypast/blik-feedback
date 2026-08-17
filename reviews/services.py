@@ -191,9 +191,10 @@ def send_reminder_emails(cycle, token_ids=None):
 
 def send_reviewee_notifications(cycle, request=None):
     """
-    Send emails to reviewee when a cycle is created:
-    1. Self-assessment link
-    2. Invitation links to share with others
+    Send the reviewee their direct self-assessment task.
+
+    Reviewer assignment is managed in-app. The old second email containing
+    reusable peer/manager/direct-report links is intentionally no longer sent.
 
     Args:
         cycle: ReviewCycle instance
@@ -214,9 +215,20 @@ def send_reviewee_notifications(cycle, request=None):
     # Always use SITE_DOMAIN for consistent URLs across all email contexts
     base_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}"
 
-    # 1. Send self-assessment email
+    # Send only the self-assessment email.
     try:
-        self_assessment_url = f"{base_url}{reverse('reviews:claim_token', kwargs={'invitation_token': cycle.invitation_token_self})}"
+        self_token = cycle.tokens.filter(
+            category='self',
+            reviewer_email__iexact=cycle.reviewee.email,
+            completed_at__isnull=True,
+        ).first()
+        if not self_token:
+            self_token = ReviewerToken.objects.create(
+                cycle=cycle,
+                category='self',
+                reviewer_email=cycle.reviewee.email,
+            )
+        self_assessment_url = f"{base_url}{reverse('reviews:feedback_form', kwargs={'token': self_token.token})}"
 
         context = {
             'reviewee': cycle.reviewee,
@@ -234,39 +246,13 @@ def send_reviewee_notifications(cycle, request=None):
             html_message=html_message,
         )
 
+        self_token.invitation_sent_at = timezone.now()
+        self_token.save(update_fields=['invitation_sent_at'])
+
         stats['sent'] += 1
 
     except Exception as e:
         stats['errors'].append(f"Failed to send self-assessment email: {str(e)}")
-
-    # 2. Send invitation links email
-    try:
-        peer_url = f"{base_url}{reverse('reviews:claim_token', kwargs={'invitation_token': cycle.invitation_token_peer})}"
-        manager_url = f"{base_url}{reverse('reviews:claim_token', kwargs={'invitation_token': cycle.invitation_token_manager})}"
-        direct_report_url = f"{base_url}{reverse('reviews:claim_token', kwargs={'invitation_token': cycle.invitation_token_direct_report})}"
-
-        context = {
-            'reviewee': cycle.reviewee,
-            'cycle': cycle,
-            'peer_url': peer_url,
-            'manager_url': manager_url,
-            'direct_report_url': direct_report_url,
-        }
-
-        html_message = render_to_string('emails/reviewee_invitation_links.html', context)
-        text_message = render_to_string('emails/reviewee_invitation_links.txt', context)
-
-        send_email(
-            subject=f'Share Your 360 Feedback Links: {cycle.questionnaire.name}',
-            message=text_message,
-            recipient_list=[cycle.reviewee.email],
-            html_message=html_message,
-        )
-
-        stats['sent'] += 1
-
-    except Exception as e:
-        stats['errors'].append(f"Failed to send invitation links email: {str(e)}")
 
     return stats
 
@@ -291,6 +277,50 @@ def send_campaign_invitations(campaign):
         result = send_peer_nomination_invitation(cycle)
         stats['sent'] += result['sent']
         stats['errors'].extend(result['errors'])
+    return stats
+
+
+def send_organizational_cycle_invitations(organizational_cycle):
+    """Send one consolidated dashboard email to each active participant."""
+    from accounts.models import Reviewee
+
+    stats = {'sent': 0, 'errors': []}
+    dashboard_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/"
+    participants = organizational_cycle.selected_reviewees.filter(is_active=True)
+    if not participants.exists():
+        # Compatibility for organisation cycles created before audience
+        # selection was introduced.
+        participants = Reviewee.objects.for_organization(
+            organizational_cycle.organization
+        ).filter(is_active=True)
+    participants = participants.exclude(email='').order_by('email').distinct()
+    for participant in participants:
+        context = {
+            'participant': participant,
+            'organizational_cycle': organizational_cycle,
+            'organization': organizational_cycle.organization,
+            'dashboard_url': dashboard_url,
+        }
+        try:
+            send_email(
+                subject=(
+                    f'It’s time for a review cycle for '
+                    f'{organizational_cycle.organization.name}'
+                ),
+                message=render_to_string(
+                    'emails/organizational_cycle_invitation.txt', context
+                ),
+                recipient_list=[participant.email],
+                html_message=render_to_string(
+                    'emails/organizational_cycle_invitation.html', context
+                ),
+            )
+            stats['sent'] += 1
+        except Exception as exc:
+            stats['errors'].append(
+                f'Failed to send organizational cycle invitation to '
+                f'{participant.email}: {exc}'
+            )
     return stats
 
 

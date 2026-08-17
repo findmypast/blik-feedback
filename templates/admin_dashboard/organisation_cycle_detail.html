@@ -1,0 +1,43 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}{{ organisation_cycle.display_name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ organisation_cycle.display_name }} <span class="badge {% if organisation_cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ organisation_cycle.get_status_display }}</span></h1>
+        <p>{{ organisation_cycle.audience_label }} · Due {{ organisation_cycle.due_date|date:"j F Y"|default:"date not set" }}</p>
+    </div>
+    <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to cycles</a>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header"><div><h2 class="card-title">Organisation Cycle Summary</h2><small>{{ completed_count }} / {{ total_count }} reviews complete</small></div></div>
+    <div class="card-body"><div class="progress"><div class="progress-bar" style="width:{{ completion_rate }}%;"></div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2 class="card-title">Related Assessment Cycles</h2></div>
+    <div class="card-body organisation-assessments">
+        {% for item in assessment_groups %}
+        <section class="organisation-assessment">
+            <header>
+                <div><strong>{{ item.campaign.get_cycle_type_display|title }}</strong><small>{{ item.campaign.scope_label }} · {{ item.campaign.questionnaire.name }}</small></div>
+                <span>{{ item.completed_count }} / {{ item.total_count }} complete</span>
+            </header>
+            <div class="organisation-people-head"><span>Name</span><span>Email</span><span>Status</span><span>Progress</span></div>
+            {% for person in item.people %}
+            <div class="organisation-person-row">
+                <strong>{{ person.cycle.reviewee.name }}</strong>
+                <span>{{ person.cycle.reviewee.email }}</span>
+                <span><span class="badge {% if person.cycle.status == 'completed' %}badge-success{% elif person.completed_count %}badge-warning{% else %}badge-secondary{% endif %}">{{ person.status_label }}</span></span>
+                <span>{{ person.completed_count }} / {{ person.total_count }} complete</span>
+            </div>
+            {% empty %}<p class="empty-row">No participants are visible in your scope.</p>{% endfor %}
+            {% if item.can_manage %}<div class="organisation-assessment-actions"><a href="{% url 'review_campaign_detail' item.campaign.uuid %}" class="btn btn-sm btn-secondary">View assessment details</a></div>{% endif %}
+        </section>
+        {% endfor %}
+    </div>
+</div>
+<style>
+.card-header small,.organisation-assessment small,.organisation-person-row>span:nth-child(2),.organisation-person-row>span:last-child{color:var(--text-secondary)}.organisation-assessments{display:flex;flex-direction:column;gap:.75rem}.organisation-assessment{border:1px solid var(--border);border-radius:8px;overflow:hidden}.organisation-assessment>header{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.9rem;background:var(--bg-light)}.organisation-assessment>header>div{display:flex;flex-direction:column}.organisation-people-head,.organisation-person-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(210px,1.3fr) minmax(150px,1fr) minmax(100px,.7fr);gap:1rem;align-items:center}.organisation-people-head{padding:.55rem .75rem;color:var(--text-secondary);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em}.organisation-person-row{padding:.75rem;border-top:1px solid var(--border)}.organisation-assessment-actions{display:flex;justify-content:flex-end;padding:.75rem;border-top:1px solid var(--border)}.empty-row{padding:.75rem;color:var(--text-secondary)}@media(max-width:800px){.organisation-people-head{display:none}.organisation-person-row{grid-template-columns:1fr}.organisation-assessment>header{align-items:flex-start;flex-direction:column}}
+</style>
+{% endblock %}

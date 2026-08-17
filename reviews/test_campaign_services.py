@@ -7,11 +7,16 @@ from django.utils import timezone
 from unittest.mock import patch
 
 from accounts.factories import RevieweeFactory, UserProfileFactory
-from accounts.models import Team
+from accounts.models import Team, TeamMembership
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
-from reviews.campaign_services import launch_campaign
-from reviews.models import ReviewCampaign
+from reviews.campaign_services import launch_campaign, launch_organizational_cycle
+from reviews.models import (
+    OrganizationalReviewCycle,
+    ReviewCampaign,
+    ReviewCycle,
+    ReviewerToken,
+)
 
 
 class CampaignServiceTests(TestCase):
@@ -92,6 +97,181 @@ class CampaignServiceTests(TestCase):
 
         self.assertTrue(campaign.cycles.filter(reviewee=nested).exists())
 
+    def test_organizational_cycle_launches_all_three_assessment_types(self):
+        questionnaires = {
+            'self': QuestionnaireFactory(
+                organization=self.org, allow_self_assessment=True
+            ),
+            'peer': QuestionnaireFactory(
+                organization=self.org, allow_peer_review=True
+            ),
+            'manager': QuestionnaireFactory(
+                organization=self.org, allow_manager_assessment=True
+            ),
+        }
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires=questionnaires,
+            minimum_peer_reviewers=4,
+            due_date=date(2026, 9, 1),
+        )
+
+        self.assertEqual(parent.campaigns.count(), 3)
+        self.assertEqual(
+            set(parent.campaigns.values_list('cycle_type', flat=True)),
+            {'self', 'peer', 'manager'},
+        )
+        peer = parent.campaigns.get(cycle_type='peer')
+        self.assertEqual(peer.minimum_peer_reviewers, 4)
+        self.assertEqual(peer.cycles.count(), 3)
+        manager = parent.campaigns.get(cycle_type='manager')
+        self.assertEqual(manager.cycles.get().reviewee, self.manager_reviewee)
+        self.assertEqual(
+            set(manager.cycles.get().tokens.values_list('reviewer_email', flat=True)),
+            {self.member_one.email, self.member_two.email},
+        )
+
+    def test_organization_manager_review_assigns_one_team_label_per_membership(self):
+        second_manager_user = UserFactory(email='second-manager@example.com')
+        second_manager = UserProfileFactory(
+            user=second_manager_user, organization=self.org
+        )
+        second_team = Team.objects.create(
+            organization=self.org, name='Second Team', manager=second_manager
+        )
+        TeamMembership.objects.get_or_create(
+            reviewee=self.member_one, team=second_team
+        )
+        questionnaire = QuestionnaireFactory(
+            organization=self.org,
+            allow_peer_review=False,
+            allow_self_assessment=False,
+            allow_manager_assessment=True,
+        )
+        campaign = launch_campaign(ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='manager',
+        ))
+
+        assignments = ReviewerToken.objects.filter(
+            cycle__campaign=campaign,
+            reviewer_email=self.member_one.email,
+        )
+        self.assertEqual(assignments.count(), 2)
+        self.assertEqual(
+            set(assignments.values_list('assigned_team__name', flat=True)),
+            {'Platform', 'Second Team'},
+        )
+
+    def test_organizational_cycle_shares_self_but_splits_peer_and_manager_by_team(self):
+        second_manager_user = UserFactory(email='second-lead@example.com')
+        second_manager = UserProfileFactory(
+            user=second_manager_user, organization=self.org
+        )
+        second_team = Team.objects.create(
+            organization=self.org, name='Second Team', manager=second_manager
+        )
+        TeamMembership.objects.get_or_create(
+            reviewee=self.member_one, team=second_team
+        )
+        questionnaires = {
+            'self': QuestionnaireFactory(
+                organization=self.org, allow_self_assessment=True
+            ),
+            'peer': QuestionnaireFactory(
+                organization=self.org, allow_peer_review=True
+            ),
+            'manager': QuestionnaireFactory(
+                organization=self.org, allow_manager_assessment=True
+            ),
+        }
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires=questionnaires,
+            minimum_peer_reviewers=2,
+        )
+
+        self_campaign = parent.campaigns.get(cycle_type='self')
+        self.assertEqual(self_campaign.target_type, 'organization')
+        self.assertEqual(
+            self_campaign.cycles.filter(reviewee=self.member_one).count(), 1
+        )
+        peer_campaigns = parent.campaigns.filter(cycle_type='peer')
+        self.assertEqual(peer_campaigns.count(), 2)
+        self.assertEqual(
+            peer_campaigns.filter(cycles__reviewee=self.member_one).count(), 2
+        )
+        manager_campaigns = parent.campaigns.filter(cycle_type='manager')
+        self.assertEqual(manager_campaigns.count(), 2)
+        self.assertEqual(
+            ReviewerToken.objects.filter(
+                cycle__campaign__in=manager_campaigns,
+                reviewer_email=self.member_one.email,
+            ).count(),
+            2,
+        )
+
+    def test_individual_organisation_audience_without_team_gets_only_self(self):
+        unteamed = RevieweeFactory(
+            organization=self.org, team=None, email='unteamed@example.com'
+        )
+        questionnaires = {
+            'self': QuestionnaireFactory(
+                organization=self.org, allow_self_assessment=True
+            ),
+            'peer': QuestionnaireFactory(
+                organization=self.org, allow_peer_review=True
+            ),
+        }
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires=questionnaires,
+            minimum_peer_reviewers=2,
+            audience_type='individuals',
+            participants=[unteamed],
+        )
+
+        self.assertEqual(parent.audience_type, 'individuals')
+        self.assertIsNone(parent.manager_questionnaire)
+        self.assertEqual(parent.campaigns.count(), 1)
+        self.assertTrue(
+            parent.campaigns.get(cycle_type='self').cycles.filter(
+                reviewee=unteamed
+            ).exists()
+        )
+        self.assertFalse(parent.campaigns.filter(cycle_type='manager').exists())
+
+    def test_peer_report_requires_campaign_nomination_minimum(self):
+        from reports.services import generate_report
+
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        campaign = launch_campaign(self.campaign(
+            'peer', questionnaire, minimum_peer_reviewers=3
+        ))
+        cycle = campaign.cycles.get(reviewee=self.member_one)
+        ReviewerToken.objects.create(
+            cycle=cycle, category='peer', reviewer_email='one@example.com',
+            completed_at=timezone.now(),
+        )
+        ReviewerToken.objects.create(
+            cycle=cycle, category='peer', reviewer_email='two@example.com',
+            completed_at=timezone.now(),
+        )
+
+        with self.assertRaisesMessage(ValidationError, 'At least 3 completed'):
+            generate_report(cycle)
+
 
 class CampaignCreationViewTests(TestCase):
     def setUp(self):
@@ -121,6 +301,91 @@ class CampaignCreationViewTests(TestCase):
         self.assertContains(response, 'Include nested teams')
         self.assertContains(response, 'Manager assessment')
         self.assertContains(response, 'Minimum peer reviewers')
+        self.assertContains(response, 'Entire organisation')
+        self.assertContains(response, 'Member email addresses')
+        self.assertContains(response, 'Select one or more teams')
+
+    @patch('reviews.services.send_organizational_cycle_invitations')
+    def test_admin_can_launch_organizational_cycle(self, send):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(reverse('review_cycle_create'), {
+                'campaign_flow': '1',
+                'target_type': 'organization',
+                'cycle_name': 'Q3 Development Review',
+                'self_questionnaire': self_q.id,
+                'peer_questionnaire': peer_q.id,
+                'manager_questionnaire': self.questionnaire.id,
+                'minimum_peer_reviewers': 4,
+                'due_date': '2026-09-01',
+            })
+
+        self.assertRedirects(response, reverse('admin_dashboard'))
+        parent = OrganizationalReviewCycle.objects.get()
+        self.assertEqual(parent.name, 'Q3 Development Review')
+        self.assertEqual(parent.minimum_peer_reviewers, 4)
+        send.assert_called_once_with(parent)
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(dashboard, 'Organisation cycle progress')
+        self.assertContains(dashboard, 'Active Cycles')
+        self.assertNotContains(dashboard, '>Organisation Cycles<')
+        self.assertContains(dashboard, 'Q3 Development Review')
+        self.assertContains(dashboard, 'End my teams’ cycle')
+        self.assertContains(dashboard, 'End entire organisation cycle')
+        self.assertContains(
+            dashboard,
+            reverse('close_organizational_cycle_scope', args=[parent.uuid]),
+        )
+
+        cycles_page = self.client.get(reverse('review_cycle_list'))
+        self.assertContains(cycles_page, 'Cycles')
+        self.assertContains(cycles_page, 'Q3 Development Review')
+        self.assertContains(cycles_page, 'View summary')
+        summary_url = reverse('organisation_cycle_detail', args=[parent.uuid])
+        self.assertContains(cycles_page, summary_url)
+        cycle_summary = self.client.get(summary_url)
+        self.assertContains(cycle_summary, 'Related Assessment Cycles')
+        self.assertContains(cycle_summary, 'Peer Review')
+        self.assertContains(cycle_summary, 'Manager Assessment')
+
+        close_url = reverse(
+            'close_organizational_cycle_scope', args=[parent.uuid]
+        )
+        confirmation = self.client.post(close_url, {'scope': 'organization'})
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertContains(confirmation, 'Outstanding items')
+        self.assertContains(confirmation, 'End cycle anyway')
+        self.assertContains(confirmation, '0 / 1 complete')
+
+        closed = self.client.post(close_url, {
+            'scope': 'organization',
+            'confirm_end': '1',
+        })
+        self.assertRedirects(closed, reverse('admin_dashboard'))
+        parent.refresh_from_db()
+        self.assertEqual(parent.status, 'completed')
+        self.assertFalse(
+            ReviewCycle.objects.filter(
+                campaign__organizational_cycle=parent,
+                status='active',
+            ).exists()
+        )
+        dashboard_after_close = self.client.get(reverse('admin_dashboard'))
+        self.assertNotContains(dashboard_after_close, 'Q3 Development Review')
+        completed_cycles_page = self.client.get(reverse('review_cycle_list'))
+        self.assertContains(completed_cycles_page, 'Q3 Development Review')
+        self.assertContains(completed_cycles_page, 'Completed')
+        completed_summary = self.client.get(summary_url)
+        self.assertContains(completed_summary, 'Completed')
 
     @patch('reviews.services.send_campaign_invitations')
     def test_manager_can_launch_team_manager_assessment(self, send):
@@ -358,6 +623,7 @@ class PeerNominationFlowTests(TestCase):
         )
         self.assertContains(response, 'Add or remove peers')
         self.assertNotContains(response, self.peer.email)
+        self.assertNotContains(response, self.peer.name)
         self.assertNotContains(response, 'Resend reminder')
         self.assertNotContains(response, self.manager.reviewee.name)
 
@@ -373,6 +639,22 @@ class PeerNominationFlowTests(TestCase):
         self.assertContains(response, self.member.name)
         self.assertContains(response, self.peer.email)
         self.assertContains(response, 'Resend')
+
+    def test_manager_dashboard_peer_header_shows_nomination_status_and_resend(self):
+        self.client.force_login(self.manager_user)
+
+        response = self.client.get(reverse('admin_dashboard'))
+
+        self.assertContains(response, 'Awaiting peer selection')
+        self.assertContains(response, 'Resend selection invitation')
+        self.assertNotContains(response, 'Resend nomination invitation')
+        self.assertNotContains(response, 'Awaiting reviewer selections')
+        self.assertContains(
+            response,
+            reverse('send_campaign_cycle_reminder', args=[
+                self.campaign.uuid, self.cycle.uuid,
+            ]),
+        )
 
     @patch('reviews.services.send_reminder_emails')
     def test_manager_can_resend_to_one_peer_from_dashboard(self, send):
@@ -404,10 +686,31 @@ class PeerNominationFlowTests(TestCase):
         response = self.client.get(reverse('admin_dashboard'))
 
         self.assertContains(response, 'To do')
+        self.assertContains(response, 'Cycle')
+        self.assertContains(response, 'Reviewee')
+        self.assertContains(response, 'Assigned by')
+        self.assertContains(response, 'Peer Review')
+        self.assertContains(response, self.manager_user.get_full_name())
         self.assertContains(response, reverse('reviews:feedback_form', args=[token.token]))
         self.assertContains(response, 'Start')
         self.assertNotContains(
             response, reverse('reviews:feedback_form', args=[other_token.token])
+        )
+
+    def test_ended_cycle_removes_peer_selection_and_review_tasks(self):
+        token = self.cycle.tokens.create(
+            category='self', reviewer_email=self.member_user.email,
+            invitation_sent_at=timezone.now(),
+        )
+        self.cycle.status = 'completed'
+        self.cycle.save(update_fields=['status', 'updated_at'])
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(reverse('admin_dashboard'))
+
+        self.assertNotContains(response, 'Select peer reviewers')
+        self.assertNotContains(
+            response, reverse('reviews:feedback_form', args=[token.token])
         )
 
     @patch('reviews.services.send_reminder_emails')

@@ -1,0 +1,46 @@
+{% extends 'admin_dashboard/base.html' %}
+
+{% block title %}Confirm end cycle{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>End {{ organizational_cycle.display_name }}?</h1>
+        <p class="text-muted">You are about to end this cycle for {{ scope_label }}.</p>
+    </div>
+</div>
+
+<div class="card" style="max-width:900px; margin:0 auto;">
+    <div class="card-header"><h2 class="card-title">Outstanding items</h2></div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            Some assessments are incomplete. If you continue, their invitations will be closed. Reports without enough completed feedback will not be generated.
+        </div>
+        <div class="table-responsive">
+            <table class="table">
+                <thead><tr><th>Name</th><th>Assessment</th><th>Team</th><th>Progress</th></tr></thead>
+                <tbody>
+                    {% for item in incomplete_items %}
+                    <tr>
+                        <td>{{ item.name }}</td>
+                        <td>{{ item.assessment }}</td>
+                        <td>{{ item.team }}</td>
+                        <td>{{ item.completed }} / {{ item.required }} complete</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p><strong>Are you sure you want to end this cycle anyway?</strong></p>
+        <div style="display:flex; justify-content:flex-end; gap:.75rem;">
+            <a class="btn btn-secondary" href="{% url 'admin_dashboard' %}">Cancel</a>
+            <form method="post" action="{% url 'close_organizational_cycle_scope' organizational_cycle.uuid %}" style="margin:0;">
+                {% csrf_token %}
+                <input type="hidden" name="scope" value="{{ scope }}">
+                <input type="hidden" name="confirm_end" value="1">
+                <button class="btn btn-danger" type="submit">End cycle anyway</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
