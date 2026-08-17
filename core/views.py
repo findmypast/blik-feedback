@@ -122,7 +122,7 @@ def setup_organization(request):
                     logger = logging.getLogger(__name__)
                     logger.warning(f"Could not assign permissions during setup: {e}")
 
-            messages.success(request, f'Organization "{organization.name}" configured successfully!')
+            messages.success(request, f'Organisation "{organization.name}" configured successfully!')
             return redirect('setup_email')
     else:
         # Pre-fill form with existing organization data if available

@@ -15,21 +15,26 @@
         // Theme detection and initialization
         (function() {
             const getPreferredTheme = () => {
-                const stored = localStorage.getItem('theme');
-                if (stored) return stored;
-                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                const preference = localStorage.getItem('themePreference') || localStorage.getItem('theme') || 'system';
+                if (preference === 'system') return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                return preference;
             };
 
             const setTheme = (theme) => {
                 document.documentElement.setAttribute('data-theme', theme);
-                localStorage.setItem('theme', theme);
+            };
+
+            window.applyThemePreference = (preference) => {
+                localStorage.setItem('themePreference', preference);
+                localStorage.removeItem('theme');
+                setTheme(preference === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : preference);
             };
 
             setTheme(getPreferredTheme());
 
             // Listen for system theme changes
             window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                if (!localStorage.getItem('theme')) {
+                if ((localStorage.getItem('themePreference') || 'system') === 'system') {
                     setTheme(e.matches ? 'dark' : 'light');
                 }
             });
@@ -129,7 +134,8 @@
             const current = document.documentElement.getAttribute('data-theme') || 'light';
             const next = current === 'light' ? 'dark' : 'light';
             document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('theme', next);
+            localStorage.setItem('themePreference', next);
+            localStorage.removeItem('theme');
             updateIcon(next);
         });
     </script>

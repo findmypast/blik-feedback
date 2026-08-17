@@ -35,7 +35,7 @@ def create_organization(request):
 
         # Validation
         if not org_name:
-            messages.error(request, 'Organization name is required.')
+            messages.error(request, 'Organisation name is required.')
             return render(request, 'superuser/create_organization.html')
 
         if not admin_email:
@@ -44,7 +44,7 @@ def create_organization(request):
 
         # Check if organization with this name already exists
         if Organization.objects.filter(name=org_name).exists():
-            messages.error(request, f'Organization "{org_name}" already exists.')
+            messages.error(request, f'Organisation "{org_name}" already exists.')
             return render(request, 'superuser/create_organization.html')
 
         # Check if user with this email already exists
@@ -94,7 +94,7 @@ def create_organization(request):
                     send_welcome_email(user, org, password=password)
                     messages.success(
                         request,
-                        f'Organization "{org_name}" created successfully. Login credentials sent to {admin_email}.'
+                        f'Organisation "{org_name}" created successfully. Login credentials sent to {admin_email}.'
                     )
                     return redirect('superuser_create_organization')
                 except Exception as e:

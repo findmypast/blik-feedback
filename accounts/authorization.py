@@ -119,15 +119,13 @@ def visible_profiles(user, queryset, organization=None):
     return queryset.filter(id__in=profile_ids)
 
 
-def manageable_teams(user, organization=None):
-    """Teams the user may target directly when creating a campaign."""
+def led_teams(user, organization=None):
+    """Teams granted through leadership, without organization-admin expansion."""
     profile = getattr(user, 'profile', None)
     organization = organization or getattr(profile, 'organization', None)
     queryset = Team.objects.for_organization(organization)
     if not profile or not organization or profile.organization_id != organization.id:
         return queryset.none()
-    if user.has_perm('accounts.can_manage_organization'):
-        return queryset
 
     allowed_ids = set(queryset.filter(manager=profile).values_list('id', flat=True))
     children = {}
@@ -142,6 +140,18 @@ def manageable_teams(user, organization=None):
             team_ids -= _descendant_ids(revocation.team_id, children)
         allowed_ids |= team_ids
     return queryset.filter(id__in=allowed_ids)
+
+
+def manageable_teams(user, organization=None):
+    """Teams the user may target directly when creating a campaign."""
+    profile = getattr(user, 'profile', None)
+    organization = organization or getattr(profile, 'organization', None)
+    queryset = Team.objects.for_organization(organization)
+    if not profile or not organization or profile.organization_id != organization.id:
+        return queryset.none()
+    if user.has_perm('accounts.can_manage_organization'):
+        return queryset
+    return led_teams(user, organization)
 
 
 def is_top_level_team_lead(user, organization=None):

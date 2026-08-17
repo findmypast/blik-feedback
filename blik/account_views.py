@@ -48,7 +48,7 @@ def cancel_subscription_view(request):
     """Cancel subscription at period end."""
     org = request.organization
     if not org:
-        messages.error(request, 'Organization not found.')
+        messages.error(request, 'Organisation not found.')
         return redirect('account_settings')
 
     try:
@@ -69,7 +69,7 @@ def reactivate_subscription_view(request):
     """Reactivate a subscription that was set to cancel."""
     org = request.organization
     if not org:
-        messages.error(request, 'Organization not found.')
+        messages.error(request, 'Organisation not found.')
         return redirect('account_settings')
 
     try:
@@ -89,7 +89,7 @@ def export_data(request):
     """Export all organization data as JSON."""
     org = request.organization
     if not org:
-        return JsonResponse({'error': 'Organization not found'}, status=404)
+        return JsonResponse({'error': 'Organisation not found'}, status=404)
 
     try:
         data = export_organization_data(org, request.user)
@@ -117,7 +117,7 @@ def preview_import(request):
     """
     org = request.organization
     if not org:
-        return JsonResponse({'error': 'Organization not found'}, status=404)
+        return JsonResponse({'error': 'Organisation not found'}, status=404)
 
     # Check if user is org admin
     if not request.user.has_perm('accounts.can_manage_organization'):
@@ -175,7 +175,7 @@ def import_data(request):
     """
     org = request.organization
     if not org:
-        messages.error(request, 'Organization not found')
+        messages.error(request, 'Organisation not found')
         return redirect('settings')
 
     # Check if user is org admin
@@ -291,20 +291,20 @@ def delete_organization(request):
     # Confirm with password
     password = request.POST.get('password')
     if not user.check_password(password):
-        messages.error(request, 'Invalid password. Organization deletion canceled.')
+        messages.error(request, 'Invalid password. Organisation deletion cancelled.')
         return redirect('account_settings')
 
     # Confirm with organization name
     org_name = request.POST.get('organization_name')
     if org_name != org.name:
-        messages.error(request, 'Organization name does not match. Deletion canceled.')
+        messages.error(request, 'Organisation name does not match. Deletion cancelled.')
         return redirect('account_settings')
 
     try:
         from accounts.services import delete_organization as delete_org_service
         delete_org_service(org)
         logout(request)
-        messages.success(request, 'Organization and all data have been deleted.')
+        messages.success(request, 'Organisation and all data have been deleted.')
         return redirect('landing:home')
     except Exception as e:
         messages.error(request, f'Error deleting organization: {str(e)}')

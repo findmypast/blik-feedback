@@ -1,287 +1,63 @@
 {% extends 'admin_dashboard/base.html' %}
-{% load static %}
-
 {% block title %}My Profile{% endblock %}
-
 {% block content %}
-<!-- Welcome modal with auto-show disabled (manual trigger only) -->
-<div id="welcome-modal" class="modal-overlay" style="display: none;" data-auto-show="false">
-    <div class="modal-content" style="max-width: 600px;">
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <div style="width: 64px; height: 64px; margin: 0 auto 1rem; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <circle cx="12" cy="12" r="6"></circle>
-                    <circle cx="12" cy="12" r="2"></circle>
-                </svg>
-            </div>
-            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;">Welcome to Blik</h2>
-            <p style="color: var(--text-secondary); margin: 0;">Your 360-degree feedback platform</p>
-        </div>
+<div class="page-header"><div><h1>My Profile</h1><p>Manage your details, memberships and appearance.</p></div></div>
 
-        <div style="background: var(--bg-light); padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;">
-            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem;">How Blik helps you:</h3>
-            <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
-                <li>Gather comprehensive feedback from peers, managers, and direct reports</li>
-                <li>Maintain complete anonymity for honest, constructive input</li>
-                <li>Generate actionable insights to drive professional growth</li>
-            </ul>
-        </div>
-
-        <div style="margin-bottom: 2rem;">
-            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem;">Getting started is simple:</h3>
-            <div style="display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: flex; gap: 1rem; align-items: start;">
-                    <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">1</div>
-                    <div>
-                        <strong>Set up your teams</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">Organize the people who will take part in reviews</p>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: start;">
-                    <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">2</div>
-                    <div>
-                        <strong>Create a review cycle</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">Choose a questionnaire and invite reviewers</p>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: start;">
-                    <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">3</div>
-                    <div>
-                        <strong>Share anonymous invite links</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">Copy links and share directly, or optionally send via email</p>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 1rem; align-items: start;">
-                    <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">4</div>
-                    <div>
-                        <strong>Review the report</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">View aggregated insights and share with participants</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-            <button onclick="dismissWelcome(true)" class="btn btn-secondary">
-                Close
-            </button>
-            <a href="{% url 'team_list' %}" class="btn btn-primary" style="text-decoration: none;">
-                Get Started
-            </a>
-        </div>
+<div class="profile-overview card mb-2">
+    <div class="profile-avatar">{{ user.first_name|first|default:user.email|first|upper }}</div>
+    <div class="profile-identity">
+        <h2>{{ user.get_full_name|default:user.email }}</h2><span>{{ user.email }}</span>
+        <div class="profile-badges"><span class="badge badge-secondary">{{ role_label }}</span>{% if is_organization_admin %}<span class="badge badge-success">Admin</span>{% endif %}</div>
+    </div>
+    <div class="profile-membership">
+        <div><small>Organisation</small><strong>{{ organization.name }}</strong></div>
+        <div><small>Teams</small><span>{% for team in teams %}<span class="team-chip">{{ team.name }}</span>{% empty %}<span class="muted">No teams assigned</span>{% endfor %}</span></div>
+        {% if managed_teams %}<div><small>Manages</small><span>{% for team in managed_teams %}<span class="team-chip">{{ team.name }}</span>{% endfor %}</span></div>{% endif %}
+        <div><small>Member since</small><span>{{ user.date_joined|date:"F Y" }}</span></div>
     </div>
 </div>
 
+<div class="profile-stats">
+    <div class="stat-card"><span class="stat-icon">✓</span><strong>{{ reviews_given }}</strong><span>Reviews completed</span><small>Feedback you have given</small></div>
+    <div class="stat-card"><span class="stat-icon">✦</span><strong>{{ reviews_received }}</strong><span>Responses received</span><small>Across your review cycles</small></div>
+    <div class="stat-card"><span class="stat-icon">★</span><strong>{{ completed_cycle_count }}</strong><span>Cycles completed</span><small>Your completed milestones</small></div>
+    <div class="stat-card"><span class="stat-icon">↗</span><strong>{% if average_score != None %}{{ average_score }}{% else %}—{% endif %}</strong><span>Average feedback</span><small>{% if average_score != None %}Across available reports{% else %}Available after scored reports{% endif %}</small></div>
+</div>
+
+<div class="profile-grid">
+    <div class="card"><div class="card-header"><h2 class="card-title">Personal details</h2></div><div class="card-body">
+        <form method="post" class="profile-form">{% csrf_token %}
+            <div class="form-group"><label for="{{ form.first_name.id_for_label }}">First name</label>{{ form.first_name }}{% if form.first_name.errors %}<small class="field-error">{{ form.first_name.errors.0 }}</small>{% endif %}</div>
+            <div class="form-group"><label for="{{ form.last_name.id_for_label }}">Last name</label>{{ form.last_name }}{% if form.last_name.errors %}<small class="field-error">{{ form.last_name.errors.0 }}</small>{% endif %}</div>
+            <div class="form-group profile-form-wide"><label for="{{ form.email.id_for_label }}">Email</label>{{ form.email }}{% if form.email.errors %}<small class="field-error">{{ form.email.errors.0 }}</small>{% endif %}</div>
+            <div class="profile-form-wide"><button type="submit" class="btn btn-primary">Save profile</button></div>
+        </form>
+    </div></div>
+    <div class="card"><div class="card-header"><h2 class="card-title">Appearance</h2></div><div class="card-body">
+        <p class="muted">Choose how Blik looks on this device.</p>
+        <div class="theme-options" role="radiogroup" aria-label="Theme preference">
+            <button type="button" data-theme-choice="light"><span class="theme-preview light-preview"></span><strong>Light</strong><small>Always use light mode</small></button>
+            <button type="button" data-theme-choice="dark"><span class="theme-preview dark-preview"></span><strong>Dark</strong><small>Always use dark mode</small></button>
+            <button type="button" data-theme-choice="system"><span class="theme-preview system-preview"></span><strong>System</strong><small>Match this device</small></button>
+        </div>
+    </div></div>
+</div>
+
+<div class="card mt-2"><div class="card-header"><h2 class="card-title">My Review Activity</h2><span class="badge badge-secondary">{{ cycles_with_reports|length }} cycles</span></div><div class="card-body">
+    {% if cycles_with_reports %}<div class="table-responsive"><table class="table profile-cycle-table"><thead><tr><th>Cycle</th><th>Created</th><th>Status</th><th>Responses</th><th>Report</th></tr></thead><tbody>
+    {% for cycle_data in cycles_with_reports %}<tr>
+        <td><strong>{% if cycle_data.cycle.campaign.organizational_cycle_id %}{{ cycle_data.cycle.campaign.organizational_cycle.display_name }}{% elif cycle_data.cycle.campaign_id %}{{ cycle_data.cycle.campaign.display_name }}{% else %}{{ cycle_data.cycle.questionnaire.name }}{% endif %}</strong><small>{{ cycle_data.cycle.get_cycle_type_display|title }}</small></td>
+        <td>{{ cycle_data.cycle.created_at|date:"j M Y" }}</td>
+        <td><span class="badge {% if cycle_data.cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ cycle_data.cycle.get_status_display }}</span></td>
+        <td>{% if cycle_data.summary %}{{ cycle_data.summary.total_responses }}{% else %}—{% endif %}</td>
+        <td>{% if cycle_data.has_report and cycle_data.cycle.status == 'completed' %}<a href="{% url 'reports:reviewee_report' cycle_data.report.access_token %}" class="btn btn-sm btn-secondary">View report</a>{% else %}<span class="muted">Not available</span>{% endif %}</td>
+    </tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><h3>No review activity yet</h3><p>Your review cycles will appear here.</p></div>{% endif %}
+</div></div>
+
+<style>
+.profile-overview{display:grid;grid-template-columns:auto minmax(220px,.8fr) minmax(300px,1.2fr);gap:1.5rem;align-items:center;padding:1.5rem}.profile-avatar{width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--primary);color:#fff;font-size:1.75rem;font-weight:700}.profile-identity h2{margin:0}.profile-identity>span,.muted,.profile-membership small,.stat-card small,.profile-cycle-table small{color:var(--text-secondary)}.profile-badges{display:flex;gap:.4rem;margin-top:.65rem}.profile-membership{display:grid;grid-template-columns:repeat(2,minmax(130px,1fr));gap:1rem}.profile-membership>div{display:flex;flex-direction:column;gap:.3rem}.team-chip{display:inline-block;padding:.2rem .5rem;margin:0 .25rem .25rem 0;border:1px solid var(--border);border-radius:999px;font-size:.8rem;background:var(--bg-light)}.profile-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1rem}.stat-card{position:relative;display:flex;flex-direction:column;padding:1.15rem;border:1px solid var(--border);border-radius:10px;background:var(--bg-card)}.stat-card strong{font-size:1.8rem;color:var(--primary)}.stat-icon{position:absolute;right:1rem;top:1rem;color:var(--primary);font-size:1.2rem}.profile-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.profile-form{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.profile-form-wide{grid-column:1/-1}.theme-options{display:grid;grid-template-columns:repeat(3,1fr);gap:.65rem}.theme-options button{display:flex;flex-direction:column;gap:.3rem;padding:.65rem;text-align:left;color:var(--text-primary);background:var(--bg-card);border:2px solid var(--border);border-radius:8px;cursor:pointer}.theme-options button.active{border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--primary) 18%,transparent)}.theme-options small{color:var(--text-secondary)}.theme-preview{height:45px;width:100%;border-radius:5px;border:1px solid var(--border)}.light-preview{background:#f8fafc}.dark-preview{background:#172033}.system-preview{background:linear-gradient(90deg,#f8fafc 50%,#172033 50%)}.profile-cycle-table td:first-child{display:flex;flex-direction:column}.field-error{color:var(--danger)}@media(max-width:900px){.profile-overview{grid-template-columns:auto 1fr}.profile-membership{grid-column:1/-1}.profile-stats{grid-template-columns:repeat(2,1fr)}.profile-grid{grid-template-columns:1fr}}@media(max-width:600px){.profile-stats,.profile-form,.theme-options{grid-template-columns:1fr}.profile-form-wide{grid-column:auto}}
+</style>
 <script>
-// Welcome modal logic - manual trigger only on profile page
-window.showWelcomeModal = function() {
-    const modal = document.getElementById('welcome-modal');
-    if (modal) {
-        modal.style.display = 'flex';
-        document.body.style.overflow = 'hidden';
-    }
-};
-
-window.dismissWelcome = function(skip = false) {
-    const modal = document.getElementById('welcome-modal');
-    if (modal) {
-        modal.style.display = 'none';
-        document.body.style.overflow = 'auto';
-
-        // Note: We don't mark as seen in backend here since this is manual viewing
-        // The backend flag is only set on first auto-show
-    }
-};
-
-// Modal event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    const modal = document.getElementById('welcome-modal');
-    if (!modal) return;
-
-    // Close on overlay click
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            dismissWelcome(true);
-        }
-    });
-
-    // Close on Escape key
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && modal.style.display === 'flex') {
-            dismissWelcome(true);
-        }
-    });
-});
+document.addEventListener('DOMContentLoaded',()=>{const buttons=document.querySelectorAll('[data-theme-choice]');const selected=localStorage.getItem('themePreference')||localStorage.getItem('theme')||'system';const mark=value=>buttons.forEach(button=>{const active=button.dataset.themeChoice===value;button.classList.toggle('active',active);button.setAttribute('aria-checked',active?'true':'false');});mark(selected);buttons.forEach(button=>button.addEventListener('click',()=>{window.applyThemePreference(button.dataset.themeChoice);mark(button.dataset.themeChoice);}));});
 </script>
-
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-12">
-            <h2 class="mb-4">My Profile</h2>
-        </div>
-    </div>
-
-    <div class="row">
-        <!-- Profile Information & Edit Form -->
-        <div class="col-md-4">
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h4 class="mb-0">Personal Information</h4>
-                </div>
-                <div class="card-body">
-                    <form method="post" id="profile-edit-form">
-                        {% csrf_token %}
-
-                        <div class="mb-3">
-                            <label for="{{ form.first_name.id_for_label }}" class="form-label">First Name</label>
-                            {{ form.first_name }}
-                            {% if form.first_name.errors %}
-                                <div class="text-danger small">{{ form.first_name.errors.0 }}</div>
-                            {% endif %}
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="{{ form.last_name.id_for_label }}" class="form-label">Last Name</label>
-                            {{ form.last_name }}
-                            {% if form.last_name.errors %}
-                                <div class="text-danger small">{{ form.last_name.errors.0 }}</div>
-                            {% endif %}
-                        </div>
-
-                        <div class="mb-3">
-                            <label for="{{ form.email.id_for_label }}" class="form-label">Email</label>
-                            {{ form.email }}
-                            {% if form.email.errors %}
-                                <div class="text-danger small">{{ form.email.errors.0 }}</div>
-                            {% endif %}
-                        </div>
-
-                        <div class="mb-3">
-                            <label class="form-label">Username</label>
-                            <input type="text" class="form-control" value="{{ user.username }}" disabled>
-                            <small class="text-muted">Username cannot be changed</small>
-                        </div>
-
-                        <button type="submit" class="btn btn-primary w-100">Update Profile</button>
-                    </form>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <h4 class="mb-0">Organization</h4>
-                </div>
-                <div class="card-body">
-                    <div class="mb-2">
-                        <strong>{{ organization.name }}</strong>
-                    </div>
-                    <div class="text-muted small mb-3">{{ organization.email }}</div>
-
-                    <div class="mb-3"><strong>Team:</strong> {% if profile.reviewee.team %}{{ profile.reviewee.team.name }}{% else %}Not assigned{% endif %}</div>
-
-                    {% if user.is_superuser %}<a href="/admin/" class="btn btn-sm btn-secondary w-100">Django administration</a>{% endif %}
-
-                    <hr>
-
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span>Permissions</span>
-                    </div>
-                    <div class="small">
-                        {% if profile.can_create_cycles_for_others %}
-                            <span class="badge bg-success">Can create cycles for others</span>
-                        {% else %}
-                            <span class="badge bg-warning">Self cycles only</span>
-                        {% endif %}
-                    </div>
-
-                    <hr>
-
-                    <div class="text-muted small mb-2">
-                        Member since {{ user.date_joined|date:"F Y" }}
-                    </div>
-
-                    <button onclick="showWelcomeModal()" class="btn btn-sm btn-secondary w-100" style="margin-top: 1rem;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: text-bottom; margin-right: 0.5rem;">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <circle cx="12" cy="12" r="6"></circle>
-                            <circle cx="12" cy="12" r="2"></circle>
-                        </svg>
-                        View Welcome Guide
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Review Cycles & Reports -->
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h4 class="mb-0">My Review Cycles</h4>
-                    <span class="badge bg-primary">{{ cycles_with_reports|length }}</span>
-                </div>
-                <div class="card-body">
-                    {% if cycles_with_reports %}
-                        <div class="list-group">
-                            {% for cycle_data in cycles_with_reports %}
-                            <div class="list-group-item">
-                                <div class="d-flex w-100 justify-content-between align-items-start">
-                                    <div class="flex-grow-1">
-                                        <h5 class="mb-1">{{ cycle_data.cycle.questionnaire.name }}</h5>
-                                        <p class="mb-1 text-muted small">
-                                            Created {{ cycle_data.cycle.created_at|date:"F d, Y" }}
-                                            {% if cycle_data.cycle.created_by %}
-                                                by {{ cycle_data.cycle.created_by.get_full_name|default:cycle_data.cycle.created_by.username }}
-                                            {% endif %}
-                                        </p>
-
-                                        {% if cycle_data.has_report %}
-                                            <div class="mt-2">
-                                                {% if cycle_data.summary %}
-                                                    <div class="small mb-2">
-                                                        <strong>Responses:</strong>
-                                                        {% for category, count in cycle_data.summary.by_category.items %}
-                                                            <span class="badge bg-secondary me-1">{{ category|title }}: {{ count }}</span>
-                                                        {% endfor %}
-                                                        <span class="badge bg-info">Total: {{ cycle_data.summary.total_responses }}</span>
-                                                    </div>
-                                                {% endif %}
-
-                                                {% if cycle_data.cycle.status == 'completed' %}
-                                                    <a href="{% url 'reports:reviewee_report' cycle_data.report.access_token %}"
-                                                       class="btn btn-sm btn-success" target="_blank">
-                                                        View Report
-                                                    </a>
-                                                {% else %}
-                                                    <span class="badge bg-warning">Report available when cycle is completed</span>
-                                                {% endif %}
-                                            </div>
-                                        {% else %}
-                                            <div class="mt-2">
-                                                <span class="badge bg-secondary">No report generated yet</span>
-                                            </div>
-                                        {% endif %}
-                                    </div>
-                                    <div class="ms-3">
-                                        {% if cycle_data.cycle.status == 'active' %}
-                                            <span class="badge bg-success">Active</span>
-                                        {% elif cycle_data.cycle.status == 'completed' %}
-                                            <span class="badge bg-info">Completed</span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <div class="text-center text-muted py-5">
-                            <p class="mb-0">No review cycles found for your account.</p>
-                            <p class="small">Review cycles will appear here when they're created for your email address.</p>
-                        </div>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 {% endblock %}

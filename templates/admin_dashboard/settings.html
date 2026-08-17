@@ -6,7 +6,7 @@
 <div class="page-header">
     <div>
         <h1>Settings</h1>
-        <p class="page-description">Organization configuration and preferences</p>
+        <p class="page-description">Organisation configuration and preferences</p>
     </div>
 </div>
 
@@ -14,7 +14,7 @@
 <aside class="card settings-sidebar" style="position:sticky; top:1rem;">
     <div class="card-header"><h2 class="card-title">Settings</h2></div>
     <div class="card-body" style="display:flex; flex-direction:column; gap:.5rem;">
-        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="organization" style="text-align:left;">Organization</button>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="organization" style="text-align:left;">Organisation</button>
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="reports" style="text-align:left;">Reports</button>
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="email" style="text-align:left;">Email</button>
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="account" style="text-align:left;">Account & data</button>
@@ -53,7 +53,7 @@
                 <tr>
                     <td><strong>{{ profile.user.get_full_name|default:profile.user.email }}</strong><br><small>{{ profile.user.email }}</small></td>
                     <td>{% if profile.team_names %}<span title="{{ profile.team_names_tooltip }}">{% for team_name in profile.visible_team_names %}{{ team_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if profile.extra_team_count %} <span class="team-count-more">+{{ profile.extra_team_count }}</span>{% endif %}</span>{% else %}<span class="help-text">Unassigned</span>{% endif %}</td>
-                    <td>{% if profile.user.is_superuser %}Super administrator{% elif profile.is_org_admin %}Organization administrator{% elif profile.organization_role %}{{ profile.organization_role.name }}{% elif profile.is_team_leader %}Team Leader{% elif profile.can_create_cycles_for_others %}Member · can create cycles{% else %}Member{% endif %}</td>
+                    <td>{% if profile.user.is_superuser %}Super administrator{% elif profile.is_org_admin %}Organisation administrator{% elif profile.organization_role %}{{ profile.organization_role.name }}{% elif profile.is_team_leader %}Team Leader{% elif profile.can_create_cycles_for_others %}Member · can create cycles{% else %}Member{% endif %}</td>
                     <td>{% if profile.user.is_active %}<span style="color:#059669;">● Active</span>{% else %}<span style="color:#d97706;">● Inactive</span>{% endif %}</td>
                     <td style="text-align:right; white-space:nowrap;">{% if not profile.user.is_superuser %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('settings-person-{{ profile.id }}').style.display='flex'">Edit</button>{% if profile.user != request.user %} <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('remove-user-{{ profile.id }}').style.display='flex'">Remove</button>{% endif %}{% endif %}</td>
                 </tr>
@@ -63,16 +63,16 @@
             {% if organization_people.paginator.num_pages > 1 %}<nav class="user-pagination" aria-label="User list pages"><span class="help-text">{{ organization_people.paginator.count }} users · Page {{ organization_people.number }} of {{ organization_people.paginator.num_pages }}</span><span style="display:flex; gap:.4rem;">{% if organization_people.has_previous %}<a class="btn btn-sm btn-secondary" href="?user_q={{ user_query|urlencode }}&users_page={{ organization_people.previous_page_number }}#people">Previous</a>{% endif %}{% if organization_people.has_next %}<a class="btn btn-sm btn-secondary" href="?user_q={{ user_query|urlencode }}&users_page={{ organization_people.next_page_number }}#people">Next</a>{% endif %}</span></nav>{% endif %}
 
             {% for profile in organization_people %}{% if not profile.user.is_superuser %}<div id="settings-person-{{ profile.id }}" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
-                <div style="width:min(500px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
+                <div style="width:min(720px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
                     <h2 style="margin-top:0;">Edit {{ profile.user.get_full_name|default:profile.user.email }}</h2>
                     <form method="post" action="{% url 'manage_organization_person' %}">{% csrf_token %}<input type="hidden" name="action" value="update_user"><input type="hidden" name="user_profile_id" value="{{ profile.id }}">
                         <div class="form-group"><label>Email</label><input class="form-control" type="email" name="email" value="{{ profile.user.email }}" required></div>
-                        <div class="form-group"><label>Status</label><select class="form-control" name="status" {% if profile.user == request.user %}disabled{% endif %}><option value="active" {% if profile.user.is_active %}selected{% endif %}>Active</option><option value="inactive" {% if not profile.user.is_active %}selected{% endif %}>Inactive</option></select>{% if profile.user == request.user %}<input type="hidden" name="status" value="active"><small class="help-text">You cannot make your own account inactive.</small>{% else %}<small class="help-text">Use Inactive for temporary leave. Their account and history remain available to administrators.</small>{% endif %}</div>
-                        <div class="form-group"><label>Role</label><select class="form-control" name="role"><option value="member" {% if not profile.is_org_admin and not profile.is_team_leader and not profile.organization_role %}selected{% endif %}>Member</option><option value="team_leader" {% if profile.is_team_leader and not profile.organization_role and not profile.is_org_admin %}selected{% endif %}>Team Leader</option>{% for organization_role in organization_roles %}<option value="custom:{{ organization_role.id }}" {% if profile.organization_role_id == organization_role.id %}selected{% endif %}>{{ organization_role.name }}</option>{% endfor %}<option value="admin" {% if profile.is_org_admin %}selected{% endif %}>Organization administrator</option></select>{% if profile.user == request.user %}<small class="help-text">You may demote yourself only when another organization administrator remains.</small>{% endif %}</div>
-                        <div class="form-group"><label>Teams</label><details class="team-picker" id="team-picker-{{ profile.id }}"><summary id="team-summary-{{ profile.id }}">{% if profile.team_ids %}{{ profile.team_ids|length }} team{{ profile.team_ids|length|pluralize }} selected{% else %}Select teams{% endif %}</summary><div class="team-picker-options">{% for team in organization_teams %}<label><input type="checkbox" name="teams" value="{{ team.id }}" {% if team.id in profile.team_ids %}checked{% endif %} {% if team.manager_id == profile.id %}disabled{% endif %} onchange="updateTeamSummary('{{ profile.id }}')"> <span>{{ team.name }}{% if team.manager_id == profile.id %} <small class="help-text">(manager)</small><input type="hidden" name="teams" value="{{ team.id }}">{% endif %}</span></label>{% empty %}<span class="help-text">No teams have been created.</span>{% endfor %}<label class="team-picker-create"><input type="checkbox" name="add_team" value="__new__" onchange="toggleNewTeam('{{ profile.id }}', this.checked)"> <span>+ Create a new team</span></label></div></details><small class="help-text">Select any number of teams. Teams they manage are always retained.</small></div>
+                        <div class="form-group status-form-group"><label>Status</label><label class="status-toggle"><input type="checkbox" {% if profile.user.is_active %}checked{% endif %} {% if profile.user == request.user %}disabled{% endif %} onchange="toggleUserStatus(this)"><span class="status-toggle-track"><span></span></span><span><strong>{% if profile.user.is_active %}Active{% else %}Inactive{% endif %}</strong><small>{% if profile.user.is_active %}Can sign in and receive invitations{% else %}Cannot sign in or receive invitations{% endif %}</small></span><input type="hidden" name="status" value="{% if profile.user.is_active %}active{% else %}inactive{% endif %}"></label>{% if profile.user == request.user %}<small class="help-text status-help">You cannot make your own account inactive.</small>{% else %}<small class="help-text status-help">Turn this off for temporary leave. Their account and history remain available.</small>{% endif %}</div>
+                        <div class="form-group"><label>Role</label><select class="form-control" name="role"><option value="member" {% if not profile.is_org_admin and not profile.is_team_leader and not profile.organization_role %}selected{% endif %}>Member</option><option value="team_leader" {% if profile.is_team_leader and not profile.organization_role and not profile.is_org_admin %}selected{% endif %}>Team Leader</option>{% for organization_role in organization_roles %}<option value="custom:{{ organization_role.id }}" {% if profile.organization_role_id == organization_role.id %}selected{% endif %}>{{ organization_role.name }}</option>{% endfor %}<option value="admin" {% if profile.is_org_admin %}selected{% endif %}>Organisation administrator</option></select>{% if profile.user == request.user %}<small class="help-text">You may demote yourself only when another organisation administrator remains.</small>{% endif %}</div>
+                        <div class="form-group"><label>Teams</label><details class="team-picker" id="team-picker-{{ profile.id }}"><summary id="team-summary-{{ profile.id }}">{% if profile.team_ids %}{{ profile.team_ids|length }} team{{ profile.team_ids|length|pluralize }} selected{% else %}Select teams{% endif %}</summary><div class="team-picker-options"><div class="team-picker-search"><input class="form-control" type="search" placeholder="Search teams…" aria-label="Search teams" oninput="filterTeamPicker('{{ profile.id }}',this.value)"><button type="button" class="btn btn-sm btn-secondary" onclick="setAllTeams('{{ profile.id }}',true)">Select visible</button><button type="button" class="btn btn-sm btn-secondary" onclick="setAllTeams('{{ profile.id }}',false)">Clear visible</button></div><div class="team-picker-grid">{% for team in organization_teams %}<label data-team-option data-team-name="{{ team.name|lower }}"><input type="checkbox" name="teams" value="{{ team.id }}" {% if team.id in profile.team_ids %}checked{% endif %} {% if team.manager_id == profile.id %}disabled{% endif %} onchange="updateTeamSummary('{{ profile.id }}')"> <span>{{ team.name }}{% if team.manager_id == profile.id %} <small class="help-text">(manager)</small><input type="hidden" name="teams" value="{{ team.id }}">{% endif %}</span></label>{% empty %}<span class="help-text">No teams have been created.</span>{% endfor %}</div><label class="team-picker-create"><input type="checkbox" name="add_team" value="__new__" onchange="toggleNewTeam('{{ profile.id }}', this.checked)"> <span>+ Create a new team</span></label></div></details><small class="help-text">Search and select any number of teams. Teams they manage are retained unless ownership is transferred.</small></div>
                         <div id="new-team-{{ profile.id }}" class="form-group" style="display:none; padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><label>New team name</label><input class="form-control" name="new_team_name" disabled placeholder="e.g. Product"><small class="help-text">You will become the manager of the new team.</small></div>
-                        <div class="form-group" style="padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><strong>Team leadership scope</strong><p class="help-text" style="margin:.25rem 0 .5rem;">Choose which teams this role can act on. Data remains limited to these teams.</p>{% for team in organization_teams %}<label style="display:flex; gap:.5rem; align-items:center; margin:.35rem 0;"><input type="checkbox" name="lead_teams" value="{{ team.id }}" {% if team.id in profile.lead_team_ids %}checked{% endif %}> {{ team.name }}</label>{% endfor %}<label style="display:flex; gap:.5rem; align-items:center; margin-top:.65rem;"><input type="checkbox" name="include_lead_descendants" {% if profile.lead_grants_list.0.include_descendants %}checked{% endif %}> Include nested teams</label></div>
-                        {% if profile.managed_team_list %}<div class="form-group" style="padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><strong>Team ownership</strong><p class="help-text" style="margin:.25rem 0 .75rem;">Optionally transfer teams this user manages.</p>{% for managed_team in profile.managed_team_list %}<label for="manager-{{ profile.id }}-{{ managed_team.id }}">{{ managed_team.name }}</label><select id="manager-{{ profile.id }}-{{ managed_team.id }}" class="form-control" name="manager_for_{{ managed_team.id }}" style="margin-bottom:.65rem;"><option value="">Keep {{ profile.user.get_full_name|default:profile.user.email }} as manager</option>{% for candidate in organization_manager_candidates %}{% if candidate.id != profile.id %}<option value="{{ candidate.id }}">{{ candidate.user.get_full_name|default:candidate.user.email }}</option>{% endif %}{% endfor %}</select>{% endfor %}</div>{% endif %}
+                        <div class="form-group"><label>Team leadership scope</label><details class="team-picker" id="lead-picker-{{ profile.id }}"><summary id="lead-summary-{{ profile.id }}">{% if profile.lead_team_ids %}{{ profile.lead_team_ids|length }} team{{ profile.lead_team_ids|length|pluralize }} selected{% else %}Select leadership teams{% endif %}</summary><div class="team-picker-options"><div class="team-picker-search"><input class="form-control" type="search" placeholder="Search teams…" aria-label="Search leadership teams" oninput="filterLeadPicker('{{ profile.id }}',this.value)"><button type="button" class="btn btn-sm btn-secondary" onclick="setAllLeadTeams('{{ profile.id }}',true)">Select visible</button><button type="button" class="btn btn-sm btn-secondary" onclick="setAllLeadTeams('{{ profile.id }}',false)">Clear visible</button></div><div class="team-picker-grid">{% for team in organization_teams %}<label data-lead-team-option data-team-name="{{ team.name|lower }}"><input type="checkbox" name="lead_teams" value="{{ team.id }}" {% if team.id in profile.lead_team_ids %}checked{% endif %} onchange="updateLeadSummary('{{ profile.id }}')"><span>{{ team.name }}</span></label>{% empty %}<span class="help-text">No teams have been created.</span>{% endfor %}</div><label class="team-picker-create"><input type="checkbox" name="include_lead_descendants" {% if profile.lead_grants_list.0.include_descendants %}checked{% endif %}><span>Include nested teams</span></label></div></details><small class="help-text">Choose which teams this role can act on. Data remains limited to these teams.</small></div>
+                        {% if profile.managed_team_list %}<div class="form-group"><label>Team ownership</label><details class="team-picker ownership-picker" id="ownership-picker-{{ profile.id }}"><summary id="ownership-summary-{{ profile.id }}">Transfer ownership of selected teams</summary><div class="team-picker-options"><p class="help-text ownership-help">Select a team, then type the name or email of any active organisation member.</p><datalist id="ownership-candidates-{{ profile.id }}">{% for candidate in organization_manager_candidates %}{% if candidate.id != profile.id %}<option value="{{ candidate.user.get_full_name|default:candidate.user.email }} — {{ candidate.user.email }}" data-profile-id="{{ candidate.id }}"></option>{% endif %}{% endfor %}</datalist><div class="ownership-team-list">{% for managed_team in profile.managed_team_list %}<div class="ownership-team-row"><label><input type="checkbox" onchange="toggleTeamTransfer('{{ profile.id }}','{{ managed_team.id }}',this.checked)"><span>{{ managed_team.name }}</span></label><div id="ownership-team-{{ profile.id }}-{{ managed_team.id }}" class="ownership-person" hidden><input class="form-control" type="text" list="ownership-candidates-{{ profile.id }}" placeholder="Type a name or email…" autocomplete="off" oninput="setTransferPerson('{{ profile.id }}','{{ managed_team.id }}',this)" disabled><input type="hidden" name="manager_for_{{ managed_team.id }}" disabled></div></div>{% endfor %}</div></div></details><small class="help-text">The new manager will become a member of the team and receive an email notification.</small></div>{% endif %}
                         <label style="display:flex; align-items:center; gap:.5rem; margin-bottom:1rem;"><input type="checkbox" name="can_create_cycles_for_others" {% if profile.can_create_cycles_for_others %}checked{% endif %}> Can create review cycles for other people</label>
                         <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('settings-person-{{ profile.id }}').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Save changes</button></div>
                     </form>
@@ -96,7 +96,7 @@
         <!-- Organization Details -->
         <div class="card settings-pane" data-settings-section="organization" id="organization-settings">
             <div class="card-header">
-                <h2 class="card-title">Organization</h2>
+                <h2 class="card-title">Organisation</h2>
             </div>
             <form method="post" action="{% url 'settings' %}">
                 {% csrf_token %}
@@ -146,7 +146,7 @@
                     <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('create-role-modal').style.display='flex'">Add role</button>
                 </div>
                 <div class="table-responsive"><table class="table"><thead><tr><th>Role</th><th>Inherits from</th><th>Effective permissions</th><th>People</th><th></th></tr></thead><tbody>
-                    <tr><td><strong>Organization administrator</strong></td><td>—</td><td>All organization permissions</td><td>{{ admin_count }}</td><td></td></tr>
+                    <tr><td><strong>Organisation administrator</strong></td><td>—</td><td>All organisation permissions</td><td>{{ admin_count }}</td><td></td></tr>
                     {% for organization_role in organization_roles %}<tr><td><strong>{{ organization_role.name }}</strong></td><td>{{ organization_role.parent.name|default:'Member' }}</td><td>{% for permission_name in organization_role.effective_permission_names %}{{ permission_name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="help-text">Standard member access</span>{% endfor %}</td><td>{{ organization_role.member_count }}</td><td style="text-align:right;"><button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('role-modal-{{ organization_role.id }}').style.display='flex'">Edit</button></td></tr>{% empty %}<tr><td colspan="5" class="help-text">No custom roles yet. Team Leader can be assigned directly in User Management.</td></tr>{% endfor %}
                 </tbody></table></div>
             </div>
@@ -164,22 +164,6 @@
                 {% csrf_token %}
                 <input type="hidden" name="section" value="reports">
                 <div class="card-body">
-                    <div class="form-group">
-                        <label class="form-label" for="min_responses_for_anonymity">Minimum Responses for Anonymity</label>
-                        <input
-                            type="number"
-                            id="min_responses_for_anonymity"
-                            name="min_responses_for_anonymity"
-                            class="form-control"
-                            value="{{ organization.min_responses_for_anonymity }}"
-                            min="1"
-                            max="10"
-                            {% if not perms.accounts.can_manage_organization %}disabled readonly{% endif %}
-                            required
-                        >
-                        <small class="help-text">Minimum responses required to display results. Set to 1 for small teams, 3+ for larger teams. Self-assessments always shown.</small>
-                    </div>
-
                     <div class="form-group">
                         <div class="form-check">
                             <input
@@ -591,10 +575,6 @@
     .team-picker[open] > summary::after { content:'\25B4'; }
     .team-picker > summary::-webkit-details-marker { display:none; }
     .team-picker-options {
-        display:grid;
-        gap:.25rem;
-        max-height:220px;
-        overflow-y:auto;
         margin-top:.35rem;
         padding:.45rem;
         border:1px solid var(--border-color);
@@ -602,10 +582,12 @@
         background:var(--bg-card);
         box-shadow:0 8px 20px rgba(0,0,0,.12);
     }
-    .team-picker-options label { display:flex; align-items:center; gap:.5rem; margin:0; padding:.4rem .45rem; border-radius:5px; cursor:pointer; }
+    .team-picker-search{display:grid;grid-template-columns:minmax(180px,1fr) auto auto;gap:.4rem;position:sticky;top:0;padding-bottom:.45rem;background:var(--bg-card);z-index:1}.team-picker-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.2rem;max-height:240px;overflow-y:auto}.team-picker-options label { display:flex; align-items:center; gap:.5rem; margin:0; padding:.4rem .45rem; border-radius:5px; cursor:pointer;min-width:0}.team-picker-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .team-picker-options label:hover { background:var(--bg-secondary); }
     .team-picker-create { border-top:1px solid var(--border-color); margin-top:.25rem !important; padding-top:.6rem !important; color:var(--primary-color); font-weight:600; }
+    .status-form-group{display:grid;grid-template-columns:auto minmax(300px,1fr);gap:.4rem .8rem;align-items:center}.status-form-group>label:first-child{margin:0}.status-help{grid-column:2}.status-toggle{display:grid;grid-template-columns:auto 1fr;gap:.65rem;align-items:center;padding:.35rem .55rem;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;min-height:38px;margin:0}.status-toggle>input[type=checkbox]{position:absolute;opacity:0;pointer-events:none}.status-toggle-track{position:relative;width:38px;height:22px;border-radius:999px;background:#d97706;transition:.2s}.status-toggle-track>span{position:absolute;width:16px;height:16px;left:3px;top:3px;border-radius:50%;background:white;transition:.2s}.status-toggle>input:checked+.status-toggle-track{background:#059669}.status-toggle>input:checked+.status-toggle-track>span{transform:translateX(16px)}.status-toggle>span:nth-of-type(2){display:flex;flex-direction:row;align-items:center;gap:.55rem}.status-toggle small{color:var(--text-secondary);font-weight:400}.status-toggle>input:checked~span strong{color:#059669}.status-toggle>input:not(:checked)~span strong{color:#d97706}.ownership-help{margin:.15rem .35rem .55rem}.ownership-team-list{display:flex;flex-direction:column;gap:.35rem;max-height:260px;overflow-y:auto}.ownership-team-row{display:grid;grid-template-columns:minmax(160px,.8fr) minmax(240px,1.2fr);gap:.6rem;align-items:center;padding:.45rem;border-radius:6px}.ownership-team-row:hover{background:var(--bg-secondary)}.ownership-team-row>label{display:flex;align-items:center;gap:.5rem;margin:0}.ownership-person[hidden]{display:none}.ownership-picker .team-picker-options{max-height:none}
     @media (max-width: 768px) {
+        .team-picker-grid{grid-template-columns:1fr}.team-picker-search{grid-template-columns:1fr 1fr}.team-picker-search input{grid-column:1/-1}.ownership-team-row{grid-template-columns:1fr}.status-form-group{grid-template-columns:1fr}.status-help{grid-column:1}
         div[style*="grid-template-columns: 1fr 1fr"] {
             grid-template-columns: 1fr !important;
         }
@@ -622,7 +604,7 @@
 
             <!-- Export Data -->
             <div>
-                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px;">Export Organization Data</h3>
+                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px;">Export Organisation Data</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 0.8125rem;">
                     Download all data in JSON format (GDPR compliant).
                 </p>
@@ -634,7 +616,7 @@
             <!-- Import Data -->
             {% if is_org_admin %}
             <div style="padding-left: 1.5rem; border-left: 1px solid var(--border-color);">
-                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px;">Import Organization Data</h3>
+                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px;">Import Organisation Data</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 0.8125rem;">
                     Upload a previously exported JSON file to import data.
                 </p>
@@ -688,11 +670,11 @@
             {% if is_org_admin %}
             <!-- Delete Organization -->
             <div style="padding-left: 1.5rem; border-left: 1px solid var(--border-color);">
-                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px; color: #dc2626;">Delete Organization</h3>
+                <h3 style="font-size: 0.9375rem; font-weight: 600; margin-bottom: 6px; color: #dc2626;">Delete Organisation</h3>
                 <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 0.8125rem;">
                     Permanently delete {{ organization.name }} and all data. Cannot be undone.
                 </p>
-                <button type="button" class="btn btn-danger btn-sm" onclick="showDeleteOrgModal()">Delete Organization</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="showDeleteOrgModal()">Delete Organisation</button>
             </div>
             {% endif %}
         </div>
@@ -738,6 +720,14 @@
     }
 </style>
 <script>
+    function toggleUserStatus(input) {
+        const label = input.closest('.status-toggle');
+        label.querySelector('input[name="status"]').value = input.checked ? 'active' : 'inactive';
+        label.querySelector('strong').textContent = input.checked ? 'Active' : 'Inactive';
+        label.querySelector('small').textContent = input.checked
+            ? 'Can sign in and receive invitations'
+            : 'Cannot sign in or receive invitations';
+    }
     function updateTeamSummary(profileId) {
         const picker = document.getElementById('team-picker-' + profileId);
         const count = picker.querySelectorAll('input[name="teams"]:checked:not(:disabled)').length
@@ -745,6 +735,68 @@
         document.getElementById('team-summary-' + profileId).textContent = count
             ? count + ' team' + (count === 1 ? '' : 's') + ' selected'
             : 'Select teams';
+    }
+    function filterTeamPicker(profileId, query) {
+        const normalized = query.trim().toLowerCase();
+        document.querySelectorAll('#team-picker-' + profileId + ' [data-team-option]').forEach(option => {
+            option.hidden = normalized && !option.dataset.teamName.includes(normalized);
+        });
+    }
+    function setAllTeams(profileId, selected) {
+        document.querySelectorAll('#team-picker-' + profileId + ' [data-team-option]:not([hidden]) input[name="teams"]:not(:disabled)').forEach(input => {
+            input.checked = selected;
+        });
+        updateTeamSummary(profileId);
+    }
+    function updateLeadSummary(profileId) {
+        const picker = document.getElementById('lead-picker-' + profileId);
+        const count = picker.querySelectorAll('input[name="lead_teams"]:checked').length;
+        document.getElementById('lead-summary-' + profileId).textContent = count
+            ? count + ' team' + (count === 1 ? '' : 's') + ' selected'
+            : 'Select leadership teams';
+    }
+    function filterLeadPicker(profileId, query) {
+        const normalized = query.trim().toLowerCase();
+        document.querySelectorAll('#lead-picker-' + profileId + ' [data-lead-team-option]').forEach(option => {
+            option.hidden = normalized && !option.dataset.teamName.includes(normalized);
+        });
+    }
+    function setAllLeadTeams(profileId, selected) {
+        document.querySelectorAll('#lead-picker-' + profileId + ' [data-lead-team-option]:not([hidden]) input[name="lead_teams"]').forEach(input => {
+            input.checked = selected;
+        });
+        updateLeadSummary(profileId);
+    }
+    function updateOwnershipSummary(profileId) {
+        const picker = document.getElementById('ownership-picker-' + profileId);
+        const count = picker.querySelectorAll('.ownership-team-row>label input:checked').length;
+        document.getElementById('ownership-summary-' + profileId).textContent = count
+            ? count + ' team' + (count === 1 ? '' : 's') + ' selected for transfer'
+            : 'Transfer ownership of selected teams';
+    }
+    function toggleTeamTransfer(profileId, teamId, enabled) {
+        const panel = document.getElementById('ownership-team-' + profileId + '-' + teamId);
+        const textInput = panel.querySelector('input[type="text"]');
+        const hiddenInput = panel.querySelector('input[type="hidden"]');
+        panel.hidden = !enabled;
+        textInput.disabled = !enabled;
+        textInput.required = enabled;
+        if (!enabled) {
+            textInput.value = '';
+            hiddenInput.value = '';
+            hiddenInput.disabled = true;
+        } else {
+            textInput.focus();
+        }
+        updateOwnershipSummary(profileId);
+    }
+    function setTransferPerson(profileId, teamId, input) {
+        const list = document.getElementById('ownership-candidates-' + profileId);
+        const option = Array.from(list.options).find(candidate => candidate.value === input.value);
+        const hiddenInput = document.querySelector('#ownership-team-' + profileId + '-' + teamId + ' input[type="hidden"]');
+        hiddenInput.value = option ? option.dataset.profileId : '';
+        hiddenInput.disabled = !option;
+        input.setCustomValidity(input.value && !option ? 'Select a person from the list.' : '');
     }
     function toggleNewTeam(profileId, creating) {
         const box = document.getElementById('new-team-' + profileId);
@@ -800,7 +852,7 @@
 {% if is_org_admin %}
 <div id="deleteOrgModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
     <div style="background: var(--bg-card); padding: 2rem; border-radius: 8px; max-width: 500px; width: 90%;">
-        <h3 style="margin-top: 0; color: #dc2626;">Delete Organization</h3>
+        <h3 style="margin-top: 0; color: #dc2626;">Delete Organisation</h3>
         <p>This will permanently delete <strong>{{ organization.name }}</strong> and all data including users, reviewees, cycles, and reports. This action cannot be undone.</p>
         <form method="post" action="{% url 'account:delete_organization' %}">
             {% csrf_token %}
@@ -814,7 +866,7 @@
             </div>
             <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
                 <button type="button" class="btn btn-secondary" onclick="hideDeleteOrgModal()">Cancel</button>
-                <button type="submit" class="btn btn-danger">Delete Organization</button>
+                <button type="submit" class="btn btn-danger">Delete Organisation</button>
             </div>
         </form>
     </div>
@@ -825,7 +877,7 @@
 {% if is_org_admin %}
 <div id="importModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; overflow-y: auto; padding: 2rem;">
     <div style="background: var(--bg-card); padding: 2rem; border-radius: 8px; max-width: 700px; width: 90%; max-height: 90vh; overflow-y: auto;">
-        <h3 style="margin-top: 0;">Import Organization Data</h3>
+        <h3 style="margin-top: 0;">Import Organisation Data</h3>
         <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
             Upload a previously exported JSON file to restore or merge data into your organization.
         </p>
@@ -1048,7 +1100,7 @@ function displayPreview(preview, warnings) {
     content.innerHTML = `
         <div style="display: grid; gap: 1rem;">
             <div>
-                <strong>Organization:</strong> ${preview.organization_name}
+                <strong>Organisation:</strong> ${preview.organization_name}
                 ${preview.organization_email ? `<br><small style="color: var(--text-secondary);">${preview.organization_email}</small>` : ''}
             </div>
 

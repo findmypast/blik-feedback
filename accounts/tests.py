@@ -209,12 +209,21 @@ class OrganizationPeopleSettingsTestCase(TestCase):
         self.client.force_login(self.admin)
 
     def test_admin_sees_unassigned_people_in_settings(self):
+        Team.objects.create(
+            organization=self.org, name='Odyssey', manager=self.member_profile
+        )
         response = self.client.get(reverse('settings'))
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'User Management')
         self.assertContains(response, self.member.email)
         self.assertContains(response, 'Unassigned')
+        self.assertContains(response, 'status-toggle')
+        self.assertContains(response, 'Search teams')
+        self.assertContains(response, 'Search leadership teams')
+        self.assertContains(response, 'Select leadership teams')
+        self.assertContains(response, 'Select visible')
+        self.assertContains(response, 'Transfer ownership of selected teams')
         self.assertLess(
             response.content.index(b'Amy Member'),
             response.content.index(b'Zoe Admin'),
@@ -359,22 +368,33 @@ class OrganizationPeopleSettingsTestCase(TestCase):
         self.assertEqual(self.admin.email, 'new-admin@example.com')
         self.assertTrue(team.members.filter(profile=self.admin_profile).exists())
 
-    def test_team_owner_can_be_reassigned_while_editing_user(self):
+    @patch('core.email.send_email')
+    def test_team_owner_can_be_reassigned_to_member_and_notifies_them(self, send_email):
         team = Team.objects.create(
             organization=self.org, name='Managed Team', manager=self.member_profile
         )
-        response = self.client.post(reverse('manage_organization_person'), {
-            'action': 'update_user',
-            'user_profile_id': self.member_profile.id,
-            'email': self.member.email,
-            'status': 'active',
-            'role': 'member',
-            f'manager_for_{team.id}': self.admin_profile.id,
-        })
+        new_manager_user = UserFactory(email='new-manager@example.com')
+        new_manager = UserProfileFactory(
+            user=new_manager_user, organization=self.org
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(reverse('manage_organization_person'), {
+                'action': 'update_user',
+                'user_profile_id': self.member_profile.id,
+                'email': self.member.email,
+                'status': 'active',
+                'role': 'member',
+                f'manager_for_{team.id}': new_manager.id,
+            })
         self.assertRedirects(response, reverse('settings') + '#people')
         team.refresh_from_db()
-        self.assertEqual(team.manager, self.admin_profile)
-        self.assertTrue(team.members.filter(profile=self.admin_profile).exists())
+        self.assertEqual(team.manager, new_manager)
+        self.assertTrue(team.members.filter(profile=new_manager).exists())
+        send_email.assert_called_once()
+        self.assertEqual(
+            send_email.call_args.kwargs['recipient_list'],
+            ['new-manager@example.com'],
+        )
 
     def test_admin_cannot_manage_person_from_another_organization(self):
         other_profile = UserProfileFactory(
@@ -611,6 +631,47 @@ class ReportGenerationTestCase(TestCase):
 
         # Verify cycle is completed
         self.assertEqual(self.cycle.status, 'completed')
+
+
+class ProfileViewTestCase(TestCase):
+    def setUp(self):
+        self.org = OrganizationFactory(name='FindMyPast')
+        self.user = UserFactory(
+            username='member', email='member@example.com', first_name='Alex'
+        )
+        self.profile = UserProfileFactory(user=self.user, organization=self.org)
+        self.reviewee = Reviewee.objects.get(
+            organization=self.org, email=self.user.email
+        )
+        self.reviewee.profile = self.profile
+        self.reviewee.name = 'Alex Member'
+        self.reviewee.email = self.user.email
+        self.reviewee.save(update_fields=['profile', 'name', 'email', 'updated_at'])
+        self.team = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=self.profile
+        )
+        self.reviewee.teams.add(self.team)
+        self.client.force_login(self.user)
+
+    def test_profile_shows_membership_stats_and_theme_preferences(self):
+        cycle = ReviewCycleFactory(reviewee=self.reviewee, status='completed')
+        ReviewerTokenFactory(
+            cycle=cycle,
+            reviewer_email=self.user.email,
+            completed_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse('profile'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'FindMyPast')
+        self.assertContains(response, 'Odyssey')
+        self.assertContains(response, 'Team Leader')
+        self.assertContains(response, 'Reviews completed')
+        self.assertContains(response, 'Average feedback')
+        self.assertContains(response, 'data-theme-choice="light"')
+        self.assertContains(response, 'data-theme-choice="dark"')
+        self.assertContains(response, 'data-theme-choice="system"')
 
 
 class RevieweeManagementTestCase(TestCase):

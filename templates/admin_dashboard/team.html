@@ -20,7 +20,7 @@
 
 <div class="card mb-2">
     <div class="card-body" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem;">
-        <div><small class="help-text">Organization</small><div><strong>{{ organization.name }}</strong></div></div>
+        <div><small class="help-text">Organisation</small><div><strong>{{ organization.name }}</strong></div></div>
         <div><small class="help-text">Your teams</small><div><strong>{% for team in current_teams %}{{ team.name }}{% if not forloop.last %}, {% endif %}{% empty %}Not assigned{% endfor %}</strong></div></div>
     </div>
 </div>

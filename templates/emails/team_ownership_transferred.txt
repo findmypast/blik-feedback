@@ -1,0 +1,7 @@
+Hi {{ new_manager_name }},
+
+You have been made the manager of the {{ team_name }} team in {{ organization.name }} by {{ assigned_by }}.
+
+You can now view the team and manage its members and review activity in Blik.
+
+Open Blik: {{ team_url }}

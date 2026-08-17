@@ -275,7 +275,8 @@ def reset_password_view(request, token):
 def profile_view(request):
     """User profile view with editing capabilities and cycle reports."""
     from accounts.forms import ProfileEditForm
-    from reviews.models import ReviewCycle
+    from django.db.models import Q
+    from reviews.models import ReviewCycle, ReviewerToken
     from reports.models import Report
     from reports.services import get_report_summary
 
@@ -302,7 +303,10 @@ def profile_view(request):
     user_cycles = ReviewCycle.objects.filter(
         reviewee__email=request.user.email,
         reviewee__organization=organization
-    ).select_related('reviewee', 'questionnaire', 'created_by').order_by('-created_at')
+    ).select_related(
+        'reviewee', 'questionnaire', 'created_by', 'campaign',
+        'campaign__organizational_cycle', 'campaign__team',
+    ).order_by('-created_at')
 
     # Attach report data to each cycle
     cycles_with_reports = []
@@ -324,11 +328,47 @@ def profile_view(request):
 
         cycles_with_reports.append(cycle_data)
 
+    completed_reports = Report.objects.filter(cycle__in=user_cycles, available=True)
+    report_scores = []
+    for report_data in completed_reports.values_list('report_data', flat=True):
+        score = ((report_data or {}).get('charts', {}).get('overall', {}).get('others_avg'))
+        if isinstance(score, (int, float)):
+            report_scores.append(float(score))
+
+    reviewee = getattr(profile, 'reviewee', None)
+    teams = []
+    if reviewee:
+        teams = list(organization.teams.filter(
+            Q(memberships__reviewee=reviewee) | Q(id=reviewee.team_id)
+        ).distinct().order_by('name'))
+    managed_teams = list(profile.managed_teams.order_by('name'))
+    is_organization_admin = request.user.has_perm('accounts.can_manage_organization')
+    role_label = (
+        'Organisation Administrator' if is_organization_admin
+        else profile.organization_role.name if profile.organization_role_id
+        else 'Team Leader' if managed_teams else 'Member'
+    )
+
     context = {
         'user': request.user,
         'profile': profile,
         'organization': organization,
         'form': form,
         'cycles_with_reports': cycles_with_reports,
+        'teams': teams,
+        'managed_teams': managed_teams,
+        'is_organization_admin': is_organization_admin,
+        'role_label': role_label,
+        'reviews_given': ReviewerToken.objects.filter(
+            cycle__reviewee__organization=organization,
+            reviewer_email__iexact=request.user.email,
+            completed_at__isnull=False,
+        ).count(),
+        'reviews_received': ReviewerToken.objects.filter(
+            cycle__in=user_cycles, completed_at__isnull=False,
+        ).count(),
+        'completed_cycle_count': user_cycles.filter(status='completed').count(),
+        'report_count': completed_reports.count(),
+        'average_score': round(sum(report_scores) / len(report_scores), 1) if report_scores else None,
     }
     return render(request, 'accounts/profile.html', context)
