@@ -34,8 +34,8 @@
                 <div style="display: flex; gap: 1rem; align-items: start;">
                     <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">1</div>
                     <div>
-                        <strong>Add reviewees</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">People who will receive 360° feedback</p>
+                        <strong>Set up your teams</strong>
+                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">Organize the people who will take part in reviews</p>
                     </div>
                 </div>
                 <div style="display: flex; gap: 1rem; align-items: start;">
@@ -56,7 +56,7 @@
                     <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">4</div>
                     <div>
                         <strong>Review the report</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">View aggregated insights and share with reviewees</p>
+                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">View aggregated insights and share with participants</p>
                     </div>
                 </div>
             </div>
@@ -66,7 +66,7 @@
             <button onclick="dismissWelcome(true)" class="btn btn-secondary">
                 Close
             </button>
-            <a href="{% url 'reviewee_create' %}" class="btn btn-primary" style="text-decoration: none;">
+            <a href="{% url 'team_list' %}" class="btn btn-primary" style="text-decoration: none;">
                 Get Started
             </a>
         </div>

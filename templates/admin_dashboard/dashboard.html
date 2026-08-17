@@ -33,8 +33,8 @@
                 <div style="display: flex; gap: 1rem; align-items: start;">
                     <div style="min-width: 32px; height: 32px; background: var(--primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600;">1</div>
                     <div>
-                        <strong>Add reviewees</strong>
-                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">People who will receive 360° feedback</p>
+                        <strong>Set up your teams</strong>
+                        <p style="margin: 0.25rem 0 0 0; color: var(--text-secondary); font-size: 0.875rem;">Organize the people who will take part in reviews</p>
                     </div>
                 </div>
                 <div style="display: flex; gap: 1rem; align-items: start;">
@@ -65,7 +65,7 @@
             <button onclick="dismissWelcome(true)" class="btn btn-secondary">
                 Skip for now
             </button>
-            <a href="{% url 'reviewee_create' %}" onclick="dismissWelcome(false)" class="btn btn-primary" style="text-decoration: none;">
+            <a href="{% url 'team_list' %}" onclick="dismissWelcome(false)" class="btn btn-primary" style="text-decoration: none;">
                 Get Started
             </a>
         </div>
@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', function() {
     <div class="card">
         <div class="card-body stat-card-content">
             <div class="stat-number primary">{{ total_reviewees }}</div>
-            <div class="stat-label">Active Reviewees</div>
+            <div class="stat-label">Active People</div>
         </div>
     </div>
 
@@ -215,7 +215,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 {% endif %}
             </div>
             <div>
-                <div style="font-weight: 600; margin-bottom: 0.5rem;">Reviewees</div>
+                <div style="font-weight: 600; margin-bottom: 0.5rem;">People</div>
                 <div style="font-size: 1.25rem;">
                     <span {% if subscription_status.reviewees_remaining <= 5 %}style="color: #ef4444;"{% endif %}>
                         {{ subscription_status.current_reviewees }}
@@ -256,8 +256,8 @@ document.addEventListener('DOMContentLoaded', function() {
             <a href="{% url 'review_cycle_create' %}" class="btn btn-primary text-center">
                 New Review Cycle
             </a>
-            <a href="{% url 'reviewee_create' %}" class="btn btn-secondary text-center">
-                Add Reviewee
+            <a href="{% url 'team_list' %}" class="btn btn-secondary text-center">
+                Manage Teams
             </a>
             <a href="{% url 'questionnaire_list' %}" class="btn btn-secondary text-center">
                 Questionnaires
