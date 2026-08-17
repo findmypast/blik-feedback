@@ -229,17 +229,15 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertContains(response, 'Taylor Mate')
         self.assertContains(
             response,
-            f"{reverse('review_cycle_create')}?reviewer_email=teammate%40example.com",
+            f'href="{reverse("review_cycle_create")}">Request review</a>',
         )
 
-    def test_request_review_link_prefills_peer_reviewer(self):
-        response = self.client.get(
-            reverse('review_cycle_create'), {'reviewer_email': self.teammate_user.email}
-        )
+    def test_request_review_link_uses_campaign_flow(self):
+        response = self.client.get(reverse('review_cycle_create'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.teammate_user.email)
-        self.assertContains(response, 'id="inviteFormBody" style="display: block;"')
+        self.assertContains(response, 'name="campaign_flow" value="1"')
+        self.assertContains(response, 'Create cycle and send invitations')
 
     def test_manager_cannot_take_member_from_unmanaged_team_by_id(self):
         manager_user = UserFactory(username='manager', email='manager@example.com')
