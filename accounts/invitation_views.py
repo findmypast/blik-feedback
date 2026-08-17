@@ -24,6 +24,7 @@ def send_invitation(request):
     Only organization administrators can invite new team members.
     """
     if request.method == 'POST':
+        redirect_name = 'settings' if request.POST.get('return_to') == 'settings' else 'team_list'
         email = request.POST.get('email', '').strip().lower()
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
@@ -42,13 +43,13 @@ def send_invitation(request):
 
         if not email:
             messages.error(request, 'Email is required.')
-            return redirect('team_list')
+            return redirect(redirect_name)
 
         # Check user limit
         allowed, error_message = check_user_limit(request)
         if not allowed:
             messages.error(request, error_message)
-            return redirect('team_list')
+            return redirect(redirect_name)
 
         # Check if invitation already exists
         existing = OrganizationInvitation.objects.filter(
@@ -59,7 +60,7 @@ def send_invitation(request):
 
         if existing and existing.is_valid():
             messages.info(request, f'Invitation already sent to {email}')
-            return redirect('admin_dashboard')
+            return redirect(redirect_name)
 
         try:
             with transaction.atomic():
@@ -89,7 +90,7 @@ def send_invitation(request):
                 )
         except ValidationError as exc:
             messages.error(request, '; '.join(exc.messages))
-            return redirect('team_list')
+            return redirect(redirect_name)
 
         # Build invitation URL
         invite_url = request.build_absolute_uri(
@@ -137,6 +138,8 @@ Best regards,
         except Exception as e:
             messages.error(request, f'Failed to send invitation: {e}')
 
+    if request.method == 'POST' and request.POST.get('return_to') == 'settings':
+        return redirect(reverse('settings') + '#people')
     return redirect('team_list')
 
 
@@ -180,6 +183,10 @@ def accept_invitation(request, token):
                 can_create_cycles_for_others=invitation.organization.default_users_can_create_cycles
             )
 
+        if not existing_user.is_active:
+            existing_user.is_active = True
+            existing_user.save(update_fields=['is_active'])
+
         if invitation.first_name or invitation.last_name:
             existing_user.first_name = invitation.first_name
             existing_user.last_name = invitation.last_name
@@ -201,7 +208,10 @@ def accept_invitation(request, token):
             reviewee.name = invited_name
         reviewee.profile = profile
         reviewee.team = invitation.team
-        reviewee.save(update_fields=['name', 'profile', 'team', 'updated_at'])
+        reviewee.is_active = True
+        reviewee.save(update_fields=['name', 'profile', 'team', 'is_active', 'updated_at'])
+        if invitation.team:
+            reviewee.teams.add(invitation.team)
 
         # Mark invitation accepted
         invitation.accepted_at = timezone.now()

@@ -25,6 +25,8 @@ urlpatterns = [
     # Admin dashboard
     path('dashboard/', admin_views.dashboard, name='admin_dashboard'),
     path('dashboard/settings/', admin_views.settings_view, name='settings'),
+    path('dashboard/settings/people/manage/', admin_views.manage_organization_person, name='manage_organization_person'),
+    path('dashboard/settings/roles/manage/', admin_views.manage_organization_role, name='manage_organization_role'),
     path('dashboard/settings/api-tokens/create/', admin_views.create_api_token, name='create_api_token'),
     path('dashboard/settings/api-tokens/<int:token_id>/update/', admin_views.update_api_token, name='update_api_token'),
     path('dashboard/settings/api-tokens/<int:token_id>/delete/', admin_views.delete_api_token, name='delete_api_token'),

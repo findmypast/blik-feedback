@@ -1,0 +1,10 @@
+<fieldset class="form-group" style="border:1px solid var(--border-color); border-radius:8px; padding:.75rem;">
+    <legend style="padding:0 .35rem; font-size:1rem;">Direct permissions</legend>
+    <p class="help-text" style="margin-top:0;">Inherited permissions are added automatically and cannot be removed here.</p>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_manage_users" {% if edited_role.can_manage_users %}checked{% endif %}> Manage users within effective team scope</label>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_manage_teams" {% if edited_role.can_manage_teams %}checked{% endif %}> Manage teams within effective scope</label>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_invite_members" {% if edited_role.can_invite_members %}checked{% endif %}> Invite members</label>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_create_cycles" {% if edited_role.can_create_cycles %}checked{% endif %}> Create review cycles</label>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_manage_questionnaires" {% if edited_role.can_manage_questionnaires %}checked{% endif %}> Manage questionnaires</label>
+    <label style="display:flex; gap:.5rem; margin:.45rem 0;"><input type="checkbox" name="can_view_reports" {% if edited_role.can_view_reports %}checked{% endif %}> View reports within effective scope</label>
+</fieldset>

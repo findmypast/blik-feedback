@@ -18,7 +18,7 @@ from datetime import timedelta
 from datetime import date
 
 from accounts.models import (
-    Reviewee, UserProfile, OrganizationInvitation, Team, TeamLeadGrant,
+    Reviewee, UserProfile, OrganizationInvitation, OrganizationRole, Team, TeamLeadGrant,
     TeamLeadRevocation, TeamMembership,
 )
 from accounts.permissions import can_view_all_reports, visible_cycles
@@ -3214,7 +3214,382 @@ def settings_view(request):
         'locked_fields': locked,
     }
 
+    if is_org_admin:
+        organization_roles = list(
+            OrganizationRole.objects.for_organization(organization)
+            .select_related('parent').annotate(member_count=Count('members'))
+            .order_by('name')
+        )
+        for organization_role in organization_roles:
+            organization_role.effective_permission_names = [
+                field.replace('can_', '').replace('_', ' ').title()
+                for field in OrganizationRole.PERMISSION_FIELDS
+                if field in organization_role.effective_permissions()
+            ]
+        user_query = request.GET.get('user_q', '').strip()
+        people_queryset = (
+            UserProfile.objects.for_organization(organization)
+            .select_related('user')
+            .prefetch_related('reviewee__teams', 'managed_teams', 'team_lead_grants__team')
+        )
+        if user_query:
+            people_queryset = people_queryset.filter(
+                Q(user__first_name__icontains=user_query)
+                | Q(user__last_name__icontains=user_query)
+                | Q(user__email__icontains=user_query)
+            )
+        people = sorted(
+            people_queryset,
+            key=lambda item: (item.user.get_full_name() or item.user.email).casefold(),
+        )
+        people_page = Paginator(people, 25).get_page(request.GET.get('users_page'))
+        for profile in people_page:
+            profile.is_org_admin = profile.user.has_perm(
+                'accounts.can_manage_organization'
+            )
+            reviewee = getattr(profile, 'reviewee', None)
+            profile.team_names = list(reviewee.teams.values_list('name', flat=True)) if reviewee else []
+            profile.team_ids = list(reviewee.teams.values_list('id', flat=True)) if reviewee else []
+            if reviewee and reviewee.team and reviewee.team.name not in profile.team_names:
+                profile.team_names.insert(0, reviewee.team.name)
+            if reviewee and reviewee.team_id and reviewee.team_id not in profile.team_ids:
+                profile.team_ids.insert(0, reviewee.team_id)
+            profile.visible_team_names = profile.team_names[:2]
+            profile.extra_team_count = max(0, len(profile.team_names) - 2)
+            profile.team_names_tooltip = ', '.join(profile.team_names)
+            profile.managed_team_list = list(profile.managed_teams.all())
+            profile.lead_grants_list = list(profile.team_lead_grants.all())
+            profile.lead_team_ids = [grant.team_id for grant in profile.lead_grants_list]
+            profile.is_team_leader = bool(
+                profile.managed_team_list or profile.lead_grants_list
+            )
+        context.update({
+            'organization_roles': organization_roles,
+            'role_permission_fields': [
+                (field, field.replace('can_', '').replace('_', ' ').title())
+                for field in OrganizationRole.PERMISSION_FIELDS
+            ],
+            'organization_people': people_page,
+            'user_query': user_query,
+            'organization_teams': Team.objects.for_organization(organization).order_by('name'),
+            'organization_manager_candidates': UserProfile.objects.for_organization(
+                organization
+            ).filter(user__is_active=True).select_related('user').order_by(
+                'user__first_name', 'user__last_name', 'user__email'
+            ),
+            'pending_people_invitations': OrganizationInvitation.objects.filter(
+                organization=organization, accepted_at__isnull=True
+            ).select_related('team').order_by('email'),
+        })
+
     return render(request, 'admin_dashboard/settings.html', context)
+
+
+@login_required
+@require_POST
+def manage_organization_role(request):
+    """Create, update, or remove a hierarchical role in this organization."""
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+    organization = request.organization
+    if not organization:
+        raise Http404
+
+    action = request.POST.get('action')
+    role = None
+    if action in {'update', 'delete'}:
+        role = get_object_or_404(
+            OrganizationRole.objects.for_organization(organization),
+            pk=request.POST.get('role_id'),
+        )
+
+    if action in {'create', 'update'}:
+        name = request.POST.get('name', '').strip()
+        if not name:
+            messages.error(request, 'Enter a role name.')
+            return HttpResponseRedirect(reverse('settings') + '#organization')
+        duplicate = OrganizationRole.objects.for_organization(organization).filter(
+            name__iexact=name
+        )
+        if role:
+            duplicate = duplicate.exclude(pk=role.pk)
+        if duplicate.exists():
+            messages.error(request, 'A role with that name already exists.')
+            return HttpResponseRedirect(reverse('settings') + '#organization')
+
+        parent_id = request.POST.get('parent_role')
+        parent = None
+        if parent_id:
+            parent = get_object_or_404(
+                OrganizationRole.objects.for_organization(organization), pk=parent_id
+            )
+        role = role or OrganizationRole(organization=organization)
+        role.name = name
+        role.parent = parent
+        for field in OrganizationRole.PERMISSION_FIELDS:
+            setattr(role, field, request.POST.get(field) == 'on')
+        try:
+            role.full_clean()
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+            return HttpResponseRedirect(reverse('settings') + '#organization')
+        role.save()
+        messages.success(request, f'Role {role.name} saved.')
+    elif action == 'delete':
+        if request.POST.get('confirmation', '').strip().lower() != 'delete':
+            messages.error(request, 'Type delete to confirm removing this role.')
+        elif role.children.exists():
+            messages.error(request, 'Reassign or remove child roles before deleting this role.')
+        else:
+            name = role.name
+            role.delete()
+            messages.success(request, f'Role {name} removed. Its members are now standard members.')
+    else:
+        raise PermissionDenied
+    return HttpResponseRedirect(reverse('settings') + '#organization')
+
+
+@login_required
+@require_POST
+def manage_organization_person(request):
+    """Manage organization access without deleting a person's review history."""
+    from accounts.permissions import (
+        assign_organization_admin, assign_organization_member,
+        remove_from_all_org_groups,
+    )
+
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+    organization = request.organization
+    if not organization:
+        raise Http404
+
+    action = request.POST.get('action')
+    if action == 'cancel_invitation':
+        invitation = get_object_or_404(
+            OrganizationInvitation,
+            pk=request.POST.get('invitation'),
+            organization=organization,
+            accepted_at__isnull=True,
+        )
+        email = invitation.email
+        invitation.delete()
+        messages.success(request, f'Pending invitation for {email} removed.')
+        return HttpResponseRedirect(reverse('settings') + '#people')
+
+    profile = get_object_or_404(
+        UserProfile.objects.select_related('user'),
+        pk=request.POST.get('user_profile_id'),
+        organization=organization,
+    )
+    target = profile.user
+    if target.is_superuser:
+        messages.error(request, 'Super administrator access cannot be changed here.')
+        return HttpResponseRedirect(reverse('settings') + '#people')
+
+    if action == 'update_user':
+        role = request.POST.get('role')
+        is_custom_role = role and role.startswith('custom:')
+        custom_role = None
+        if is_custom_role:
+            custom_role = get_object_or_404(
+                OrganizationRole.objects.for_organization(organization),
+                pk=role.removeprefix('custom:'),
+            )
+        if role not in {'admin', 'team_leader', 'member'} and not custom_role:
+            messages.error(request, 'Select a valid role.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+        if role != 'admin' and target.has_perm('accounts.can_manage_organization'):
+            profiles = UserProfile.objects.for_organization(organization).select_related('user')
+            if sum(p.user.has_perm('accounts.can_manage_organization') for p in profiles) <= 1:
+                messages.error(request, 'The last organization administrator cannot be demoted.')
+                return HttpResponseRedirect(reverse('settings') + '#people')
+        if target == request.user and request.POST.get('status') != 'active':
+            messages.error(request, 'You cannot make your own account inactive.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+        from django.contrib.auth import get_user_model
+        from django.core.validators import validate_email
+
+        email = request.POST.get('email', '').strip().lower()
+        try:
+            validate_email(email)
+        except ValidationError:
+            messages.error(request, 'Enter a valid email address.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+        if get_user_model().objects.filter(email__iexact=email).exclude(pk=target.pk).exists():
+            messages.error(request, 'That email address is already used by another account.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+        reviewee = getattr(profile, 'reviewee', None)
+        if Reviewee.objects.for_organization(organization).filter(
+            email__iexact=email
+        ).exclude(pk=getattr(reviewee, 'pk', None)).exists():
+            messages.error(request, 'That email address is already used by another person.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+
+        selected_ids = {int(value) for value in request.POST.getlist('teams') if value.isdigit()}
+        teams = list(Team.objects.for_organization(organization).filter(id__in=selected_ids))
+        if len(teams) != len(selected_ids):
+            raise PermissionDenied
+        add_team = request.POST.get('add_team', '')
+        new_team_name = request.POST.get('new_team_name', '').strip()
+        if add_team.isdigit():
+            extra_team = get_object_or_404(
+                Team.objects.for_organization(organization), pk=int(add_team)
+            )
+            if extra_team.id not in selected_ids:
+                teams.append(extra_team)
+        elif add_team == '__new__':
+            if not new_team_name:
+                messages.error(request, 'Enter a name for the new team.')
+                return HttpResponseRedirect(reverse('settings') + '#people')
+            if Team.objects.for_organization(organization).filter(
+                name__iexact=new_team_name
+            ).exists():
+                messages.error(request, 'A team with that name already exists.')
+                return HttpResponseRedirect(reverse('settings') + '#people')
+        elif add_team:
+            raise PermissionDenied
+        managed_teams = list(profile.managed_teams.all())
+        reassignments = {}
+        for managed_team in managed_teams:
+            replacement_id = request.POST.get(f'manager_for_{managed_team.id}')
+            if replacement_id:
+                replacement = get_object_or_404(
+                    UserProfile.objects.for_organization(organization).filter(
+                        user__is_active=True
+                    ),
+                    pk=replacement_id,
+                )
+                reassignments[managed_team.id] = replacement
+        selected_by_id = {team.id: team for team in teams}
+        selected_by_id.update({
+            team.id: team for team in managed_teams
+            if team.id not in reassignments or reassignments[team.id] == profile
+        })
+        teams = list(selected_by_id.values())
+        can_create = request.POST.get('can_create_cycles_for_others') == 'on'
+
+        lead_team_ids = {
+            int(value) for value in request.POST.getlist('lead_teams') if value.isdigit()
+        }
+        lead_teams = list(
+            Team.objects.for_organization(organization).filter(id__in=lead_team_ids)
+        )
+        if len(lead_teams) != len(lead_team_ids):
+            raise PermissionDenied
+        if role == 'team_leader' and not (lead_teams or managed_teams):
+            messages.error(request, 'Select at least one team for the Team Leader role.')
+            return HttpResponseRedirect(reverse('settings') + '#people')
+        include_descendants = request.POST.get('include_lead_descendants') == 'on'
+
+        with transaction.atomic():
+            if add_team == '__new__':
+                extra_team = Team(
+                    organization=organization,
+                    name=new_team_name,
+                    manager=request.user.profile,
+                )
+                extra_team.full_clean()
+                extra_team.save()
+                teams.append(extra_team)
+            for managed_team in managed_teams:
+                replacement = reassignments.get(managed_team.id)
+                if replacement and replacement != profile:
+                    managed_team.manager = replacement
+                    managed_team.save(update_fields=['manager', 'updated_at'])
+            if role == 'admin':
+                assign_organization_admin(target)
+            else:
+                can_create = (
+                    can_create or role == 'team_leader'
+                    or bool(custom_role and 'can_create_cycles' in custom_role.effective_permissions())
+                )
+                assign_organization_member(target, can_create_cycles_for_others=can_create)
+            if role == 'team_leader':
+                TeamLeadGrant.objects.filter(profile=profile).exclude(
+                    team_id__in=lead_team_ids
+                ).delete()
+                for lead_team in lead_teams:
+                    TeamLeadGrant.objects.update_or_create(
+                        profile=profile,
+                        team=lead_team,
+                        defaults={'include_descendants': include_descendants},
+                    )
+            elif role == 'member':
+                TeamLeadGrant.objects.filter(profile=profile).delete()
+            profile.organization_role = custom_role
+            target.email = email
+            target.is_active = request.POST.get('status') == 'active'
+            target.save(update_fields=['email', 'is_active'])
+            profile.can_create_cycles_for_others = can_create
+            profile.save(update_fields=[
+                'can_create_cycles_for_others', 'organization_role', 'updated_at'
+            ])
+            if not reviewee:
+                reviewee = Reviewee.objects.create(
+                    organization=organization,
+                    profile=profile,
+                    name=target.get_full_name() or email,
+                    email=email,
+                )
+            reviewee.email = email
+            reviewee.is_active = True
+            reviewee.team = teams[0] if teams else None
+            reviewee.save(update_fields=['email', 'is_active', 'team', 'updated_at'])
+            reviewee.teams.set(teams)
+        messages.success(request, f'User updated for {target.get_full_name() or target.email}.')
+
+    elif action == 'remove':
+        if target == request.user:
+            messages.error(request, 'You cannot remove your own account.')
+        elif target.has_perm('accounts.can_manage_organization') and sum(
+            p.user.has_perm('accounts.can_manage_organization')
+            for p in UserProfile.objects.for_organization(organization).select_related('user')
+        ) <= 1:
+            messages.error(request, 'The last organization administrator cannot be removed.')
+        elif request.POST.get('confirmation', '').strip().lower() != 'delete':
+            messages.error(request, 'Type delete to confirm removing this user.')
+        else:
+            display_name = target.get_full_name() or target.email
+            managed_teams = list(profile.managed_teams.all())
+            replacements = {}
+            for managed_team in managed_teams:
+                replacement_id = request.POST.get(f'manager_for_{managed_team.id}')
+                if not replacement_id:
+                    messages.error(
+                        request,
+                        f'Select a new manager for {managed_team.name} before removing this user.',
+                    )
+                    return HttpResponseRedirect(reverse('settings') + '#people')
+                replacements[managed_team.id] = get_object_or_404(
+                    UserProfile.objects.for_organization(organization).filter(
+                        user__is_active=True
+                    ).exclude(pk=profile.pk),
+                    pk=replacement_id,
+                )
+            with transaction.atomic():
+                for managed_team in managed_teams:
+                    managed_team.manager = replacements[managed_team.id]
+                    managed_team.save(update_fields=['manager', 'updated_at'])
+                reviewee = getattr(profile, 'reviewee', None)
+                if reviewee:
+                    reviewee.teams.clear()
+                    reviewee.profile = None
+                    reviewee.team = None
+                    reviewee.reporting_manager = None
+                    reviewee.is_active = False
+                    reviewee.save(update_fields=[
+                        'profile', 'team', 'reporting_manager', 'is_active', 'updated_at'
+                    ])
+                remove_from_all_org_groups(target)
+                profile.delete()
+                target.is_active = False
+                target.save(update_fields=['is_active'])
+            messages.success(request, f'{display_name} removed from {organization.name}.')
+    else:
+        messages.error(request, 'Unknown people-management action.')
+
+    return HttpResponseRedirect(reverse('settings') + '#people')
 
 
 @login_required

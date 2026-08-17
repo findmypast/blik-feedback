@@ -19,7 +19,8 @@
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="email" style="text-align:left;">Email</button>
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="account" style="text-align:left;">Account & data</button>
         {% if perms.accounts.can_manage_organization %}
-        <a href="{% url 'team_list' %}" class="btn btn-secondary" style="text-align:left;">Teams & members</a>
+        <button type="button" class="btn btn-secondary settings-nav" data-settings-target="people" style="text-align:left;">User Management</button>
+        <a href="{% url 'team_list' %}" class="btn btn-secondary" style="text-align:left;">Teams</a>
         <button type="button" class="btn btn-secondary settings-nav" data-settings-target="integrations" style="text-align:left;">APIs & webhooks</button>
         {% endif %}
         {% if user.is_superuser %}
@@ -38,6 +39,56 @@
 
 <!-- Two Column Layout for Desktop -->
 <div style="display:grid; gap:1.5rem; margin-bottom:1.5rem;">
+
+    {% if is_org_admin %}
+    <div class="card settings-pane" data-settings-section="people">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+            <div><h2 class="card-title">User Management</h2><p class="help-text" style="margin:.25rem 0 0;">Manage everyone in {{ organization.name }}, including people who are not assigned to a team.</p></div>
+            <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('settings-invite-person').style.display='flex'">Invite person</button>
+        </div>
+        <div class="card-body">
+            <form method="get" action="{% url 'settings' %}#people" style="display:flex; gap:.5rem; align-items:center; margin-bottom:.75rem; max-width:520px;"><input class="form-control" type="search" name="user_q" value="{{ user_query }}" placeholder="Search by name or email" aria-label="Search users"><button class="btn btn-secondary btn-sm" type="submit">Search</button>{% if user_query %}<a class="btn btn-secondary btn-sm" href="{% url 'settings' %}#people">Clear</a>{% endif %}</form>
+            <div class="table-responsive"><table class="table user-management-table"><thead><tr><th>Person</th><th>Teams</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>
+            {% for profile in organization_people %}
+                <tr>
+                    <td><strong>{{ profile.user.get_full_name|default:profile.user.email }}</strong><br><small>{{ profile.user.email }}</small></td>
+                    <td>{% if profile.team_names %}<span title="{{ profile.team_names_tooltip }}">{% for team_name in profile.visible_team_names %}{{ team_name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if profile.extra_team_count %} <span class="team-count-more">+{{ profile.extra_team_count }}</span>{% endif %}</span>{% else %}<span class="help-text">Unassigned</span>{% endif %}</td>
+                    <td>{% if profile.user.is_superuser %}Super administrator{% elif profile.is_org_admin %}Organization administrator{% elif profile.organization_role %}{{ profile.organization_role.name }}{% elif profile.is_team_leader %}Team Leader{% elif profile.can_create_cycles_for_others %}Member · can create cycles{% else %}Member{% endif %}</td>
+                    <td>{% if profile.user.is_active %}<span style="color:#059669;">● Active</span>{% else %}<span style="color:#d97706;">● Inactive</span>{% endif %}</td>
+                    <td style="text-align:right; white-space:nowrap;">{% if not profile.user.is_superuser %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('settings-person-{{ profile.id }}').style.display='flex'">Edit</button>{% if profile.user != request.user %} <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('remove-user-{{ profile.id }}').style.display='flex'">Remove</button>{% endif %}{% endif %}</td>
+                </tr>
+            {% empty %}<tr><td colspan="5" class="help-text">No organization members.</td></tr>{% endfor %}
+            </tbody></table></div>
+
+            {% if organization_people.paginator.num_pages > 1 %}<nav class="user-pagination" aria-label="User list pages"><span class="help-text">{{ organization_people.paginator.count }} users · Page {{ organization_people.number }} of {{ organization_people.paginator.num_pages }}</span><span style="display:flex; gap:.4rem;">{% if organization_people.has_previous %}<a class="btn btn-sm btn-secondary" href="?user_q={{ user_query|urlencode }}&users_page={{ organization_people.previous_page_number }}#people">Previous</a>{% endif %}{% if organization_people.has_next %}<a class="btn btn-sm btn-secondary" href="?user_q={{ user_query|urlencode }}&users_page={{ organization_people.next_page_number }}#people">Next</a>{% endif %}</span></nav>{% endif %}
+
+            {% for profile in organization_people %}{% if not profile.user.is_superuser %}<div id="settings-person-{{ profile.id }}" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
+                <div style="width:min(500px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
+                    <h2 style="margin-top:0;">Edit {{ profile.user.get_full_name|default:profile.user.email }}</h2>
+                    <form method="post" action="{% url 'manage_organization_person' %}">{% csrf_token %}<input type="hidden" name="action" value="update_user"><input type="hidden" name="user_profile_id" value="{{ profile.id }}">
+                        <div class="form-group"><label>Email</label><input class="form-control" type="email" name="email" value="{{ profile.user.email }}" required></div>
+                        <div class="form-group"><label>Status</label><select class="form-control" name="status" {% if profile.user == request.user %}disabled{% endif %}><option value="active" {% if profile.user.is_active %}selected{% endif %}>Active</option><option value="inactive" {% if not profile.user.is_active %}selected{% endif %}>Inactive</option></select>{% if profile.user == request.user %}<input type="hidden" name="status" value="active"><small class="help-text">You cannot make your own account inactive.</small>{% else %}<small class="help-text">Use Inactive for temporary leave. Their account and history remain available to administrators.</small>{% endif %}</div>
+                        <div class="form-group"><label>Role</label><select class="form-control" name="role"><option value="member" {% if not profile.is_org_admin and not profile.is_team_leader and not profile.organization_role %}selected{% endif %}>Member</option><option value="team_leader" {% if profile.is_team_leader and not profile.organization_role and not profile.is_org_admin %}selected{% endif %}>Team Leader</option>{% for organization_role in organization_roles %}<option value="custom:{{ organization_role.id }}" {% if profile.organization_role_id == organization_role.id %}selected{% endif %}>{{ organization_role.name }}</option>{% endfor %}<option value="admin" {% if profile.is_org_admin %}selected{% endif %}>Organization administrator</option></select>{% if profile.user == request.user %}<small class="help-text">You may demote yourself only when another organization administrator remains.</small>{% endif %}</div>
+                        <div class="form-group"><label>Teams</label><details class="team-picker" id="team-picker-{{ profile.id }}"><summary id="team-summary-{{ profile.id }}">{% if profile.team_ids %}{{ profile.team_ids|length }} team{{ profile.team_ids|length|pluralize }} selected{% else %}Select teams{% endif %}</summary><div class="team-picker-options">{% for team in organization_teams %}<label><input type="checkbox" name="teams" value="{{ team.id }}" {% if team.id in profile.team_ids %}checked{% endif %} {% if team.manager_id == profile.id %}disabled{% endif %} onchange="updateTeamSummary('{{ profile.id }}')"> <span>{{ team.name }}{% if team.manager_id == profile.id %} <small class="help-text">(manager)</small><input type="hidden" name="teams" value="{{ team.id }}">{% endif %}</span></label>{% empty %}<span class="help-text">No teams have been created.</span>{% endfor %}<label class="team-picker-create"><input type="checkbox" name="add_team" value="__new__" onchange="toggleNewTeam('{{ profile.id }}', this.checked)"> <span>+ Create a new team</span></label></div></details><small class="help-text">Select any number of teams. Teams they manage are always retained.</small></div>
+                        <div id="new-team-{{ profile.id }}" class="form-group" style="display:none; padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><label>New team name</label><input class="form-control" name="new_team_name" disabled placeholder="e.g. Product"><small class="help-text">You will become the manager of the new team.</small></div>
+                        <div class="form-group" style="padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><strong>Team leadership scope</strong><p class="help-text" style="margin:.25rem 0 .5rem;">Choose which teams this role can act on. Data remains limited to these teams.</p>{% for team in organization_teams %}<label style="display:flex; gap:.5rem; align-items:center; margin:.35rem 0;"><input type="checkbox" name="lead_teams" value="{{ team.id }}" {% if team.id in profile.lead_team_ids %}checked{% endif %}> {{ team.name }}</label>{% endfor %}<label style="display:flex; gap:.5rem; align-items:center; margin-top:.65rem;"><input type="checkbox" name="include_lead_descendants" {% if profile.lead_grants_list.0.include_descendants %}checked{% endif %}> Include nested teams</label></div>
+                        {% if profile.managed_team_list %}<div class="form-group" style="padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><strong>Team ownership</strong><p class="help-text" style="margin:.25rem 0 .75rem;">Optionally transfer teams this user manages.</p>{% for managed_team in profile.managed_team_list %}<label for="manager-{{ profile.id }}-{{ managed_team.id }}">{{ managed_team.name }}</label><select id="manager-{{ profile.id }}-{{ managed_team.id }}" class="form-control" name="manager_for_{{ managed_team.id }}" style="margin-bottom:.65rem;"><option value="">Keep {{ profile.user.get_full_name|default:profile.user.email }} as manager</option>{% for candidate in organization_manager_candidates %}{% if candidate.id != profile.id %}<option value="{{ candidate.id }}">{{ candidate.user.get_full_name|default:candidate.user.email }}</option>{% endif %}{% endfor %}</select>{% endfor %}</div>{% endif %}
+                        <label style="display:flex; align-items:center; gap:.5rem; margin-bottom:1rem;"><input type="checkbox" name="can_create_cycles_for_others" {% if profile.can_create_cycles_for_others %}checked{% endif %}> Can create review cycles for other people</label>
+                        <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('settings-person-{{ profile.id }}').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Save changes</button></div>
+                    </form>
+                </div>
+            </div>
+            {% if profile.user != request.user %}<div id="remove-user-{{ profile.id }}" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1001; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;"><div style="width:min(460px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px;"><h2 style="margin-top:0;">Remove {{ profile.user.get_full_name|default:profile.user.email }}?</h2><p>This removes their access and team memberships. Existing reviews and reports are retained.</p><form method="post" action="{% url 'manage_organization_person' %}">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="user_profile_id" value="{{ profile.id }}">{% if profile.managed_team_list %}<div class="form-group" style="padding:.75rem; border:1px solid var(--border-color); border-radius:8px;"><strong>Reassign owned teams</strong><p class="help-text">Every team needs a new manager before this user can be removed.</p>{% for managed_team in profile.managed_team_list %}<label>{{ managed_team.name }}</label><select class="form-control" name="manager_for_{{ managed_team.id }}" required style="margin-bottom:.65rem;"><option value="">Select new manager</option>{% for candidate in organization_manager_candidates %}{% if candidate.id != profile.id %}<option value="{{ candidate.id }}">{{ candidate.user.get_full_name|default:candidate.user.email }}</option>{% endif %}{% endfor %}</select>{% endfor %}</div>{% endif %}<div class="form-group"><label>Type <strong>delete</strong> to confirm</label><input class="form-control" name="confirmation" autocomplete="off" required></div><div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('remove-user-{{ profile.id }}').style.display='none'">Cancel</button><button class="btn btn-danger" type="submit">Remove user</button></div></form></div></div>{% endif %}
+            {% endif %}{% endfor %}
+
+            {% if pending_people_invitations %}<h3>Pending invitations</h3><div class="table-responsive"><table class="table"><thead><tr><th>Email</th><th>Team</th><th>Status</th><th></th></tr></thead><tbody>{% for invitation in pending_people_invitations %}<tr><td>{{ invitation.email }}</td><td>{{ invitation.team.name|default:"Unassigned" }}</td><td>Pending</td><td style="text-align:right;"><form method="post" action="{% url 'manage_organization_person' %}">{% csrf_token %}<input type="hidden" name="action" value="cancel_invitation"><input type="hidden" name="invitation" value="{{ invitation.id }}"><button class="btn btn-sm btn-secondary" type="submit">Cancel invitation</button></form></td></tr>{% endfor %}</tbody></table></div>{% endif %}
+        </div>
+    </div>
+
+    <div id="settings-invite-person" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55);">
+        <div style="width:min(500px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px;"><h2 style="margin-top:0;">Invite person</h2><form method="post" action="{% url 'send_invitation' %}">{% csrf_token %}<input type="hidden" name="return_to" value="settings"><div class="form-group"><label>Email</label><input class="form-control" type="email" name="email" required></div><div class="form-group"><label>Team</label><select class="form-control" name="team" required><option value="">Select team</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}</select><small class="help-text">A team is required for new invitations. People already in the organization appear here even when unassigned.</small></div><div style="display:flex;justify-content:flex-end;gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('settings-invite-person').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Send invitation</button></div></form></div>
+    </div>
+    {% endif %}
 
     <!-- Left Column -->
     <div style="display:contents;">
@@ -88,6 +139,20 @@
                     {% endif %}
                 </div>
             </form>
+            {% if is_org_admin %}
+            <div class="card-body" style="border-top:1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; gap:1rem; align-items:start;">
+                    <div><h3 style="margin-top:0;">Roles & permissions</h3><p class="help-text">Create roles below Administrator. Child roles inherit every permission granted by their parent.</p></div>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('create-role-modal').style.display='flex'">Add role</button>
+                </div>
+                <div class="table-responsive"><table class="table"><thead><tr><th>Role</th><th>Inherits from</th><th>Effective permissions</th><th>People</th><th></th></tr></thead><tbody>
+                    <tr><td><strong>Organization administrator</strong></td><td>—</td><td>All organization permissions</td><td>{{ admin_count }}</td><td></td></tr>
+                    {% for organization_role in organization_roles %}<tr><td><strong>{{ organization_role.name }}</strong></td><td>{{ organization_role.parent.name|default:'Member' }}</td><td>{% for permission_name in organization_role.effective_permission_names %}{{ permission_name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="help-text">Standard member access</span>{% endfor %}</td><td>{{ organization_role.member_count }}</td><td style="text-align:right;"><button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('role-modal-{{ organization_role.id }}').style.display='flex'">Edit</button></td></tr>{% empty %}<tr><td colspan="5" class="help-text">No custom roles yet. Team Leader can be assigned directly in User Management.</td></tr>{% endfor %}
+                </tbody></table></div>
+            </div>
+            <div id="create-role-modal" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55);"><div style="width:min(520px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px;"><h2 style="margin-top:0;">Add role</h2><form method="post" action="{% url 'manage_organization_role' %}">{% csrf_token %}<input type="hidden" name="action" value="create"><div class="form-group"><label>Name</label><input class="form-control" name="name" placeholder="e.g. Team Leader" required></div><div class="form-group"><label>Inherits from</label><select class="form-control" name="parent_role"><option value="">Member</option>{% for role in organization_roles %}<option value="{{ role.id }}">{{ role.name }}</option>{% endfor %}</select></div>{% include 'admin_dashboard/_role_permissions.html' %}<div style="display:flex; justify-content:flex-end; gap:.5rem;"><button type="button" class="btn btn-secondary" onclick="document.getElementById('create-role-modal').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Create role</button></div></form></div></div>
+            {% for organization_role in organization_roles %}<div id="role-modal-{{ organization_role.id }}" role="dialog" aria-modal="true" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55);"><div style="width:min(520px,100%); max-height:90vh; overflow:auto; padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px;"><h2 style="margin-top:0;">Edit {{ organization_role.name }}</h2><form method="post" action="{% url 'manage_organization_role' %}">{% csrf_token %}<input type="hidden" name="action" value="update"><input type="hidden" name="role_id" value="{{ organization_role.id }}"><input type="hidden" name="confirmation" value="delete"><div class="form-group"><label>Name</label><input class="form-control" name="name" value="{{ organization_role.name }}" required></div><div class="form-group"><label>Inherits from</label><select class="form-control" name="parent_role"><option value="">Member</option>{% for role in organization_roles %}{% if role.id != organization_role.id %}<option value="{{ role.id }}" {% if organization_role.parent_id == role.id %}selected{% endif %}>{{ role.name }}</option>{% endif %}{% endfor %}</select></div>{% include 'admin_dashboard/_role_permissions.html' with edited_role=organization_role %}<div style="display:flex; justify-content:space-between; gap:.5rem;"><button class="btn btn-danger" type="submit" name="action" value="delete" onclick="return confirm('Remove this role? Members will become standard members.')">Delete role</button><span style="display:flex; gap:.5rem;"><button type="button" class="btn btn-secondary" onclick="document.getElementById('role-modal-{{ organization_role.id }}').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Save role</button></span></div></form></div></div>{% endfor %}
+            {% endif %}
         </div>
 
         <!-- Report Settings -->
@@ -513,6 +578,33 @@
 
 <!-- Mobile: Stack all cards -->
 <style>
+    .team-picker { position:relative; }
+    .team-picker > summary {
+        cursor:pointer;
+        list-style:none;
+        padding:.65rem .75rem;
+        border:1px solid var(--border-color);
+        border-radius:6px;
+        background:var(--bg-secondary);
+    }
+    .team-picker > summary::after { content:'\25BE'; float:right; }
+    .team-picker[open] > summary::after { content:'\25B4'; }
+    .team-picker > summary::-webkit-details-marker { display:none; }
+    .team-picker-options {
+        display:grid;
+        gap:.25rem;
+        max-height:220px;
+        overflow-y:auto;
+        margin-top:.35rem;
+        padding:.45rem;
+        border:1px solid var(--border-color);
+        border-radius:8px;
+        background:var(--bg-card);
+        box-shadow:0 8px 20px rgba(0,0,0,.12);
+    }
+    .team-picker-options label { display:flex; align-items:center; gap:.5rem; margin:0; padding:.4rem .45rem; border-radius:5px; cursor:pointer; }
+    .team-picker-options label:hover { background:var(--bg-secondary); }
+    .team-picker-create { border-top:1px solid var(--border-color); margin-top:.25rem !important; padding-top:.6rem !important; color:var(--primary-color); font-weight:600; }
     @media (max-width: 768px) {
         div[style*="grid-template-columns: 1fr 1fr"] {
             grid-template-columns: 1fr !important;
@@ -610,6 +702,30 @@
 </div>
 
 <style>
+    .user-management-table th,
+    .user-management-table td {
+        padding: .45rem .6rem;
+        line-height: 1.2;
+        vertical-align: middle;
+    }
+    .user-management-table td small { line-height: 1.1; }
+    .team-count-more {
+        display: inline-block;
+        padding: .1rem .4rem;
+        border-radius: 999px;
+        background: var(--bg-secondary);
+        color: var(--text-secondary);
+        font-size: .75rem;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .user-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: .75rem;
+        margin-top: .75rem;
+    }
     .settings-nav.is-active {
         background: var(--primary-color);
         border-color: var(--primary-color);
@@ -618,9 +734,26 @@
     @media (max-width: 768px) {
         .settings-layout { grid-template-columns: 1fr !important; }
         .settings-sidebar { position:static !important; }
+        .user-pagination { align-items:flex-start; flex-direction:column; }
     }
 </style>
 <script>
+    function updateTeamSummary(profileId) {
+        const picker = document.getElementById('team-picker-' + profileId);
+        const count = picker.querySelectorAll('input[name="teams"]:checked:not(:disabled)').length
+            + picker.querySelectorAll('input[name="teams"]:checked:disabled').length;
+        document.getElementById('team-summary-' + profileId).textContent = count
+            ? count + ' team' + (count === 1 ? '' : 's') + ' selected'
+            : 'Select teams';
+    }
+    function toggleNewTeam(profileId, creating) {
+        const box = document.getElementById('new-team-' + profileId);
+        const input = box.querySelector('input');
+        box.style.display = creating ? 'block' : 'none';
+        input.disabled = !creating;
+        input.required = creating;
+        if (creating) input.focus();
+    }
     (function () {
         const buttons = Array.from(document.querySelectorAll('.settings-nav'));
         const panes = Array.from(document.querySelectorAll('.settings-pane'));
