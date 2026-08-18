@@ -2,6 +2,9 @@
 
 Zero-configuration Docker-based testing for Blik360.
 
+For concurrent local traffic and scale-test data, see
+[`load_tests/README.md`](load_tests/README.md).
+
 ## Quick Start
 
 ```bash

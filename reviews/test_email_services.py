@@ -13,7 +13,10 @@ from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
 from reviews.models import (
-    OrganizationalReviewCycle, ReviewCampaign, ReviewCycle, ReviewerToken,
+    OrganizationalReviewCycle,
+    ReviewCampaign,
+    ReviewCycle,
+    ReviewerToken,
 )
 from reviews.services import (
     send_organizational_cycle_invitations,
@@ -25,6 +28,34 @@ from reviews.services import (
 
 @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
 class SendOrganizationalCycleInvitationTests(TestCase):
+    @patch('reviews.services.send_email')
+    def test_individual_cycle_emails_only_the_two_selected_people(self, mock_send_email):
+        org = OrganizationFactory(name='FindMyPast')
+        selected = [
+            RevieweeFactory(organization=org, email='one@example.com'),
+            RevieweeFactory(organization=org, email='two@example.com'),
+        ]
+        RevieweeFactory(organization=org, email='excluded@example.com')
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=UserFactory(),
+            audience_type='individuals',
+            self_questionnaire=questionnaire,
+            peer_questionnaire=questionnaire,
+            manager_questionnaire=None,
+            minimum_peer_reviewers=2,
+        )
+        parent.selected_reviewees.add(*selected)
+
+        stats = send_organizational_cycle_invitations(parent)
+
+        self.assertEqual(stats, {'sent': 2, 'errors': []})
+        self.assertEqual(
+            {call.kwargs['recipient_list'][0] for call in mock_send_email.call_args_list},
+            {'one@example.com', 'two@example.com'},
+        )
+
     @patch('reviews.services.send_email')
     def test_sends_one_consolidated_dashboard_email_per_participant(self, mock_send_email):
         org = OrganizationFactory(name='FindMyPast')

@@ -36,6 +36,11 @@ dev = [
     "factory-boy>=3.3.0",
 ]
 
+[dependency-groups]
+load = [
+    "locust>=2.32,<3",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

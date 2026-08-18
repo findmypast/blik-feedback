@@ -1,13 +1,13 @@
-from django.core.exceptions import ValidationError
 from datetime import date
+from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
-from unittest.mock import patch
 
-from accounts.factories import RevieweeFactory, UserProfileFactory
 from accounts.authorization import visible_cycles
+from accounts.factories import RevieweeFactory, UserProfileFactory
 from accounts.models import Team, TeamMembership
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
@@ -261,6 +261,49 @@ class CampaignServiceTests(TestCase):
             ).exists()
         )
         self.assertFalse(parent.campaigns.filter(cycle_type='manager').exists())
+
+    def test_individual_organisation_audience_targets_only_selected_people(self):
+        excluded = RevieweeFactory(
+            organization=self.org, team=self.team, email='excluded@example.com'
+        )
+        questionnaires = {
+            'self': QuestionnaireFactory(
+                organization=self.org, allow_self_assessment=True
+            ),
+            'peer': QuestionnaireFactory(
+                organization=self.org, allow_peer_review=True
+            ),
+        }
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires=questionnaires,
+            minimum_peer_reviewers=2,
+            audience_type='individuals',
+            participants=[self.member_one, self.member_two],
+        )
+
+        self.assertEqual(
+            set(parent.selected_reviewees.values_list('pk', flat=True)),
+            {self.member_one.pk, self.member_two.pk},
+        )
+        self.assertFalse(parent.campaigns.filter(cycle_type='manager').exists())
+        self.assertEqual(
+            set(parent.campaigns.get(cycle_type='self').cycles.values_list(
+                'reviewee_id', flat=True
+            )),
+            {self.member_one.pk, self.member_two.pk},
+        )
+        self.assertEqual(
+            set(parent.campaigns.get(cycle_type='peer').cycles.values_list(
+                'reviewee_id', flat=True
+            )),
+            {self.member_one.pk, self.member_two.pk},
+        )
+        self.assertFalse(
+            parent.campaigns.filter(cycles__reviewee=excluded).exists()
+        )
 
     def test_peer_report_requires_campaign_nomination_minimum(self):
         from reports.services import generate_report

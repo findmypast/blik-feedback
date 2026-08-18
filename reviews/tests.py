@@ -1,12 +1,13 @@
-from django.test import TestCase
-from django.urls import reverse
 from unittest.mock import patch
 
-from questionnaires.factories import RatingQuestionFactory
-from reviews.factories import ReviewerTokenFactory
+from django.test import TestCase
+from django.urls import reverse
+
 from accounts.factories import UserProfileFactory
 from accounts.models import Reviewee
 from core.factories import OrganizationFactory, UserFactory
+from questionnaires.factories import RatingQuestionFactory
+from reviews.factories import ReviewerTokenFactory
 
 
 class FeedbackCompletionRedirectTests(TestCase):
@@ -34,6 +35,13 @@ class FeedbackCompletionRedirectTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['redirect'], reverse('admin_dashboard'))
+        token.refresh_from_db()
+        self.assertIsNotNone(token.completed_at)
+
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertNotContains(
+            dashboard, reverse('reviews:feedback_form', args=[token.token])
+        )
 
     def test_completed_feedback_url_redirects_to_dashboard(self):
         from django.utils import timezone
