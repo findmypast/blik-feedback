@@ -19,6 +19,11 @@ Everything you need is waiting on your dashboard, and your progress will be save
 
 {% if organizational_cycle.due_date %}Due date: {{ organizational_cycle.due_date|date:"j F Y" }}
 {% endif %}
+{% if review_tasks %}Your review tasks (the same assignments shown in your dashboard To Do list):
+{% for task in review_tasks %}- {{ task.label }}{% if task.team %} — {{ task.team }}{% endif %}
+  {{ task.url }}
+{% endfor %}
+{% endif %}
 Thank you for taking the time to share thoughtful feedback. 💙
 
 Best regards,

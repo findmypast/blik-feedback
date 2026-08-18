@@ -20,7 +20,24 @@
                 {% if organizational_cycle.manager_questionnaire_id %}<tr><td style="background:#f5f3ff;border:1px solid #e0e7ff;border-radius:9px;padding:15px 17px;"><strong style="color:#4338ca;">🌱 Manager assessment</strong><br><span style="color:#4b5563;font-size:14px;line-height:1.5;">Share constructive feedback for the manager of each team you belong to.</span></td></tr>{% endif %}
             </table>
             {% if organizational_cycle.due_date %}<div style="background:#eef2ff;border-left:4px solid #6366f1;border-radius:6px;padding:12px 15px;margin:20px 0;color:#3730a3;"><strong>📅 Due {{ organizational_cycle.due_date|date:"j F Y" }}</strong></div>{% endif %}
+            {% if review_tasks %}
+            <h2 style="font-size:18px;margin:26px 0 8px;">Your review tasks</h2>
+            <p style="line-height:1.65;margin-top:0;">These are the same assignments shown in your dashboard To Do list.</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:12px 0 24px;border-collapse:collapse;">
+                {% for task in review_tasks %}
+                <tr>
+                    <td style="border-top:1px solid #e5e7eb;padding:14px 8px 14px 0;">
+                        <strong>{{ task.label }}</strong>{% if task.team %}<br><span style="color:#6b7280;font-size:13px;">{{ task.team }}</span>{% endif %}
+                    </td>
+                    <td style="border-top:1px solid #e5e7eb;padding:14px 0 14px 8px;text-align:right;white-space:nowrap;">
+                        <a href="{{ task.url }}" style="display:inline-block;background:#4f46e5;color:#fff!important;-webkit-text-fill-color:#fff;padding:9px 16px;text-decoration:none;border-radius:7px;font-weight:700;font-size:14px;">Open task</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% else %}
             <p style="line-height:1.65;">Everything you need is waiting on your dashboard, and your progress will be saved as you go.</p>
+            {% endif %}
             <div style="text-align:center;margin:28px 0 22px;">
                 <a href="{{ dashboard_url }}" style="display:inline-block;background:#4f46e5;color:#fff!important;-webkit-text-fill-color:#fff;padding:13px 30px;text-decoration:none;border-radius:8px;font-weight:700;">Go to Dashboard →</a>
             </div>

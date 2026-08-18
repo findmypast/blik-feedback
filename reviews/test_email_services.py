@@ -12,7 +12,9 @@ from accounts.factories import RevieweeFactory
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
-from reviews.models import OrganizationalReviewCycle, ReviewCampaign
+from reviews.models import (
+    OrganizationalReviewCycle, ReviewCampaign, ReviewCycle, ReviewerToken,
+)
 from reviews.services import (
     send_organizational_cycle_invitations,
     send_peer_nomination_invitation,
@@ -52,6 +54,77 @@ class SendOrganizationalCycleInvitationTests(TestCase):
         self.assertIn('Manager assessment', rendered)
         self.assertIn('Go to Dashboard', rendered)
         self.assertIn('https://public.example.com/dashboard/', rendered)
+
+    @patch('reviews.services.send_email')
+    def test_email_uses_the_same_assignment_uuids_as_dashboard_tasks(self, mock_send_email):
+        org = OrganizationFactory(name='FindMyPast')
+        creator = UserFactory()
+        participant = RevieweeFactory(
+            organization=org, name='Jamie Member', email='jamie@example.com'
+        )
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=creator,
+            self_questionnaire=questionnaire,
+            peer_questionnaire=questionnaire,
+            minimum_peer_reviewers=2,
+        )
+        parent.selected_reviewees.add(participant)
+        self_campaign = ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='self',
+            status='active',
+            organizational_cycle=parent,
+        )
+        self_cycle = ReviewCycle.objects.create(
+            campaign=self_campaign,
+            reviewee=participant,
+            questionnaire=questionnaire,
+            created_by=creator,
+            cycle_type='self',
+        )
+        self_token = ReviewerToken.objects.create(
+            cycle=self_cycle,
+            category='self',
+            reviewer_email=participant.email,
+        )
+        peer_campaign = ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='peer',
+            status='active',
+            organizational_cycle=parent,
+        )
+        peer_cycle = ReviewCycle.objects.create(
+            campaign=peer_campaign,
+            reviewee=participant,
+            questionnaire=questionnaire,
+            created_by=creator,
+            cycle_type='peer',
+        )
+
+        send_organizational_cycle_invitations(parent)
+
+        rendered = (
+            mock_send_email.call_args.kwargs['message']
+            + mock_send_email.call_args.kwargs['html_message']
+        )
+        self.assertIn(
+            f'https://public.example.com/feedback/{self_token.token}/', rendered
+        )
+        self.assertIn(
+            f'https://public.example.com/dashboard/cycles/'
+            f'{peer_cycle.uuid}/nominate-peers/',
+            rendered,
+        )
+        self_token.refresh_from_db()
+        self.assertIsNotNone(self_token.invitation_sent_at)
 
 
 class SendReviewerInvitationsTests(TestCase):

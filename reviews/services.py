@@ -295,11 +295,62 @@ def send_organizational_cycle_invitations(organizational_cycle):
         ).filter(is_active=True)
     participants = participants.exclude(email='').order_by('email').distinct()
     for participant in participants:
+        participant_cycles = ReviewCycle.objects.filter(
+            campaign__organizational_cycle=organizational_cycle,
+            status='active',
+        )
+        review_tasks = []
+
+        # Peer campaigns create a nomination task for the reviewee before any
+        # reviewer tokens exist.  Use the same cycle UUID as the dashboard's
+        # "Select peers" action.
+        for cycle in participant_cycles.filter(
+            campaign__cycle_type='peer',
+            reviewee=participant,
+            tokens__isnull=True,
+        ).select_related('campaign__team'):
+            review_tasks.append({
+                'identifier': cycle.uuid,
+                'label': 'Select peer reviewers',
+                'team': cycle.campaign.team.name if cycle.campaign.team_id else '',
+                'url': (
+                    f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
+                    f'{reverse("nominate_peer_reviewers", args=[cycle.uuid])}'
+                ),
+            })
+
+        # Self and manager-review work is represented by a ReviewerToken.  Its
+        # UUID is the canonical assignment identifier used by both email and
+        # the dashboard To Do row.
+        assigned_tokens = ReviewerToken.objects.filter(
+            cycle__campaign__organizational_cycle=organizational_cycle,
+            cycle__status='active',
+            reviewer_email__iexact=participant.email,
+            completed_at__isnull=True,
+        ).select_related('cycle__reviewee', 'cycle__campaign__team', 'assigned_team')
+        for token in assigned_tokens:
+            if token.category == 'self':
+                label = 'Complete your self-assessment'
+            elif token.category == 'direct_report':
+                label = f'Assess your manager, {token.cycle.reviewee.name}'
+            else:
+                label = f'Review {token.cycle.reviewee.name}'
+            review_tasks.append({
+                'identifier': token.token,
+                'label': label,
+                'team': token.assignment_team_label,
+                'url': (
+                    f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
+                    f'{reverse("reviews:feedback_form", args=[token.token])}'
+                ),
+            })
+
         context = {
             'participant': participant,
             'organizational_cycle': organizational_cycle,
             'organization': organizational_cycle.organization,
             'dashboard_url': dashboard_url,
+            'review_tasks': review_tasks,
         }
         try:
             send_email(
@@ -315,6 +366,7 @@ def send_organizational_cycle_invitations(organizational_cycle):
                     'emails/organizational_cycle_invitation.html', context
                 ),
             )
+            assigned_tokens.update(invitation_sent_at=timezone.now())
             stats['sent'] += 1
         except Exception as exc:
             stats['errors'].append(

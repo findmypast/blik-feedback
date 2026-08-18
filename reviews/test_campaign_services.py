@@ -7,6 +7,7 @@ from django.utils import timezone
 from unittest.mock import patch
 
 from accounts.factories import RevieweeFactory, UserProfileFactory
+from accounts.authorization import visible_cycles
 from accounts.models import Team, TeamMembership
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
@@ -203,6 +204,17 @@ class CampaignServiceTests(TestCase):
         self.assertEqual(
             self_campaign.cycles.filter(reviewee=self.member_one).count(), 1
         )
+        shared_self_cycle = self_campaign.cycles.get(reviewee=self.member_one)
+        self.assertTrue(visible_cycles(
+            self.manager_user,
+            ReviewCycle.objects.all(),
+            self.org,
+        ).filter(pk=shared_self_cycle.pk).exists())
+        self.assertTrue(visible_cycles(
+            second_manager_user,
+            ReviewCycle.objects.all(),
+            self.org,
+        ).filter(pk=shared_self_cycle.pk).exists())
         peer_campaigns = parent.campaigns.filter(cycle_type='peer')
         self.assertEqual(peer_campaigns.count(), 2)
         self.assertEqual(
