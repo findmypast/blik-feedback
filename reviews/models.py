@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 from core.models import TimeStampedModel
 from core.managers import ReviewCycleManager, ReviewerTokenManager, ResponseManager
 from accounts.models import Reviewee
@@ -76,6 +77,14 @@ class OrganizationalReviewCycle(TimeStampedModel):
             return 'Selected individuals'
         names = list(self.teams.order_by('name').values_list('name', flat=True))
         return ', '.join(names) or 'Selected teams'
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == 'active'
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
 
 
 class ReviewCampaign(TimeStampedModel):
@@ -161,6 +170,14 @@ class ReviewCampaign(TimeStampedModel):
         if self.target_type == 'individual' and self.individual_id:
             return self.individual.name
         return 'Scope not set'
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == 'active'
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
 
 
 class ReviewCycle(TimeStampedModel):
@@ -279,6 +296,14 @@ class ReviewCycle(TimeStampedModel):
         if self.reviewee.team_id:
             names.add(self.reviewee.team.name)
         return ', '.join(sorted(names)) or 'Organisation-wide'
+
+    @property
+    def is_overdue(self):
+        return bool(
+            self.status == 'active'
+            and self.due_date
+            and self.due_date < timezone.localdate()
+        )
 
 
 class ReviewerToken(TimeStampedModel):

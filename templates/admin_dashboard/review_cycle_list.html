@@ -16,10 +16,11 @@
     <div class="card-header"><h2 class="card-title">Cycles</h2></div>
     <div class="card-body campaign-list">
         {% for group in organizational_cycle_groups %}
-        <div class="cycle-summary-row">
+        <div class="cycle-summary-row{% if group.cycle.is_overdue %} is-overdue{% endif %}">
             <div>
                 <span><strong>{{ group.cycle.display_name }}</strong> <span class="badge {% if group.cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ group.cycle.get_status_display }}</span></span>
-                <small>{{ group.cycle.audience_label }} · Due {{ group.cycle.due_date|date:"j F Y"|default:"date not set" }}</small>
+                <span class="assessment-chip-row"><span class="assessment-chip assessment-self">Self</span><span class="assessment-chip assessment-peer">Peer review</span>{% if group.cycle.manager_questionnaire_id %}<span class="assessment-chip assessment-manager">Manager</span>{% endif %}</span>
+                <small class="{% if group.cycle.is_overdue %}overdue-date{% endif %}">{{ group.cycle.audience_label }} · Due {{ group.cycle.due_date|date:"j F Y"|default:"date not set" }}{% if group.cycle.is_overdue %} · Overdue{% endif %}</small>
             </div>
             <div class="cycle-summary-progress">
                 <span>{{ group.completed_count }} / {{ group.total_count }} reviews complete</span>
@@ -29,10 +30,11 @@
         </div>
         {% endfor %}
         {% for item in campaigns %}
-        <div class="cycle-summary-row">
+        <div class="cycle-summary-row{% if item.campaign.is_overdue %} is-overdue{% endif %}">
             <div>
                 <strong>{{ item.campaign.display_name }}</strong>
-                <small>{% if item.campaign.team %}{{ item.campaign.team.name }}{% if item.campaign.include_descendants %} and nested teams{% endif %}{% else %}{{ item.campaign.individual.name }}{% endif %} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
+                <span class="assessment-chip assessment-{{ item.campaign.cycle_type }}">{{ item.campaign.get_cycle_type_display }}</span>
+                <small class="{% if item.campaign.is_overdue %}overdue-date{% endif %}">{% if item.campaign.team %}{{ item.campaign.team.name }}{% if item.campaign.include_descendants %} and nested teams{% endif %}{% else %}{{ item.campaign.individual.name }}{% endif %} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}{% if item.campaign.is_overdue %} · Overdue{% endif %}</small>
             </div>
             <div class="cycle-summary-progress">
                 <span>{{ item.completed_people }} / {{ item.participant_count }} people complete</span>
@@ -57,7 +59,7 @@
         <div class="table-wrapper">
         <table class="table">
             <thead>
-                <tr>
+                <tr{% if item.cycle.is_overdue %} class="is-overdue"{% endif %}>
                     <th>Reviewee</th>
                     <th>Questionnaire</th>
                     <th>Status</th>
@@ -88,13 +90,14 @@
                         <span class="badge badge-success">Completed</span>
                         {% endif %}
                     </td>
-                    <td style="color: #64748b; font-size: 0.875rem;">
+                    <td class="{% if item.cycle.is_overdue %}overdue-date{% endif %}" style="font-size: 0.875rem;">
                         <div>{{ item.cycle.get_cycle_type_display }}</div>
                         {% if item.cycle.start_date or item.cycle.due_date %}
                         <div style="font-size: 0.75rem; margin-top: 0.125rem;">
                             {{ item.cycle.start_date|date:"M d, Y"|default:"Not set" }} – {{ item.cycle.due_date|date:"M d, Y"|default:"No due date" }}
                         </div>
                         {% endif %}
+                        {% if item.cycle.is_overdue %}<span class="badge badge-danger">Overdue</span>{% endif %}
                     </td>
                     <td>
                         <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 0.25rem;">
@@ -338,6 +341,20 @@ function showCopyFeedback(message) {
 </script>
 
 <style>
+.cycle-summary-row.is-overdue,
+tr.is-overdue {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    box-shadow: inset 3px 0 0 var(--danger);
+}
+.overdue-date { color: var(--danger) !important; font-weight: 650; }
+.assessment-chip-row { display: flex; gap: .35rem; flex-wrap: wrap; margin: .3rem 0; }
+.assessment-chip { display: inline-flex; width: max-content; margin-top: .3rem; padding: .18rem .48rem; border-radius: 4px; font-size: .72rem; font-weight: 700; line-height: 1.2; }
+.assessment-self { background: #deebff; color: #0747a6; }
+.assessment-peer { background: #eae6ff; color: #403294; }
+.assessment-manager { background: #e3fcef; color: #006644; }
+[data-theme="dark"] .assessment-self { background: #173b65; color: #b3d4ff; }
+[data-theme="dark"] .assessment-peer { background: #352c63; color: #c0b6f2; }
+[data-theme="dark"] .assessment-manager { background: #164b3b; color: #abf5d1; }
 .uuid-display {
     flex: 1;
     padding: 0.5rem;

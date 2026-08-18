@@ -1,9 +1,10 @@
 {% if item.can_manage %}
-<details class="campaign-card assessment-{{ item.campaign.cycle_type }}">
+<details class="campaign-card assessment-{{ item.campaign.cycle_type }}{% if item.overdue and not completed %} is-overdue{% endif %}">
     <summary>
         <span>
             <strong>{{ item.campaign.display_name }}</strong>
-            <small>{{ item.campaign.scope_label }} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
+            <span class="assessment-chip assessment-{{ item.campaign.cycle_type }}">{{ item.campaign.get_cycle_type_display }}</span>
+            <small class="{% if item.overdue and not completed %}overdue-date{% endif %}">{{ item.campaign.scope_label }} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
         </span>
         <span style="display:flex;align-items:center;gap:.5rem;">
             {% if item.overdue and not completed %}<span class="badge badge-danger">Overdue</span>{% elif item.due_soon and not completed %}<span class="badge badge-warning">Due soon</span>{% endif %}
@@ -75,11 +76,12 @@
     </div>
 </details>
 {% else %}
-<div class="campaign-card compact-campaign assessment-{{ item.campaign.cycle_type }}">
+<div class="campaign-card compact-campaign assessment-{{ item.campaign.cycle_type }}{% if item.overdue and not completed %} is-overdue{% endif %}">
     <div class="member-campaign-heading">
         <span>
             <strong>{{ item.campaign.display_name }}</strong>
-            <small>{{ item.campaign.scope_label }} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
+            <span class="assessment-chip assessment-{{ item.campaign.cycle_type }}">{{ item.campaign.get_cycle_type_display }}</span>
+            <small class="{% if item.overdue and not completed %}overdue-date{% endif %}">{{ item.campaign.scope_label }} · Due {{ item.campaign.due_date|date:"j F Y"|default:"date not set" }}</small>
         </span>
         {% if item.overdue and not completed %}<span class="badge badge-danger">Overdue</span>{% elif item.due_soon and not completed %}<span class="badge badge-warning">Due soon</span>{% endif %}
     </div>

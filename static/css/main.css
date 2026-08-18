@@ -733,6 +733,11 @@ body.setup-page {
     color: #92400e;
 }
 
+.badge-danger {
+    background: var(--danger-100);
+    color: var(--danger-700);
+}
+
 .badge-info {
     background: #dbeafe;
     color: #1e40af;
