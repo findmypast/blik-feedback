@@ -1,0 +1,24 @@
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8125:8025"
+      - "1125:1025"
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+  web:
+    environment:
+      DEBUG: "True"
+      SITE_DOMAIN: localhost:8000
+      SITE_PROTOCOL: http
+      EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: 1025
+      EMAIL_USE_TLS: "False"
+      DEFAULT_FROM_EMAIL: test@blik.local
+      SESSION_COOKIE_SECURE: "False"
+      CSRF_COOKIE_SECURE: "False"
+    depends_on:
+      mailpit:
+        condition: service_started
