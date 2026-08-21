@@ -25,6 +25,12 @@ class OrganizationQuerySet(models.QuerySet):
 
         queryset = self.filter(organization=organization)
 
+        # Archived teams are retained only so completed review history and old
+        # invitation links can still explain what happened. They must not
+        # appear in normal organization-scoped team pickers or permissions.
+        if self.model._meta.model_name == 'team':
+            queryset = queryset.filter(archived_at__isnull=True)
+
         # Exclude GDPR soft-deleted records by default
         if not include_deleted:
             model = self.model

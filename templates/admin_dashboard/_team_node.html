@@ -2,7 +2,7 @@
     <summary class="card-header" style="cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex;flex-direction:column;gap:.15rem;"><strong>{{ card.team.name }} ({{ card.members|length }})</strong>{% if card.team.parent %}<small style="color:var(--text-secondary);font-weight:normal;">Parent team: {{ card.team.parent.name }}</small>{% endif %}</div>
         <span style="display:flex; gap:.75rem; align-items:center; color:var(--text-secondary);">
-            Manager: {{ card.manager_name }}
+            Team leader: {{ card.manager_name }}
             <span>▾</span>
         </span>
     </summary>
@@ -17,51 +17,46 @@
         <form method="post" action="{% url 'manage_team_structure' %}" style="display:grid; grid-template-columns:2fr 2fr 2fr auto; gap:.75rem; align-items:end; margin-bottom:1rem;">
             {% csrf_token %}<input type="hidden" name="action" value="update_team"><input type="hidden" name="team" value="{{ card.team.id }}">
             <div class="form-group"><label>Name</label><input class="form-control" name="name" value="{{ card.team.name }}" required></div>
-            {% if perms.accounts.can_manage_organization %}<div class="form-group"><label>Manager</label><select class="form-control" name="manager" required>{% for profile in organization_profiles %}<option value="{{ profile.id }}" {% if card.team.manager_id == profile.id %}selected{% endif %}>{{ profile.user.get_full_name|default:profile.user.email }}</option>{% endfor %}</select></div>{% else %}<div class="form-group"><label>Manager</label><input class="form-control" value="{{ card.manager_name }}" disabled></div>{% endif %}
+            {% if perms.accounts.can_manage_organization %}<div class="form-group"><label>Team leader</label><select class="form-control" name="manager" required>{% for profile in organization_profiles %}<option value="{{ profile.id }}" {% if card.team.manager_id == profile.id %}selected{% endif %}>{{ profile.user.get_full_name|default:profile.user.email }}</option>{% endfor %}</select></div>{% else %}<div class="form-group"><label>Team leader</label><input class="form-control" value="{{ card.manager_name }}" disabled></div>{% endif %}
             <div class="form-group"><label>Parent</label><select class="form-control" name="parent"><option value="">Top level</option>{% for team in organization_teams %}{% if team.id != card.team.id %}<option value="{{ team.id }}" {% if card.team.parent_id == team.id %}selected{% endif %}>{{ team.name }}</option>{% endif %}{% endfor %}</select></div>
             <div style="display:flex; gap:.5rem;"><button class="btn btn-primary" type="submit">Save</button><a class="btn btn-secondary" href="{% url 'team_list' %}">Cancel</a></div>
         </form>
-        <form method="post" action="{% url 'manage_team_structure' %}" style="margin-bottom:1rem;" onsubmit="return confirm('Remove {{ card.team.name|escapejs }}? Members will become unassigned.');">
-            {% csrf_token %}<input type="hidden" name="action" value="delete_team"><input type="hidden" name="team" value="{{ card.team.id }}">
-            <button class="btn btn-sm btn-danger" type="submit">Remove team</button>
-        </form>
+        <div style="margin-bottom:1rem;"><button class="btn btn-sm btn-danger" type="button" onclick="document.getElementById('remove-team-{{ card.team.id }}').style.display='flex'">Remove team</button></div>
+        <div id="remove-team-{{ card.team.id }}" role="dialog" aria-modal="true" aria-labelledby="remove-team-title-{{ card.team.id }}" style="display:none;position:fixed;inset:0;z-index:1000;padding:1rem;align-items:center;justify-content:center;background:rgba(0,0,0,.55);">
+            <div style="width:min(520px,100%);padding:1.5rem;background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.25);">
+                <h2 id="remove-team-title-{{ card.team.id }}" style="margin-top:0;">Remove {{ card.team.name }}?</h2>
+                <p><strong>Active and draft campaigns for this team will be permanently deleted.</strong></p>
+                <p>Completed campaigns, reports, and review history will be stored and remain accessible to authorised organisation administrators for GDPR requests. Members will become unassigned, and pending invitation links will explain that this team has been removed.</p>
+                <form method="post" action="{% url 'manage_team_structure' %}">{% csrf_token %}<input type="hidden" name="action" value="delete_team"><input type="hidden" name="team" value="{{ card.team.id }}">
+                    <div class="form-group"><label for="team-delete-confirmation-{{ card.team.id }}">Type <strong>delete</strong> to confirm</label><input id="team-delete-confirmation-{{ card.team.id }}" class="form-control" name="confirmation" autocomplete="off" required oninput="document.getElementById('team-delete-submit-{{ card.team.id }}').disabled=this.value.trim().toLowerCase()!=='delete';"></div>
+                    <div style="display:flex;justify-content:flex-end;gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('remove-team-{{ card.team.id }}').style.display='none'">Cancel</button><button id="team-delete-submit-{{ card.team.id }}" class="btn btn-danger" type="submit" disabled>Remove team</button></div>
+                </form>
+            </div>
+        </div>
         {% endif %}
 
         <section style="margin-top:.75rem; border:1px solid var(--border-color); border-radius:8px; padding:1rem;">
             <h3 style="margin:0 0 .75rem;">Team members</h3>
-                <div class="table-responsive team-members-table"><table class="table"><thead><tr><th>Person</th><th>Permissions</th><th>Status</th><th></th></tr></thead><tbody>
-                {% for member in card.members %}<tr><td><strong>{{ member.name }}</strong><br><small>{{ member.email }}</small></td><td>{% if member.profile %}{% if member.is_org_admin or member.profile.user.is_superuser %}Administrator{% elif member.profile.can_create_cycles_for_others %}Can create cycles{% else %}Member{% endif %}{% else %}—{% endif %}</td><td>{% if member.status == 'active' %}<span style="color:#059669;">● Active</span>{% else %}<span style="color:#d97706;">◷ Pending</span>{% endif %}</td><td style="text-align:right; position:relative;">
+                <div class="table-responsive team-members-table"><table class="table"><thead><tr><th>Person</th><th>Team role</th><th>Status</th><th></th></tr></thead><tbody>
+                {% for member in card.members %}<tr><td><strong>{{ member.name }}</strong><br><small>{{ member.email }}</small></td><td>{% if member.profile %}{% if member.is_team_leader %}Team Leader{% else %}Member{% endif %}{% else %}—{% endif %}</td><td>{% if member.status == 'active' %}<span style="color:#059669;">● Active</span>{% else %}<span style="color:#d97706;">◷ Pending</span>{% endif %}</td><td style="text-align:right; position:relative;">
                     {% if member.status == 'active' and member.email != request.user.email %}{% if pending_peer_cycle and member.reviewee %}<a class="btn btn-sm btn-primary" href="{% url 'nominate_peer_reviewers' pending_peer_cycle.uuid %}?candidate={{ member.reviewee.id }}">Request review</a>{% else %}<a class="btn btn-sm btn-primary" href="{% url 'review_cycle_create' %}">Request review</a>{% endif %}{% endif %}
-                    {% if card.can_edit and member.invitation or card.can_edit and member.reviewee and not member.is_manager or card.can_edit and perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}
+                    {% if card.can_edit and member.invitation %}
                     <details class="member-actions-menu" style="display:inline-block; position:relative; vertical-align:top; margin-left:.35rem; text-align:left;">
                         <summary class="btn btn-sm btn-secondary" aria-label="Edit {{ member.name }}" style="list-style:none; cursor:pointer;">Edit</summary>
                         <div class="member-actions-popover" style="position:absolute; right:0; top:calc(100% + .35rem); z-index:50; min-width:190px; padding:.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.15); display:flex; flex-direction:column; gap:.35rem;">
-                            {% if perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('permissions-{{ member.profile.id }}').style.display='flex';">Edit permissions</button>{% endif %}
-                            {% if member.reviewee and not member.is_manager %}<button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}
                             {% if member.invitation %}<form method="post" action="{% url 'manage_team_structure' %}" onsubmit="return confirm('Cancel this pending invitation?');">{% csrf_token %}<input type="hidden" name="action" value="cancel_team_invitation"><input type="hidden" name="invitation" value="{{ member.invitation.id }}"><button class="btn btn-sm btn-secondary" style="width:100%;" type="submit">Cancel invitation</button></form>{% endif %}
                         </div>
                     </details>
                     {% endif %}
-                    {% if perms.accounts.can_manage_organization and member.profile and member.email != request.user.email and not member.profile.user.is_superuser %}
-                    <div id="permissions-{{ member.profile.id }}" role="dialog" aria-modal="true" aria-labelledby="permissions-title-{{ member.profile.id }}" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
-                        <div style="width:min(460px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
-                        <h2 id="permissions-title-{{ member.profile.id }}" style="margin-top:0;">Edit {{ member.name }}’s permissions</h2>
-                        <form method="post" action="{% url 'update_user_permissions' %}">{% csrf_token %}<input type="hidden" name="user_profile_id" value="{{ member.profile.id }}">
-                            <div class="form-group"><label>Role</label><select class="form-control" name="role"><option value="member" {% if not member.is_org_admin %}selected{% endif %}>Member</option><option value="admin" {% if member.is_org_admin %}selected{% endif %}>Organisation administrator</option></select></div>
-                            <label style="display:flex; gap:.5rem; align-items:center; margin-bottom:.75rem;"><input type="checkbox" name="can_create_cycles_for_others" {% if member.profile.can_create_cycles_for_others %}checked{% endif %}> Can create cycles for others</label>
-                            <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-sm btn-secondary" type="button" onclick="document.getElementById('permissions-{{ member.profile.id }}').style.display='none'">Cancel</button><button class="btn btn-sm btn-primary" type="submit">Save permissions</button></div>
-                        </form>
-                        </div>
-                    </div>
-                    {% endif %}
+                    {% if card.can_edit and member.reviewee %}{% if member.is_manager %}<button type="button" class="btn btn-sm btn-danger" style="margin-left:.35rem;opacity:.55;" disabled title="Transfer team management before removing this person">Remove from team</button>{% else %}<button type="button" class="btn btn-sm btn-danger" style="margin-left:.35rem;" onclick="document.getElementById('remove-member-{{ card.team.id }}-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}{% endif %}
                     {% if card.can_edit and member.reviewee and not member.is_manager %}
-                    <div id="remove-member-{{ member.reviewee.id }}" role="dialog" aria-modal="true" aria-labelledby="remove-title-{{ member.reviewee.id }}" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
+                    <div id="remove-member-{{ card.team.id }}-{{ member.reviewee.id }}" role="dialog" aria-modal="true" aria-labelledby="remove-title-{{ card.team.id }}-{{ member.reviewee.id }}" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
                         <div style="width:min(460px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">
-                            <h2 id="remove-title-{{ member.reviewee.id }}" style="margin-top:0;">Remove {{ member.name }}?</h2>
+                            <h2 id="remove-title-{{ card.team.id }}-{{ member.reviewee.id }}" style="margin-top:0;">Remove {{ member.name }}?</h2>
                             <p>This removes them from {{ card.team.name }} but does not delete their account or review history.</p>
                             <form method="post" action="{% url 'manage_team_structure' %}">{% csrf_token %}<input type="hidden" name="action" value="set_member_team"><input type="hidden" name="reviewee" value="{{ member.reviewee.id }}"><input type="hidden" name="remove_from_team" value="{{ card.team.id }}">
-                                <div class="form-group"><label for="remove-confirmation-{{ member.reviewee.id }}">Type <strong>delete</strong> to confirm</label><input id="remove-confirmation-{{ member.reviewee.id }}" class="form-control" name="confirmation" autocomplete="off" required oninput="document.getElementById('remove-submit-{{ member.reviewee.id }}').disabled=this.value.trim().toLowerCase()!=='delete';"></div>
-                                <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('remove-member-{{ member.reviewee.id }}').style.display='none'">Cancel</button><button id="remove-submit-{{ member.reviewee.id }}" class="btn btn-danger" type="submit" disabled>Remove member</button></div>
+                                <div class="form-group"><label for="remove-confirmation-{{ card.team.id }}-{{ member.reviewee.id }}">Type <strong>delete</strong> to confirm</label><input id="remove-confirmation-{{ card.team.id }}-{{ member.reviewee.id }}" class="form-control" name="confirmation" autocomplete="off" required oninput="document.getElementById('remove-submit-{{ card.team.id }}-{{ member.reviewee.id }}').disabled=this.value.trim().toLowerCase()!=='delete';"></div>
+                                <div style="display:flex; justify-content:flex-end; gap:.5rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('remove-member-{{ card.team.id }}-{{ member.reviewee.id }}').style.display='none'">Cancel</button><button id="remove-submit-{{ card.team.id }}-{{ member.reviewee.id }}" class="btn btn-danger" type="submit" disabled>Remove member</button></div>
                             </form>
                         </div>
                     </div>

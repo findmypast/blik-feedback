@@ -13,7 +13,8 @@ from accounts.factories import (
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
 from accounts.models import (
-    OrganizationInvitation, OrganizationRole, Reviewee, Team, UserProfile,
+    OrganizationInvitation, OrganizationRole, Reviewee, Team, TeamLeadGrant,
+    UserProfile,
 )
 
 
@@ -146,10 +147,25 @@ class UserInvitationTestCase(TestCase):
         self.assertEqual(invitation.first_name, '')
         self.assertEqual(invitation.last_name, '')
 
-    def test_invitation_without_team_is_rejected(self):
+    def test_invitation_without_team_requires_explicit_checkbox(self):
         with patch('accounts.invitation_views.send_email'):
             self.client.post(reverse('send_invitation'), {'email': 'no-team@test.local'})
         self.assertFalse(OrganizationInvitation.objects.filter(email='no-team@test.local').exists())
+
+    def test_invitation_can_explicitly_leave_person_unassigned(self):
+        with patch('accounts.invitation_views.send_email') as send_email:
+            response = self.client.post(reverse('send_invitation'), {
+                'email': 'unassigned@test.local',
+                'no_team': 'on',
+            })
+
+        self.assertRedirects(response, reverse('team_list'))
+        invitation = OrganizationInvitation.objects.get(email='unassigned@test.local')
+        self.assertIsNone(invitation.team)
+        self.assertNotIn(
+            'on the <strong>',
+            send_email.call_args.kwargs['html_message'],
+        )
 
     def test_first_invitation_can_create_team_managed_by_inviter(self):
         with patch('accounts.invitation_views.send_email'):
@@ -322,6 +338,54 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             {team.id},
         )
 
+    def test_organization_admin_can_also_be_a_scoped_team_leader(self):
+        from accounts.permissions import ORG_ADMIN_GROUP
+
+        team = Team.objects.create(organization=self.org, name='Product')
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': 'admin',
+            'can_create_cycles_for_others': 'on',
+            'teams': [team.id],
+            'lead_teams': [team.id],
+        })
+
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.assertTrue(self.member.groups.filter(name=ORG_ADMIN_GROUP).exists())
+        self.assertTrue(TeamLeadGrant.objects.filter(
+            profile=self.member_profile,
+            team=team,
+        ).exists())
+
+    def test_organization_admin_can_be_downgraded_to_team_leader(self):
+        from accounts.permissions import ORG_ADMIN_GROUP, assign_organization_admin
+
+        team = Team.objects.create(organization=self.org, name='Product')
+        assign_organization_admin(self.member)
+        TeamLeadGrant.objects.create(profile=self.member_profile, team=team)
+
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': 'team_leader',
+            'teams': [team.id],
+            'lead_teams': [team.id],
+        })
+
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.assertFalse(self.member.groups.filter(name=ORG_ADMIN_GROUP).exists())
+        self.assertTrue(TeamLeadGrant.objects.filter(
+            profile=self.member_profile,
+            team=team,
+        ).exists())
+        self.member_profile.refresh_from_db()
+        self.assertTrue(self.member_profile.can_create_cycles_for_others)
+
     def test_remove_preserves_reviewee_history_but_removes_membership(self):
         reviewee = self.member_reviewee
         response = self.client.post(reverse('manage_organization_person'), {
@@ -408,7 +472,11 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             'status': 'active',
             'role': 'member',
         })
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
 
 
 class TeamHierarchyViewTestCase(TestCase):
@@ -455,6 +523,102 @@ class TeamHierarchyViewTestCase(TestCase):
             f'href="{reverse("review_cycle_create")}">Request review</a>',
         )
 
+    def test_team_page_labels_primary_manager_as_team_leader(self):
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+
+        response = self.client.get(reverse('team_list'))
+
+        self.assertContains(response, 'Team leader: Morgan Member')
+        self.assertContains(response, '<td>Team Leader</td>', html=True)
+
+    def test_organization_admin_without_team_scope_is_shown_as_member(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.teammate_user)
+
+        response = self.client.get(reverse('team_list'))
+
+        self.assertContains(response, '<th>Team role</th>', html=True)
+        self.assertContains(response, '<td>Member</td>', html=True)
+        self.assertNotContains(response, 'Organisation administrator')
+        self.assertNotContains(response, 'Edit permissions')
+
+    def test_team_lead_grant_is_scoped_to_its_team(self):
+        TeamLeadGrant.objects.create(
+            profile=self.member_profile,
+            team=self.child_team,
+        )
+        unrelated = Team.objects.create(organization=self.org, name='Finance')
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'update_team',
+            'team': self.child_team.id,
+            'name': 'Research and Development',
+            'parent': self.parent_team.id,
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.child_team.refresh_from_db()
+        self.assertEqual(self.child_team.name, 'Research and Development')
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'update_team',
+            'team': unrelated.id,
+            'name': 'Changed Finance',
+        })
+
+        self.assertEqual(response.status_code, 403)
+        unrelated.refresh_from_db()
+        self.assertEqual(unrelated.name, 'Finance')
+
+    def test_user_management_team_leader_change_is_shown_on_team_page(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.member_user)
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.teammate_profile.id,
+            'email': self.teammate_user.email,
+            'status': 'active',
+            'role': 'team_leader',
+            'teams': [self.child_team.id],
+            'lead_teams': [self.child_team.id],
+        })
+
+        self.assertRedirects(response, reverse('settings') + '#people')
+        page = self.client.get(reverse('team_list'))
+        child_card = next(
+            card for card in page.context['team_cards']
+            if card['team'].id == self.child_team.id
+        )
+        teammate = next(
+            member for member in child_card['members']
+            if member.get('profile') == self.teammate_profile
+        )
+        self.assertTrue(teammate['is_team_leader'])
+
+    def test_team_leader_change_is_shown_in_user_management(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.member_user)
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'update_team',
+            'team': self.child_team.id,
+            'name': self.child_team.name,
+            'parent': self.parent_team.id,
+            'manager': self.teammate_profile.id,
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        settings_page = self.client.get(reverse('settings'))
+        teammate = next(
+            profile for profile in settings_page.context['organization_people']
+            if profile.id == self.teammate_profile.id
+        )
+        self.assertTrue(teammate.is_team_leader)
+        self.assertIn(self.child_team.id, [team.id for team in teammate.managed_team_list])
+
     def test_request_review_link_uses_campaign_flow(self):
         response = self.client.get(reverse('review_cycle_create'))
 
@@ -499,6 +663,18 @@ class TeamHierarchyViewTestCase(TestCase):
     def test_removing_member_requires_typed_delete_confirmation(self):
         self.child_team.manager = self.member_profile
         self.child_team.save(update_fields=['manager'])
+
+        page = self.client.get(reverse('team_list'))
+        self.assertContains(page, 'class="btn btn-sm btn-danger"', count=2)
+        self.assertContains(page, '>Remove from team</button>', count=2)
+        self.assertContains(
+            page,
+            'title="Transfer team management before removing this person"',
+        )
+        self.assertContains(
+            page,
+            f'id="remove-member-{self.child_team.id}-{self.teammate_reviewee.id}"',
+        )
 
         response = self.client.post(reverse('manage_team_structure'), {
             'action': 'set_member_team',
@@ -552,12 +728,83 @@ class TeamHierarchyViewTestCase(TestCase):
         response = self.client.post(reverse('manage_team_structure'), {
             'action': 'delete_team',
             'team': self.child_team.id,
+            'confirmation': 'delete',
         })
 
         self.assertRedirects(response, reverse('team_list'))
-        self.assertFalse(Team.objects.filter(pk=self.child_team.id).exists())
+        self.child_team.refresh_from_db()
+        self.assertIsNotNone(self.child_team.archived_at)
+        self.assertFalse(
+            Team.objects.for_organization(self.org).filter(pk=self.child_team.id).exists()
+        )
         self.member_reviewee.refresh_from_db()
         self.assertIsNone(self.member_reviewee.team)
+
+    def test_removing_team_gives_pending_invitation_a_team_removed_page(self):
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            team=self.child_team,
+            email='pending@example.com',
+        )
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'delete_team',
+            'team': self.child_team.id,
+            'confirmation': 'delete',
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.team_id, self.child_team.id)
+        invitation_response = self.client.get(
+            reverse('accept_invitation', kwargs={'token': invitation.token})
+        )
+        self.assertEqual(invitation_response.status_code, 410)
+        self.assertContains(
+            invitation_response, 'This team has been removed', status_code=410
+        )
+        self.assertContains(
+            invitation_response, 'GDPR requests', status_code=410
+        )
+
+    def test_removing_team_deletes_active_campaign_and_retains_completed_history(self):
+        from reviews.models import ReviewCampaign
+
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+        active_campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.member_user,
+            questionnaire=QuestionnaireFactory(organization=self.org),
+            target_type='team',
+            team=self.child_team,
+            cycle_type='self',
+            status='active',
+        )
+        completed_campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.member_user,
+            questionnaire=QuestionnaireFactory(organization=self.org),
+            target_type='team',
+            team=self.child_team,
+            cycle_type='peer',
+            status='completed',
+        )
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'delete_team',
+            'team': self.child_team.id,
+            'confirmation': 'delete',
+        }, follow=True)
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.assertFalse(ReviewCampaign.objects.filter(pk=active_campaign.pk).exists())
+        self.assertTrue(ReviewCampaign.objects.filter(pk=completed_campaign.pk).exists())
+        self.assertTrue(Team.objects.filter(pk=self.child_team.id).exists())
+        self.child_team.refresh_from_db()
+        self.assertIsNotNone(self.child_team.archived_at)
 
     def test_removing_a_missing_team_returns_to_team_list(self):
         self.child_team.manager = self.member_profile
@@ -568,6 +815,7 @@ class TeamHierarchyViewTestCase(TestCase):
         response = self.client.post(reverse('manage_team_structure'), {
             'action': 'delete_team',
             'team': missing_team_id,
+            'confirmation': 'delete',
         }, follow=True)
 
         self.assertRedirects(response, reverse('team_list'))
@@ -596,6 +844,7 @@ class TeamHierarchyViewTestCase(TestCase):
         response = self.client.post(reverse('manage_team_structure'), {
             'action': 'delete_team',
             'team': self.parent_team.id,
+            'confirmation': 'delete',
         })
 
         self.assertRedirects(response, reverse('team_list'))

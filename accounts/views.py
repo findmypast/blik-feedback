@@ -345,7 +345,9 @@ def profile_view(request):
         teams = list(organization.teams.filter(
             Q(memberships__reviewee=reviewee) | Q(id=reviewee.team_id)
         ).distinct().order_by('name'))
-    managed_teams = list(profile.managed_teams.order_by('name'))
+    managed_teams = list(
+        profile.managed_teams.filter(archived_at__isnull=True).order_by('name')
+    )
     is_organization_admin = request.user.has_perm('accounts.can_manage_organization')
     role_label = (
         'Organisation Administrator' if is_organization_admin

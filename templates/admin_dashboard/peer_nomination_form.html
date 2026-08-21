@@ -8,10 +8,10 @@
     <input id="peerSearch" class="form-control" type="search" placeholder="Search by name, email, or team" style="margin-bottom:1rem;">
     <div id="peerCandidates" style="display:grid;gap:.5rem;max-height:480px;overflow:auto;">
     {% for person in candidates %}
-        <label class="peer-option" data-search="{{ person.name|lower }} {{ person.email|lower }} {{ person.team.name|default:''|lower }}" style="display:flex;gap:.75rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:8px;{% if person.email in protected_emails %}opacity:.65;{% endif %}">
-            <input type="checkbox" name="reviewers" value="{{ person.id }}" {% if person.email in existing_emails or preselected == person.id|stringformat:'s' %}checked{% endif %} {% if person.email in protected_emails %}disabled{% endif %}>
+        <label class="peer-option" data-search="{{ person.name|lower }} {{ person.email|lower }} {{ person.team.name|default:''|lower }}" style="display:flex;gap:.75rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:8px;{% if person.email in existing_emails or person.id in direct_manager_candidate_ids %}opacity:.55;{% endif %}">
+            <input type="checkbox" name="reviewers" value="{{ person.id }}" {% if person.email in existing_emails or preselected == person.id|stringformat:'s' %}checked{% endif %} {% if person.email in protected_emails or person.id in direct_manager_candidate_ids %}disabled{% endif %}>
             {% if person.email in protected_emails %}<input type="hidden" name="reviewers" value="{{ person.id }}">{% endif %}
-            <span><strong>{{ person.name }}</strong><br><small style="color:var(--text-secondary);">{{ person.email }}{% if person.team %} · {{ person.team.name }}{% endif %}{% if person.email in protected_emails %} · Review started — cannot remove{% elif person.email in existing_emails %} · Invited{% endif %}</small></span>
+            <span><strong>{{ person.name }}</strong><br><small style="color:var(--text-secondary);">{{ person.email }}{% if person.team %} · {{ person.team.name }}{% endif %}{% if person.id in direct_manager_candidate_ids %} · Direct manager — unavailable{% elif person.email in protected_emails %} · Review started — cannot remove{% elif person.email in existing_emails %} · Already selected{% endif %}</small></span>
         </label>
     {% empty %}<p>No eligible colleagues are available.</p>{% endfor %}
     </div>

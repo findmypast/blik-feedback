@@ -218,6 +218,7 @@ class Team(TimeStampedModel):
         UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='managed_teams'
     )
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     objects = OrganizationManager()
 

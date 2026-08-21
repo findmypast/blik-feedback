@@ -105,10 +105,14 @@ def launch_organizational_cycle(
     self_campaign.status = 'active'
     self_campaign.save(update_fields=['status', 'updated_at'])
 
+    assigned_participant_ids = set()
     for team in sorted(selected_teams, key=lambda selected: selected.name.lower()):
         team_participants = list(campaign_members_for_team(team).filter(
             id__in=participant_ids
         ))
+        assigned_participant_ids.update(
+            participant.id for participant in team_participants
+        )
         if not team_participants:
             continue
         peer_campaign = ReviewCampaign.objects.create(
@@ -165,6 +169,27 @@ def launch_organizational_cycle(
         ])
         manager_campaign.status = 'active'
         manager_campaign.save(update_fields=['status', 'updated_at'])
+
+    unassigned_participant_ids = participant_ids - assigned_participant_ids
+    if audience_type == 'entire' and unassigned_participant_ids:
+        peer_campaign = ReviewCampaign.objects.create(
+            organization=organization,
+            created_by=created_by,
+            name=name,
+            questionnaire=questionnaires['peer'],
+            target_type='organization',
+            cycle_type='peer',
+            minimum_peer_reviewers=minimum_peer_reviewers,
+            start_date=start_date,
+            due_date=due_date,
+            organizational_cycle=parent,
+        )
+        for participant in Reviewee.objects.filter(
+            id__in=unassigned_participant_ids
+        ):
+            _create_cycle(peer_campaign, participant)
+        peer_campaign.status = 'active'
+        peer_campaign.save(update_fields=['status', 'updated_at'])
     return parent
 
 

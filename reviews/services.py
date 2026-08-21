@@ -260,6 +260,12 @@ def send_reviewee_notifications(cycle, request=None):
 def send_campaign_invitations(campaign):
     """Send the appropriate launch email for every assessment in a campaign."""
     stats = {'sent': 0, 'errors': []}
+    if campaign.organizational_cycle_id:
+        # Organisation reviews are deliberately dispatched through
+        # send_organizational_cycle_invitations, which consolidates self,
+        # peer, and manager tasks into one email per participant. Never let a
+        # child campaign send an additional assessment-specific email.
+        return stats
     if campaign.cycle_type == 'self':
         for cycle in campaign.cycles.all():
             result = send_reviewee_notifications(cycle)

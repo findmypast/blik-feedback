@@ -19,6 +19,7 @@ from reviews.models import (
     ReviewerToken,
 )
 from reviews.services import (
+    send_campaign_invitations,
     send_organizational_cycle_invitations,
     send_peer_nomination_invitation,
     send_reviewee_notifications,
@@ -85,6 +86,38 @@ class SendOrganizationalCycleInvitationTests(TestCase):
         self.assertIn('Manager assessment', rendered)
         self.assertIn('Go to Dashboard', rendered)
         self.assertIn('https://public.example.com/dashboard/', rendered)
+
+    @patch('reviews.services.send_peer_nomination_invitation')
+    @patch('reviews.services.send_reviewee_notifications')
+    @patch('reviews.services.send_reviewer_invitations')
+    def test_child_campaign_cannot_send_an_extra_email(
+        self, reviewer_sender, reviewee_sender, peer_sender
+    ):
+        org = OrganizationFactory(name='FindMyPast')
+        creator = UserFactory()
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=creator,
+            self_questionnaire=questionnaire,
+            peer_questionnaire=questionnaire,
+        )
+        child = ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='peer',
+            status='active',
+            organizational_cycle=parent,
+        )
+
+        stats = send_campaign_invitations(child)
+
+        self.assertEqual(stats, {'sent': 0, 'errors': []})
+        reviewer_sender.assert_not_called()
+        reviewee_sender.assert_not_called()
+        peer_sender.assert_not_called()
 
     @patch('reviews.services.send_email')
     def test_email_uses_the_same_assignment_uuids_as_dashboard_tasks(self, mock_send_email):

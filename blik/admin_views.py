@@ -433,6 +433,9 @@ def team_list(request):
 
     is_org_admin = request.user.has_perm('accounts.can_manage_organization')
     all_teams = list(Team.objects.for_organization(org).select_related('parent', 'manager__user'))
+    led_team_ids = set(
+        led_teams(request.user, org).values_list('id', flat=True)
+    )
     if is_org_admin:
         visible_team_ids = {team.id for team in all_teams}
     else:
@@ -471,6 +474,22 @@ def team_list(request):
         organization=org, accepted_at__isnull=True, team__isnull=False
     ).select_related('team')
     team_cards_by_id = {}
+    team_leader_ids = {team.id: set() for team in all_teams}
+    for team in all_teams:
+        if team.manager_id:
+            team_leader_ids[team.id].add(team.manager_id)
+    for grant in TeamLeadGrant.objects.filter(
+        team__organization=org
+    ).prefetch_related('revocations__team'):
+        granted_ids = (
+            descendant_team_ids(grant.team)
+            if grant.include_descendants else {grant.team_id}
+        )
+        for revocation in grant.revocations.all():
+            granted_ids -= descendant_team_ids(revocation.team)
+        for team_id in granted_ids:
+            if team_id in team_leader_ids:
+                team_leader_ids[team_id].add(grant.profile_id)
     for team in all_teams:
         if team.id not in visible_team_ids:
             continue
@@ -484,6 +503,10 @@ def team_list(request):
                 or any(m.team_id == team.id for m in r.team_memberships.all())
             )
         ]
+        for member in members:
+            member['is_team_leader'] = (
+                member['profile'].id in team_leader_ids[team.id]
+            )
         if team.manager_id and not any(
             member['profile'].id == team.manager_id for member in members
         ):
@@ -502,6 +525,7 @@ def team_list(request):
                         'accounts.can_manage_organization'
                     ),
                     'is_manager': True,
+                    'is_team_leader': True,
                 })
         members.extend({
             'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
@@ -511,7 +535,7 @@ def team_list(request):
         team_cards_by_id[team.id] = {
             'team': team,
             'members': members,
-            'can_edit': is_org_admin or team.manager_id == request.user.profile.id,
+            'can_edit': is_org_admin or team.id in led_team_ids,
             'manager_name': (
                 team.manager.user.get_full_name() or team.manager.user.email
                 if team.manager else 'Not assigned'
@@ -596,6 +620,9 @@ def manage_team_structure(request):
 
     action = request.POST.get('action')
     is_org_admin = request.user.has_perm('accounts.can_manage_organization')
+    led_team_ids = set(
+        led_teams(request.user, org).values_list('id', flat=True)
+    )
     if not is_org_admin and action not in {
         'set_member_team', 'cancel_team_invitation', 'update_team', 'delete_team'
     }:
@@ -622,7 +649,7 @@ def manage_team_structure(request):
                 team = get_object_or_404(
                     Team.objects.for_organization(org), pk=request.POST.get('team')
                 )
-                if not is_org_admin and team.manager_id != request.user.profile.id:
+                if not is_org_admin and team.id not in led_team_ids:
                     raise PermissionDenied
                 parent_id = request.POST.get('parent') or None
                 team.name = request.POST.get('name', '').strip()
@@ -644,17 +671,28 @@ def manage_team_structure(request):
                     raise ValidationError(
                         'That team no longer exists. Refresh the page and try again.'
                     )
-                if not is_org_admin and team.manager_id != request.user.profile.id:
+                if not is_org_admin and team.id not in led_team_ids:
                     raise PermissionDenied
                 if team.children.exists():
                     raise ValidationError(
                         'Move or remove this team’s subteams before deleting it.'
                     )
+                if request.POST.get('confirmation', '').strip().lower() != 'delete':
+                    raise ValidationError('Type delete to confirm team removal.')
                 team_name = team.name
-                team.delete()
+                # In-progress work is intentionally removed. Completed campaigns
+                # retain this archived team reference for audit/GDPR history.
+                team.review_campaigns.exclude(status='completed').delete()
+                team.archived_at = timezone.now()
+                team.save(update_fields=['archived_at', 'updated_at'])
+                Reviewee.objects.filter(team=team).update(team=None)
+                TeamMembership.objects.filter(team=team).delete()
+                TeamLeadGrant.objects.filter(team=team).delete()
+                TeamLeadRevocation.objects.filter(team=team).delete()
                 messages.success(
                     request,
-                    f'Team “{team_name}” removed. Its members are now unassigned.'
+                    f'Team “{team_name}” removed. Active campaigns were deleted '
+                    'and completed review history was retained.'
                 )
 
             elif action == 'set_member_team':
@@ -677,8 +715,8 @@ def manage_team_structure(request):
                     raise ValidationError('Type delete to confirm removing this team member.')
                 if not destination and not removal_team:
                     raise ValidationError('Select a team membership to add or remove.')
-                manages_current = removal_team and removal_team.manager_id == request.user.profile.id
-                manages_destination = destination and destination.manager_id == request.user.profile.id
+                manages_current = removal_team and removal_team.id in led_team_ids
+                manages_destination = destination and destination.id in led_team_ids
                 if not is_org_admin:
                     existing_team_ids = set(
                         reviewee.team_memberships.values_list('team_id', flat=True)
@@ -2506,20 +2544,34 @@ def nominate_peer_reviewers(request, cycle_uuid):
     """Create or edit the reviewer list for one peer-campaign participant."""
     org = request.organization
     cycle = get_object_or_404(
-        ReviewCycle.objects.select_related('campaign', 'reviewee', 'questionnaire'),
+        ReviewCycle.objects.select_related(
+            'campaign', 'reviewee__profile__user',
+            'reviewee__reporting_manager__user', 'questionnaire',
+        ),
         uuid=cycle_uuid,
         reviewee__organization=org,
         campaign__cycle_type='peer',
         campaign__status='active',
     )
-    is_reviewee = bool(request.user.email) and (
-        cycle.reviewee.email.lower() == request.user.email.lower()
+    is_reviewee = (
+        cycle.reviewee.profile_id
+        and cycle.reviewee.profile.user_id == request.user.id
+    ) or (
+        bool(request.user.email)
+        and cycle.reviewee.email.lower() == request.user.email.lower()
     )
     if not is_reviewee and not _can_manage_campaign(request.user, cycle.campaign, org):
         raise Http404
     candidates = Reviewee.objects.for_organization(org).filter(
         is_active=True,
     ).exclude(id=cycle.reviewee_id).order_by('name')
+    direct_manager_candidate_ids = set()
+    direct_manager = cycle.reviewee.reporting_manager
+    if direct_manager:
+        direct_manager_candidate_ids.update(candidates.filter(
+            Q(profile=direct_manager)
+            | Q(email__iexact=direct_manager.user.email)
+        ).values_list('id', flat=True))
     existing_emails = set(
         cycle.tokens.exclude(reviewer_email__isnull=True).values_list(
             'reviewer_email', flat=True
@@ -2533,7 +2585,9 @@ def nominate_peer_reviewers(request, cycle_uuid):
 
     if request.method == 'POST':
         selected_ids = request.POST.getlist('reviewers')
-        selected = list(candidates.filter(id__in=selected_ids))
+        selected = list(candidates.filter(id__in=selected_ids).exclude(
+            id__in=direct_manager_candidate_ids
+        ))
         selected_emails = {person.email for person in selected if person.email}
         desired_emails = selected_emails | protected_emails
         minimum_reviewers = cycle.campaign.minimum_peer_reviewers
@@ -2579,6 +2633,7 @@ def nominate_peer_reviewers(request, cycle_uuid):
         'candidates': candidates,
         'existing_emails': existing_emails,
         'protected_emails': protected_emails,
+        'direct_manager_candidate_ids': direct_manager_candidate_ids,
         'preselected': preselected,
         'is_editing': bool(existing_emails),
         'minimum_reviewers': cycle.campaign.minimum_peer_reviewers,
@@ -3758,7 +3813,9 @@ def settings_view(request):
             profile.visible_team_names = profile.team_names[:2]
             profile.extra_team_count = max(0, len(profile.team_names) - 2)
             profile.team_names_tooltip = ', '.join(profile.team_names)
-            profile.managed_team_list = list(profile.managed_teams.all())
+            profile.managed_team_list = list(
+                profile.managed_teams.filter(archived_at__isnull=True)
+            )
             profile.lead_grants_list = list(profile.team_lead_grants.all())
             profile.lead_team_ids = [grant.team_id for grant in profile.lead_grants_list]
             profile.is_team_leader = bool(
@@ -3950,7 +4007,7 @@ def manage_organization_person(request):
                 return HttpResponseRedirect(reverse('settings') + '#people')
         elif add_team:
             raise PermissionDenied
-        managed_teams = list(profile.managed_teams.all())
+        managed_teams = list(profile.managed_teams.filter(archived_at__isnull=True))
         reassignments = {}
         for managed_team in managed_teams:
             replacement_id = request.POST.get(f'manager_for_{managed_team.id}')
@@ -4006,7 +4063,7 @@ def manage_organization_person(request):
                     or bool(custom_role and 'can_create_cycles' in custom_role.effective_permissions())
                 )
                 assign_organization_member(target, can_create_cycles_for_others=can_create)
-            if role == 'team_leader':
+            if role in {'admin', 'team_leader'}:
                 TeamLeadGrant.objects.filter(profile=profile).exclude(
                     team_id__in=lead_team_ids
                 ).delete()
@@ -4067,7 +4124,7 @@ def manage_organization_person(request):
             messages.error(request, 'Type delete to confirm removing this user.')
         else:
             display_name = target.get_full_name() or target.email
-            managed_teams = list(profile.managed_teams.all())
+            managed_teams = list(profile.managed_teams.filter(archived_at__isnull=True))
             replacements = {}
             for managed_team in managed_teams:
                 replacement_id = request.POST.get(f'manager_for_{managed_team.id}')

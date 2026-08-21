@@ -52,11 +52,14 @@
         <form method="post" action="{% url 'send_invitation' %}">{% csrf_token %}
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;"><div class="form-group"><label>First name <small>(optional)</small></label><input class="form-control" name="first_name"></div><div class="form-group"><label>Last name <small>(optional)</small></label><input class="form-control" name="last_name"></div></div>
             <div class="form-group"><label>Email</label><input class="form-control" type="email" name="email" required></div>
-            <div class="form-group"><label for="invite-team-select">Team</label><select id="invite-team-select" class="form-control" name="team" required onchange="const box=document.getElementById('invite-new-team'); const input=document.getElementById('invite-team-name'); const creating=this.value==='__new__'; box.style.display=creating?'block':'none'; input.disabled=!creating; input.required=creating;"><option value="">Select team</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}<option value="__new__" {% if not organization_teams %}selected{% endif %}>+ Create a new team</option></select></div>
-            <div id="invite-new-team" class="form-group" style="display:{% if organization_teams %}none{% else %}block{% endif %}; padding:.75rem; border:1px solid var(--border-color); border-radius:8px;">
-                <label for="invite-team-name">New team name</label>
-                <input id="invite-team-name" class="form-control" name="team_name" {% if organization_teams %}disabled{% else %}required{% endif %} placeholder="e.g. Product">
-                <small class="help-text">You will become this team’s manager.</small>
+            <label style="display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;"><input id="invite-no-team" type="checkbox" name="no_team" onchange="setInviteNoTeam(this.checked)"> Do not assign to a team</label>
+            <div id="invite-team-controls">
+                <div class="form-group"><label for="invite-team-select">Team</label><select id="invite-team-select" class="form-control" name="team" required onchange="const box=document.getElementById('invite-new-team'); const input=document.getElementById('invite-team-name'); const creating=this.value==='__new__'; box.style.display=creating?'block':'none'; input.disabled=!creating; input.required=creating;"><option value="">Select team</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}<option value="__new__" {% if not organization_teams %}selected{% endif %}>+ Create a new team</option></select></div>
+                <div id="invite-new-team" class="form-group" style="display:{% if organization_teams %}none{% else %}block{% endif %}; padding:.75rem; border:1px solid var(--border-color); border-radius:8px;">
+                    <label for="invite-team-name">New team name</label>
+                    <input id="invite-team-name" class="form-control" name="team_name" {% if organization_teams %}disabled{% else %}required{% endif %} placeholder="e.g. Product">
+                    <small class="help-text">You will become this team’s manager.</small>
+                </div>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:.75rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('invite-modal').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Send invitation</button></div>
         </form>
@@ -69,12 +72,26 @@ function openTeamInvite(teamId, teamName) {
     const title = document.getElementById('invite-modal-title');
     const newTeamBox = document.getElementById('invite-new-team');
     const newTeamInput = document.getElementById('invite-team-name');
+    document.getElementById('invite-no-team').checked = false;
     select.value = teamId || '';
     title.textContent = teamId ? `Invite a new member to ${teamName}` : 'Invite user';
     newTeamBox.style.display = 'none';
     newTeamInput.disabled = true;
     newTeamInput.required = false;
+    setInviteNoTeam(false);
     modal.style.display = 'flex';
+}
+function setInviteNoTeam(unassigned) {
+    const controls = document.getElementById('invite-team-controls');
+    const select = document.getElementById('invite-team-select');
+    const newTeamInput = document.getElementById('invite-team-name');
+    controls.style.opacity = unassigned ? '.45' : '1';
+    select.disabled = unassigned;
+    select.required = !unassigned;
+    if (unassigned) {
+        newTeamInput.disabled = true;
+        newTeamInput.required = false;
+    }
 }
 </script>
 {% endif %}

@@ -29,7 +29,10 @@ def send_invitation(request):
         first_name = request.POST.get('first_name', '').strip()
         last_name = request.POST.get('last_name', '').strip()
         team_id = request.POST.get('team')
-        create_team = request.POST.get('create_team') == 'on' or team_id == '__new__'
+        no_team = request.POST.get('no_team') == 'on'
+        create_team = not no_team and (
+            request.POST.get('create_team') == 'on' or team_id == '__new__'
+        )
         team_name = request.POST.get('team_name', '').strip()
 
         # Get organization from request or user's profile
@@ -64,7 +67,9 @@ def send_invitation(request):
 
         try:
             with transaction.atomic():
-                if create_team:
+                if no_team:
+                    team = None
+                elif create_team:
                     if not team_name:
                         raise ValidationError('Enter a name for the new team.')
                     team = Team(
@@ -97,6 +102,10 @@ def send_invitation(request):
             reverse('accept_invitation', kwargs={'token': invitation.token})
         )
 
+        team_message = (
+            f' on the <strong>{team.name}</strong> team' if team else ''
+        )
+
         # Send invitation email
         try:
             send_email(
@@ -122,7 +131,7 @@ Best regards,
     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
         <h2>You're Invited!</h2>
         <p>Hello{f' {first_name}' if first_name else ''},</p>
-        <p>You've been invited to join <strong>{org.name}</strong> on the <strong>{team.name}</strong> team in Blik 360 Feedback Platform.</p>
+        <p>You've been invited to join <strong>{org.name}</strong>{team_message} in Blik 360 Feedback Platform.</p>
         <p style="margin: 30px 0;">
             <a href="{invite_url}" style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 8px;">Accept Invitation</a>
         </p>
@@ -146,6 +155,12 @@ Best regards,
 def accept_invitation(request, token):
     """Accept invitation - redirects to login if user exists, or shows signup form"""
     invitation = get_object_or_404(OrganizationInvitation, token=token)
+
+    if invitation.team_id and invitation.team.archived_at:
+        return render(request, 'accounts/team_removed.html', {
+            'invitation': invitation,
+            'team': invitation.team,
+        }, status=410)
 
     if not invitation.is_valid():
         messages.error(request, 'This invitation has expired or been used.')

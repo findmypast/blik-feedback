@@ -99,6 +99,7 @@ class CampaignServiceTests(TestCase):
         self.assertTrue(campaign.cycles.filter(reviewee=nested).exists())
 
     def test_organizational_cycle_launches_all_three_assessment_types(self):
+        unassigned = RevieweeFactory(organization=self.org, team=None)
         questionnaires = {
             'self': QuestionnaireFactory(
                 organization=self.org, allow_self_assessment=True
@@ -119,19 +120,30 @@ class CampaignServiceTests(TestCase):
             due_date=date(2026, 9, 1),
         )
 
-        self.assertEqual(parent.campaigns.count(), 3)
+        self.assertEqual(parent.campaigns.count(), 4)
         self.assertEqual(
             set(parent.campaigns.values_list('cycle_type', flat=True)),
             {'self', 'peer', 'manager'},
         )
-        peer = parent.campaigns.get(cycle_type='peer')
-        self.assertEqual(peer.minimum_peer_reviewers, 4)
-        self.assertEqual(peer.cycles.count(), 3)
+        peer_campaigns = parent.campaigns.filter(cycle_type='peer')
+        self.assertTrue(all(
+            peer.minimum_peer_reviewers == 4 for peer in peer_campaigns
+        ))
+        self.assertEqual(
+            peer_campaigns.filter(cycles__reviewee=unassigned).count(),
+            1,
+        )
+        self_campaign = parent.campaigns.get(cycle_type='self')
+        self.assertTrue(self_campaign.cycles.filter(reviewee=unassigned).exists())
         manager = parent.campaigns.get(cycle_type='manager')
         self.assertEqual(manager.cycles.get().reviewee, self.manager_reviewee)
         self.assertEqual(
             set(manager.cycles.get().tokens.values_list('reviewer_email', flat=True)),
             {self.member_one.email, self.member_two.email},
+        )
+        self.assertNotIn(
+            unassigned.email,
+            manager.cycles.get().tokens.values_list('reviewer_email', flat=True),
         )
 
     def test_organization_manager_review_assigns_one_team_label_per_membership(self):
@@ -478,7 +490,11 @@ class CampaignCreationViewTests(TestCase):
             'due_date': '2026-09-01',
         })
 
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
         self.assertFalse(ReviewCampaign.objects.exists())
 
     @patch('blik.admin_views.send_reviewer_invitations')
@@ -615,7 +631,46 @@ class PeerNominationFlowTests(TestCase):
             reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
+
+    def test_linked_reviewee_can_open_nominations_when_email_has_changed(self):
+        self.member.email = 'old-member-address@example.com'
+        self.member.save(update_fields=['email', 'updated_at'])
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_direct_manager_is_visible_but_cannot_be_selected_as_a_peer(self):
+        self.member.reporting_manager = self.manager
+        self.member.save(update_fields=['reporting_manager', 'updated_at'])
+        manager_reviewee = self.manager.reviewee
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertContains(response, 'Direct manager — unavailable')
+        self.assertContains(
+            response,
+            f'name="reviewers" value="{manager_reviewee.id}"  disabled',
+        )
+
+        response = self.client.post(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid]),
+            {'reviewers': [manager_reviewee.id]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.cycle.tokens.exists())
 
     def test_campaign_manager_can_view_nominations(self):
         self.cycle.tokens.create(category='peer', reviewer_email=self.peer.email)
