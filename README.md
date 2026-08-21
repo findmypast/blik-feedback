@@ -135,8 +135,8 @@ Run this once after cloning the repository:
 ./scripts/install-git-hooks.sh
 ```
 
-The tracked pre-push hook runs the local Django test suite quietly and blocks
-the push if any test fails. Install the development environment with
+The tracked pre-push hook runs the local pytest suite with compact live progress
+and blocks the push if any test fails. Install the development environment with
 `uv sync --extra dev` first. In an emergency, Git allows hooks to be bypassed
 with `--no-verify`, so TeamCity remains the authoritative required check for
 protected branches.

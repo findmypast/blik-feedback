@@ -9,24 +9,11 @@ if [ ! -x .venv/bin/python ]; then
     exit 1
 fi
 
-if ! .venv/bin/python -c "import factory" >/dev/null 2>&1; then
+if ! .venv/bin/python -c "import factory, pytest" >/dev/null 2>&1; then
     echo "Development test dependencies are missing." >&2
     echo "Install uv, then run: uv sync --extra dev" >&2
     exit 1
 fi
 
 echo "Running local tests before push..."
-test_output=$(mktemp "${TMPDIR:-/tmp}/blik-tests.XXXXXX")
-trap 'rm -f "$test_output"' EXIT HUP INT TERM
-
-if .venv/bin/python manage.py test --keepdb --verbosity=0 >"$test_output" 2>&1; then
-    grep -E '^(Ran [0-9]+ tests|OK)$' "$test_output" || echo "All local tests passed."
-else
-    echo "Local tests failed:" >&2
-    if grep -q '^======================================================================' "$test_output"; then
-        sed -n '/^======================================================================/,$p' "$test_output" >&2
-    else
-        tail -n 100 "$test_output" >&2
-    fi
-    exit 1
-fi
+.venv/bin/python -m pytest -q --tb=short --disable-warnings
