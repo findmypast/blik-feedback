@@ -38,11 +38,7 @@
     <header class="header">
         <div class="container">
             <div class="header-content">
-                <h1 class="logo"><a href="{% landing_url 'index' %}" style="text-decoration: none; color: inherit;">Blik</a></h1>
-                <nav class="nav">
-                    <a href="{% landing_url 'index' %}">Home</a>
-                    <a href="https://github.com/thijsdezoete/blik" target="_blank" rel="noopener">GitHub</a>
-                </nav>
+                <h1 class="logo"><a href="{% url 'login' %}" style="text-decoration: none; color: inherit;">Blik</a></h1>
             </div>
         </div>
     </header>
@@ -57,7 +53,7 @@
                     Something went wrong on our end. The issue has been logged and we'll look into it.
                 </p>
                 <div class="error-actions">
-                    <a href="{% landing_url 'index' %}" class="btn btn-primary">Back to Home</a>
+                    <a href="{% url 'login' %}" class="btn btn-primary">Back to Login</a>
                     <a href="javascript:location.reload()" class="btn btn-outline">Try Again</a>
                 </div>
             </div>
