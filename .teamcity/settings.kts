@@ -36,6 +36,11 @@ object BuildScanTestTagWithVersion : BuildType({
     }
 
     steps {
+        // Keep the repository-specific dependency audit ahead of the shared
+        // template's Build -> Vulnerability scan -> Test -> Push pipeline.
+        // Unlisted inherited steps retain their template-defined order.
+        stepsOrder = arrayListOf("python_dependency_audit")
+
         script {
             id = "python_dependency_audit"
             name = "Audit locked Python dependencies"

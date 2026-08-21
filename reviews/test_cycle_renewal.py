@@ -116,4 +116,9 @@ class CycleRenewalViewTests(TestCase):
             reverse('renew_review_cycle', args=[other_cycle.uuid])
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(ReviewCycle.objects.filter(renewed_from=other_cycle).exists())

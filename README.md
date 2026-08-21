@@ -127,6 +127,20 @@ See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for complete environment variable d
 
 ## Development
 
+### Enable the pre-push test guard
+
+Run this once after cloning the repository:
+
+```bash
+./scripts/install-git-hooks.sh
+```
+
+The tracked pre-push hook runs the local Django test suite quietly and blocks
+the push if any test fails. Install the development environment with
+`uv sync --extra dev` first. In an emergency, Git allows hooks to be bypassed
+with `--no-verify`, so TeamCity remains the authoritative required check for
+protected branches.
+
 ### Native Setup with uv
 
 Install [uv](https://docs.astral.sh/uv/), then create the pinned Python 3.11
@@ -141,7 +155,7 @@ uv run python manage.py runserver
 Run the test suite with:
 
 ```bash
-uv run pytest
+uv run python manage.py test
 ```
 
 After pulling dependency changes, run `uv sync --extra dev` again. When changing

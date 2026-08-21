@@ -519,13 +519,23 @@ class ReportAccessControlTestCase(TestCase):
         self.client.force_login(self.user2)
         response = self.client.get(
             self.reverse('reports:view_report', args=[self.cycle.uuid]))
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            self.reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
+        self.assertNotContains(response, self.report.access_token, status_code=302)
 
     def test_member_cannot_open_other_members_cycle_detail(self):
         self.client.force_login(self.user2)
         response = self.client.get(
             self.reverse('review_cycle_detail', args=[self.cycle.uuid]))
-        self.assertEqual(response.status_code, 404)
+        self.assertRedirects(
+            response,
+            self.reverse('admin_dashboard'),
+            fetch_redirect_response=False,
+        )
+        self.assertNotContains(response, str(self.cycle.uuid), status_code=302)
 
     def test_member_does_not_see_other_members_cycles_in_list(self):
         self.client.force_login(self.user2)
