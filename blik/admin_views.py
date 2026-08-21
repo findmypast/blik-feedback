@@ -637,9 +637,13 @@ def manage_team_structure(request):
                 messages.success(request, f'Team “{team.name}” updated.')
 
             elif action == 'delete_team':
-                team = get_object_or_404(
-                    Team.objects.for_organization(org), pk=request.POST.get('team')
-                )
+                team = Team.objects.for_organization(org).filter(
+                    pk=request.POST.get('team')
+                ).first()
+                if not team:
+                    raise ValidationError(
+                        'That team no longer exists. Refresh the page and try again.'
+                    )
                 if not is_org_admin and team.manager_id != request.user.profile.id:
                     raise PermissionDenied
                 if team.children.exists():

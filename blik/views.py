@@ -3,6 +3,7 @@ Core views for Blik application
 """
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
+from django.urls import reverse
 
 
 def health_check(request):
@@ -22,8 +23,10 @@ def home(request):
 
 
 def handler404(request, exception):
-    """Custom 404 error handler"""
-    return render(request, 'landing/404.html', status=404)
+    """Return users to the application instead of the marketing error page."""
+    if request.user.is_authenticated:
+        return redirect('admin_dashboard')
+    return redirect(f'{reverse("login")}?next={request.path}')
 
 
 def handler500(request):

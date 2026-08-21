@@ -559,6 +559,23 @@ class TeamHierarchyViewTestCase(TestCase):
         self.member_reviewee.refresh_from_db()
         self.assertIsNone(self.member_reviewee.team)
 
+    def test_removing_a_missing_team_returns_to_team_list(self):
+        self.child_team.manager = self.member_profile
+        self.child_team.save(update_fields=['manager'])
+        missing_team_id = self.child_team.id
+        self.child_team.delete()
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'delete_team',
+            'team': missing_team_id,
+        }, follow=True)
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.assertContains(
+            response,
+            'That team no longer exists. Refresh the page and try again.',
+        )
+
     def test_assigning_manager_also_assigns_manager_to_team(self):
         managed_team = Team.objects.create(organization=self.org, name='Managed')
         self.member_reviewee.team = None
