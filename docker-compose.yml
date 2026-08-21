@@ -33,6 +33,10 @@ services:
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
       - PORT=${PORT:-8000}
       - SECRET_KEY=_^%5)g9u-ruti=ukblm3osv=2v7d*iiqe0fn-f%5hdsfsldf
+      - MICROSOFT_SSO_ENABLED=${MICROSOFT_SSO_ENABLED:-False}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-}
     depends_on:
       db:
         condition: service_healthy

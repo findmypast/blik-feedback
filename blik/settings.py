@@ -69,6 +69,10 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'drf_spectacular_sidecar',
     'django_filters',
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
+    'allauth.socialaccount.providers.microsoft',
     # Blik apps
     'core',
     'accounts',
@@ -90,6 +94,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'allauth.account.middleware.AccountMiddleware',
     'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -255,7 +260,43 @@ AXES_RESET_ON_SUCCESS = True
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',  # AxesStandaloneBackend should be first
     'django.contrib.auth.backends.ModelBackend',
+    'allauth.account.auth_backends.AuthenticationBackend',
 ]
+
+# Microsoft Entra SSO. Credentials are deliberately environment-backed rather
+# than stored in SocialApp rows so deployment secrets remain in Vault.
+MICROSOFT_SSO_ENABLED = env.bool('MICROSOFT_SSO_ENABLED', default=False)
+MICROSOFT_CLIENT_ID = env('MICROSOFT_CLIENT_ID', default='')
+MICROSOFT_CLIENT_SECRET = env('MICROSOFT_CLIENT_SECRET', default='')
+MICROSOFT_TENANT_ID = env('MICROSOFT_TENANT_ID', default='')
+MICROSOFT_SSO_CONFIGURED = bool(
+    MICROSOFT_SSO_ENABLED
+    and MICROSOFT_CLIENT_ID
+    and MICROSOFT_CLIENT_SECRET
+    and MICROSOFT_TENANT_ID
+)
+
+SOCIALACCOUNT_ADAPTER = 'accounts.social_adapter.BlikSocialAccountAdapter'
+SOCIALACCOUNT_AUTO_SIGNUP = False
+SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = False
+SOCIALACCOUNT_STORE_TOKENS = False
+SOCIALACCOUNT_LOGIN_ON_GET = False
+ACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_PROVIDERS = {}
+if MICROSOFT_SSO_CONFIGURED:
+    SOCIALACCOUNT_PROVIDERS['microsoft'] = {
+        'VERIFIED_EMAIL': True,
+        'APPS': [{
+            'client_id': MICROSOFT_CLIENT_ID,
+            'secret': MICROSOFT_CLIENT_SECRET,
+            'key': '',
+            'settings': {
+                'tenant': MICROSOFT_TENANT_ID,
+                'scope': ['openid', 'profile', 'email', 'User.Read'],
+            },
+        }],
+    }
 
 # Organization settings
 ORGANIZATION_NAME = env('ORGANIZATION_NAME', default='Blik')

@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_http_methods
 from django.utils import timezone
+from django.conf import settings
 from django_ratelimit.decorators import ratelimit
 from core.models import Organization
 from accounts.models import UserProfile, OrganizationInvitation, PasswordResetToken, Reviewee
@@ -42,7 +43,10 @@ def login_view(request):
         else:
             messages.error(request, 'Invalid username or password.')
 
-    return render(request, 'accounts/login.html')
+    return render(request, 'accounts/login.html', {
+        'microsoft_sso_enabled': settings.MICROSOFT_SSO_CONFIGURED,
+        'sso_access_denied': request.GET.get('sso_error') == 'access_denied',
+    })
 
 
 @require_http_methods(["GET"])

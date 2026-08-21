@@ -17,6 +17,27 @@
         {% endfor %}
     {% endif %}
 
+    {% if sso_access_denied %}
+        <div class="alert alert-error">
+            Microsoft sign-in could not be completed. Your account may not be
+            authorised for this organisation. Contact your Blik administrator.
+        </div>
+    {% endif %}
+
+    {% if microsoft_sso_enabled %}
+    <form method="post" action="{% url 'microsoft_login' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn-primary" style="width:100%;">
+            Continue with Microsoft
+        </button>
+    </form>
+    <div style="display:flex;align-items:center;gap:0.75rem;margin:1.25rem 0;color:var(--text-secondary);">
+        <span style="height:1px;background:var(--border-color);flex:1;"></span>
+        <span>or sign in with email</span>
+        <span style="height:1px;background:var(--border-color);flex:1;"></span>
+    </div>
+    {% endif %}
+
     <form method="post" action="">
         {% csrf_token %}
 

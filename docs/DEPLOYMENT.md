@@ -92,6 +92,32 @@ SITE_DOMAIN=feedback.yourdomain.com
 SITE_PROTOCOL=https
 ```
 
+### Microsoft Entra SSO (optional)
+
+Register a single-tenant Web application in Microsoft Entra and provide the
+credentials through Vault or the deployment environment:
+
+```bash
+MICROSOFT_SSO_ENABLED=True
+MICROSOFT_CLIENT_ID=<application-client-id>
+MICROSOFT_CLIENT_SECRET=<client-secret>
+MICROSOFT_TENANT_ID=<findmypast-tenant-id>
+```
+
+Register these Web redirect URIs as applicable:
+
+```text
+http://localhost:8000/accounts/microsoft/login/callback/
+https://blik.integration.service.dun.fh/accounts/microsoft/login/callback/
+https://<production-host>/accounts/microsoft/login/callback/
+```
+
+Blik displays the Microsoft button only when all four settings are present.
+Microsoft identities must belong to the configured tenant and must match an
+existing active Blik account or valid invitation. External invitees continue
+to use the standard email/password flow. Do not create a `SocialApp` in Django
+admin as well as supplying these settings; configuring both is ambiguous.
+
 All links in outgoing email — reviewer invitations, self-assessments, report
 links — are built from `SITE_DOMAIN`, never from the incoming request's host.
 Behind a reverse proxy the request host is often an internal upstream name, so
