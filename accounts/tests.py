@@ -291,7 +291,9 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             'action': 'create',
             'name': 'Unauthorized role',
         })
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(
+            response, reverse('admin_dashboard'), fetch_redirect_response=False
+        )
         self.assertFalse(OrganizationRole.objects.filter(name='Unauthorized role').exists())
 
     def test_admin_can_search_people_by_name_or_email(self):
@@ -568,7 +570,9 @@ class TeamHierarchyViewTestCase(TestCase):
             'name': 'Changed Finance',
         })
 
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(
+            response, reverse('admin_dashboard'), fetch_redirect_response=False
+        )
         unrelated.refresh_from_db()
         self.assertEqual(unrelated.name, 'Finance')
 
@@ -656,7 +660,9 @@ class TeamHierarchyViewTestCase(TestCase):
             'team': managed_team.id,
         })
 
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(
+            response, reverse('admin_dashboard'), fetch_redirect_response=False
+        )
         outsider.refresh_from_db()
         self.assertEqual(outsider.team, self.child_team)
 
@@ -665,9 +671,9 @@ class TeamHierarchyViewTestCase(TestCase):
         self.child_team.save(update_fields=['manager'])
 
         page = self.client.get(reverse('team_list'))
-        self.assertContains(page, 'class="btn btn-sm btn-danger"', count=2)
-        self.assertContains(page, '>Remove from team</button>', count=2)
-        self.assertContains(
+        self.assertContains(page, 'class="btn btn-sm btn-danger"', count=1)
+        self.assertContains(page, '>Remove from team</button>', count=1)
+        self.assertNotContains(
             page,
             'title="Transfer team management before removing this person"',
         )

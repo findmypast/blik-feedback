@@ -5,13 +5,16 @@
 <form method="post" style="max-width:760px;">{% csrf_token %}
 <div class="card"><div class="card-body">
     <label for="peerSearch" class="form-label">Find people <span id="selectionCount" style="color:var(--text-secondary);font-weight:normal;"></span></label>
-    <input id="peerSearch" class="form-control" type="search" placeholder="Search by name, email, or team" style="margin-bottom:1rem;">
+    <div style="display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:.75rem;margin-bottom:1rem;">
+        <input id="peerSearch" class="form-control" type="search" placeholder="Search by name, email, or team">
+        <select id="peerTeamFilter" class="form-control" aria-label="Filter by team"><option value="">All teams</option>{% for team in organization_teams %}<option value="{{ team.id }}">{{ team.name }}</option>{% endfor %}<option value="unassigned">Unassigned</option></select>
+    </div>
     <div id="peerCandidates" style="display:grid;gap:.5rem;max-height:480px;overflow:auto;">
     {% for person in candidates %}
-        <label class="peer-option" data-search="{{ person.name|lower }} {{ person.email|lower }} {{ person.team.name|default:''|lower }}" style="display:flex;gap:.75rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:8px;{% if person.email in existing_emails or person.id in direct_manager_candidate_ids %}opacity:.55;{% endif %}">
-            <input type="checkbox" name="reviewers" value="{{ person.id }}" {% if person.email in existing_emails or preselected == person.id|stringformat:'s' %}checked{% endif %} {% if person.email in protected_emails or person.id in direct_manager_candidate_ids %}disabled{% endif %}>
-            {% if person.email in protected_emails %}<input type="hidden" name="reviewers" value="{{ person.id }}">{% endif %}
-            <span><strong>{{ person.name }}</strong><br><small style="color:var(--text-secondary);">{{ person.email }}{% if person.team %} · {{ person.team.name }}{% endif %}{% if person.id in direct_manager_candidate_ids %} · Direct manager — unavailable{% elif person.email in protected_emails %} · Review started — cannot remove{% elif person.email in existing_emails %} · Already selected{% endif %}</small></span>
+        <label class="peer-option" data-team="{{ person.team_id|default:'unassigned' }}" data-search="{{ person.name|lower }} {{ person.email|lower }} {{ person.team.name|default:''|lower }}" style="display:flex;gap:.75rem;align-items:center;padding:.75rem;border:1px solid var(--border);border-radius:8px;{% if person.id in protected_candidate_ids or person.id in direct_manager_candidate_ids %}opacity:.55;{% endif %}">
+            <input type="checkbox" name="reviewers" value="{{ person.id }}" {% if person.id in selected_candidate_ids or preselected == person.id|stringformat:'s' %}checked{% endif %} {% if person.id in protected_candidate_ids or person.id in direct_manager_candidate_ids %}disabled{% endif %}>
+            {% if person.id in protected_candidate_ids %}<input type="hidden" name="reviewers" value="{{ person.id }}">{% endif %}
+            <span><strong>{{ person.name }}</strong><br><small style="color:var(--text-secondary);">{{ person.email }}{% if person.team %} · {{ person.team.name }}{% endif %}{% if person.id in direct_manager_candidate_ids %} · Direct manager — unavailable{% elif person.id in protected_candidate_ids %} · Review started — cannot remove{% elif person.id in selected_candidate_ids %} · Already selected{% endif %}</small></span>
         </label>
     {% empty %}<p>No eligible colleagues are available.</p>{% endfor %}
     </div>
@@ -21,7 +24,9 @@
 <script>
 const minimumReviewers={{ minimum_reviewers }};
 function updateSelectionCount(){const count=new Set([...document.querySelectorAll('input[name="reviewers"]:checked')].map(input=>input.value)).size;document.getElementById('selectionCount').textContent=`${count} selected · minimum ${minimumReviewers}`;}
-document.getElementById('peerSearch').addEventListener('input',function(){const q=this.value.toLowerCase().trim();document.querySelectorAll('.peer-option').forEach(el=>el.style.display=el.dataset.search.includes(q)?'flex':'none');});
+function filterPeers(){const q=document.getElementById('peerSearch').value.toLowerCase().trim();const team=document.getElementById('peerTeamFilter').value;document.querySelectorAll('.peer-option').forEach(el=>el.style.display=el.dataset.search.includes(q)&&(!team||el.dataset.team===team)?'flex':'none');}
+document.getElementById('peerSearch').addEventListener('input',filterPeers);
+document.getElementById('peerTeamFilter').addEventListener('change',filterPeers);
 document.querySelectorAll('input[name="reviewers"]').forEach(input=>input.addEventListener('change',updateSelectionCount));updateSelectionCount();
 </script>
 {% endblock %}

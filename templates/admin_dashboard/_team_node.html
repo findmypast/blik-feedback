@@ -48,7 +48,7 @@
                         </div>
                     </details>
                     {% endif %}
-                    {% if card.can_edit and member.reviewee %}{% if member.is_manager %}<button type="button" class="btn btn-sm btn-danger" style="margin-left:.35rem;opacity:.55;" disabled title="Transfer team management before removing this person">Remove from team</button>{% else %}<button type="button" class="btn btn-sm btn-danger" style="margin-left:.35rem;" onclick="document.getElementById('remove-member-{{ card.team.id }}-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}{% endif %}
+                    {% if card.can_edit and member.reviewee and not member.is_manager %}<button type="button" class="btn btn-sm btn-danger" style="margin-left:.35rem;" onclick="document.getElementById('remove-member-{{ card.team.id }}-{{ member.reviewee.id }}').style.display='flex';">Remove from team</button>{% endif %}
                     {% if card.can_edit and member.reviewee and not member.is_manager %}
                     <div id="remove-member-{{ card.team.id }}-{{ member.reviewee.id }}" role="dialog" aria-modal="true" aria-labelledby="remove-title-{{ card.team.id }}-{{ member.reviewee.id }}" style="display:none; position:fixed; inset:0; z-index:1000; padding:1rem; align-items:center; justify-content:center; background:rgba(0,0,0,.55); text-align:left;">
                         <div style="width:min(460px,100%); padding:1.5rem; background:var(--bg-card); border:1px solid var(--border-color); border-radius:12px; box-shadow:0 16px 40px rgba(0,0,0,.25);">

@@ -685,6 +685,17 @@ class PeerNominationFlowTests(TestCase):
         self.assertContains(response, self.peer.email)
         self.assertNotContains(response, 'answer_data')
 
+    def test_peer_picker_has_search_and_team_filter(self):
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertContains(response, 'id="peerSearch"')
+        self.assertContains(response, 'id="peerTeamFilter"')
+        self.assertContains(response, self.team.name)
+
     @patch('blik.admin_views.send_reviewer_invitations')
     def test_manager_can_edit_peer_reviewers_organization_wide(self, send):
         removable = self.cycle.tokens.create(

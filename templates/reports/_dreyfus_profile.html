@@ -1,4 +1,4 @@
-{% load static landing_tags %}
+{% load static %}
 
 {% if insights.skill_profile %}
 <div id="skill-development-path" class="insight-card skill-development">
@@ -14,20 +14,10 @@
     <div class="development-tabs">
         <button class="tab-button active" data-tab="skill">
             Skill Level
-            <a href="{% landing_url 'dreyfus_model' %}" class="tab-info-link" title="Learn more about the Dreyfus Model" target="_blank" rel="noopener">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-                </svg>
-            </a>
         </button>
         {% if insights.agency_profile %}
         <button class="tab-button" data-tab="agency">
             Agency & Initiative
-            <a href="{% landing_url 'agency_levels' %}" class="tab-info-link" title="Learn more about Agency Levels" target="_blank" rel="noopener">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-                </svg>
-            </a>
         </button>
         {% endif %}
     </div>
@@ -236,11 +226,6 @@
         <div class="quadrant-badge-compact">
             <div class="quadrant-header">
                 <span class="quadrant-icon">{{ insights.dreyfus_quadrant.name }}</span>
-                <a href="{% landing_url 'performance_matrix' %}" class="quadrant-info-link" title="Learn more about the Performance Matrix" target="_blank" rel="noopener">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
-                    </svg>
-                </a>
             </div>
             <span class="quadrant-description">{{ insights.dreyfus_quadrant.description }}</span>
         </div>

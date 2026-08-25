@@ -5,18 +5,17 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from . import views, admin_views, seo_views, superuser_views
-from productreviews import api_views as review_api
+from . import views, admin_views, superuser_views
 
 # Error handlers
+handler400 = 'blik.views.handler400'
+handler403 = 'blik.views.handler403'
 handler404 = 'blik.views.handler404'
 handler500 = 'blik.views.handler500'
 
 urlpatterns = [
     path('', views.home, name='home'),
     path('health/', views.health_check, name='health_check'),
-    path('sitemap.xml', seo_views.sitemap, name='sitemap'),
-    path('robots.txt', seo_views.robots, name='robots'),
     path('admin/', admin.site.urls),
 
     # Superuser tools
@@ -93,14 +92,11 @@ urlpatterns = [
     path('account/', include('blik.account_urls')),
     path('', include('reviews.urls')),
     path('', include('reports.urls')),
-    path('landing/', include('landing.urls')),
     path('api/', include('subscriptions.urls')),
 
     # REST API v1
     path('api/v1/', include(('api.urls', 'api'), namespace='api')),
 
-    # Public API for landing pages
-    path('api/reviews/aggregate', review_api.aggregate_reviews_api, name='api_reviews_aggregate'),
 ]
 
 # Serve media files in development

@@ -2572,23 +2572,35 @@ def nominate_peer_reviewers(request, cycle_uuid):
             Q(profile=direct_manager)
             | Q(email__iexact=direct_manager.user.email)
         ).values_list('id', flat=True))
-    existing_emails = set(
-        cycle.tokens.exclude(reviewer_email__isnull=True).values_list(
+    existing_emails = {
+        email.lower() for email in cycle.tokens.filter(category='peer').exclude(
+            reviewer_email__isnull=True
+        ).values_list(
             'reviewer_email', flat=True
-        )
-    )
-    protected_emails = set(
-        cycle.tokens.filter(
-            Q(claimed_at__isnull=False) | Q(completed_at__isnull=False)
+        ) if email
+    }
+    protected_emails = {
+        email.lower() for email in cycle.tokens.filter(
+            Q(claimed_at__isnull=False) | Q(completed_at__isnull=False),
+            category='peer',
         ).exclude(reviewer_email__isnull=True).values_list('reviewer_email', flat=True)
-    )
+        if email
+    }
+    selected_candidate_ids = {
+        person.id for person in candidates
+        if person.email and person.email.lower() in existing_emails
+    }
+    protected_candidate_ids = {
+        person.id for person in candidates
+        if person.email and person.email.lower() in protected_emails
+    }
 
     if request.method == 'POST':
         selected_ids = request.POST.getlist('reviewers')
         selected = list(candidates.filter(id__in=selected_ids).exclude(
             id__in=direct_manager_candidate_ids
         ))
-        selected_emails = {person.email for person in selected if person.email}
+        selected_emails = {person.email.lower() for person in selected if person.email}
         desired_emails = selected_emails | protected_emails
         minimum_reviewers = cycle.campaign.minimum_peer_reviewers
         if len(desired_emails) < minimum_reviewers:
@@ -2598,11 +2610,16 @@ def nominate_peer_reviewers(request, cycle_uuid):
                 f'You currently have {len(desired_emails)} selected.',
             )
         else:
-            removed_count, _ = cycle.tokens.filter(
+            removable_tokens = cycle.tokens.filter(
                 category='peer',
                 claimed_at__isnull=True,
                 completed_at__isnull=True,
-            ).exclude(reviewer_email__in=desired_emails).delete()
+            ).exclude(reviewer_email__isnull=True)
+            removable_ids = [
+                token.id for token in removable_tokens
+                if token.reviewer_email.lower() not in desired_emails
+            ]
+            removed_count, _ = cycle.tokens.filter(id__in=removable_ids).delete()
             tokens = [
                 ReviewerToken.objects.create(
                     cycle=cycle,
@@ -2610,7 +2627,7 @@ def nominate_peer_reviewers(request, cycle_uuid):
                     reviewer_email=person.email,
                 )
                 for person in selected
-                if person.email and person.email not in existing_emails
+                if person.email and person.email.lower() not in existing_emails
             ]
             if tokens:
                 token_ids = [token.id for token in tokens]
@@ -2633,10 +2650,13 @@ def nominate_peer_reviewers(request, cycle_uuid):
         'candidates': candidates,
         'existing_emails': existing_emails,
         'protected_emails': protected_emails,
+        'selected_candidate_ids': selected_candidate_ids,
+        'protected_candidate_ids': protected_candidate_ids,
         'direct_manager_candidate_ids': direct_manager_candidate_ids,
         'preselected': preselected,
         'is_editing': bool(existing_emails),
         'minimum_reviewers': cycle.campaign.minimum_peer_reviewers,
+        'organization_teams': Team.objects.for_organization(org).order_by('name'),
     })
 
 
