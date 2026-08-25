@@ -291,9 +291,7 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             'action': 'create',
             'name': 'Unauthorized role',
         })
-        self.assertRedirects(
-            response, reverse('admin_dashboard'), fetch_redirect_response=False
-        )
+        self.assertEqual(response.status_code, 403)
         self.assertFalse(OrganizationRole.objects.filter(name='Unauthorized role').exists())
 
     def test_admin_can_search_people_by_name_or_email(self):
@@ -474,11 +472,8 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             'status': 'active',
             'role': 'member',
         })
-        self.assertRedirects(
-            response,
-            reverse('admin_dashboard'),
-            fetch_redirect_response=False,
-        )
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, 'Go back to Dashboard', status_code=404)
 
 
 class TeamHierarchyViewTestCase(TestCase):
@@ -570,9 +565,7 @@ class TeamHierarchyViewTestCase(TestCase):
             'name': 'Changed Finance',
         })
 
-        self.assertRedirects(
-            response, reverse('admin_dashboard'), fetch_redirect_response=False
-        )
+        self.assertEqual(response.status_code, 403)
         unrelated.refresh_from_db()
         self.assertEqual(unrelated.name, 'Finance')
 
@@ -660,9 +653,7 @@ class TeamHierarchyViewTestCase(TestCase):
             'team': managed_team.id,
         })
 
-        self.assertRedirects(
-            response, reverse('admin_dashboard'), fetch_redirect_response=False
-        )
+        self.assertEqual(response.status_code, 403)
         outsider.refresh_from_db()
         self.assertEqual(outsider.team, self.child_team)
 

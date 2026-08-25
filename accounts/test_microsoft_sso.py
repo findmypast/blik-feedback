@@ -179,13 +179,13 @@ class MicrosoftLoginViewTests(TestCase):
     @override_settings(MICROSOFT_SSO_CONFIGURED=True)
     def test_login_shows_microsoft_button_when_configured(self):
         response = self.client.get(reverse('login'))
-        self.assertContains(response, 'Continue with Microsoft')
+        self.assertContains(response, 'Continue with Microsoft SSO')
         self.assertContains(response, reverse('microsoft_login'))
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_login_hides_microsoft_button_when_not_configured(self):
         response = self.client.get(reverse('login'))
-        self.assertNotContains(response, 'Continue with Microsoft')
+        self.assertNotContains(response, 'Continue with Microsoft SSO')
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_password_login_still_works(self):

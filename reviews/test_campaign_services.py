@@ -490,11 +490,8 @@ class CampaignCreationViewTests(TestCase):
             'due_date': '2026-09-01',
         })
 
-        self.assertRedirects(
-            response,
-            reverse('admin_dashboard'),
-            fetch_redirect_response=False,
-        )
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, 'Go back to Dashboard', status_code=404)
         self.assertFalse(ReviewCampaign.objects.exists())
 
     @patch('blik.admin_views.send_reviewer_invitations')
@@ -631,11 +628,8 @@ class PeerNominationFlowTests(TestCase):
             reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
         )
 
-        self.assertRedirects(
-            response,
-            reverse('admin_dashboard'),
-            fetch_redirect_response=False,
-        )
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, 'Go back to Dashboard', status_code=404)
 
     def test_linked_reviewee_can_open_nominations_when_email_has_changed(self):
         self.member.email = 'old-member-address@example.com'
