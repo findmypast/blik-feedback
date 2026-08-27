@@ -1,8 +1,23 @@
-Hello {{ reviewee.name }},
+Choose your peer reviewers
 
-You have been invited to take part in a peer review using {{ questionnaire_name }}.
+Hi {{ reviewee.name }},
 
-Please sign in to Blik and select at least {{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }} you would like to request feedback from:
-{{ dashboard_url }}
+You have been invited to take part in a peer review.
 
-{% if campaign.due_date %}Please make your selections and complete the review process by {{ campaign.due_date|date:"j F Y" }}.{% endif %}
+Cycle: {{ campaign.display_name }}
+{% if campaign.team %}Team: {{ campaign.team.name }}
+{% endif %}Assessment: Peer review
+Questionnaire: {{ questionnaire_name }}
+{% if assigned_by %}Assigned by: {{ assigned_by }}
+{% endif %}
+What you need to do:
+1. Select at least {{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }}.
+2. Submit your choices and we will send their invitations.
+3. You can return later to update your selections if needed.
+
+Choose your peer reviewers:
+{{ nomination_url }}
+
+{% if campaign.due_date %}Due {{ campaign.due_date|date:"j F Y" }}
+{% endif %}
+Sent by {{ product_name }}.

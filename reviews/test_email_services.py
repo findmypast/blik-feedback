@@ -308,3 +308,10 @@ class SendPeerNominationInvitationTests(TestCase):
             + mock_send_email.call_args.kwargs['html_message']
         )
         self.assertIn('at least 4 colleagues', rendered)
+        self.assertIn('Choose your peer reviewers', rendered)
+        self.assertIn(campaign.display_name, rendered)
+        self.assertIn('Assigned by:', rendered)
+        self.assertIn(
+            f'https://public.example.com/dashboard/cycles/{cycle.uuid}/nominate-peers/',
+            rendered,
+        )

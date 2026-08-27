@@ -1,11 +1,40 @@
 <!doctype html>
-<html><body style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.6">
-<div style="max-width:600px;margin:auto;padding:32px">
-  <h1 style="color:#4338ca;font-size:24px">Select your peer reviewers</h1>
-  <p>Hello {{ reviewee.name }},</p>
-  <p>You have been invited to take part in a peer review using <strong>{{ questionnaire_name }}</strong>.</p>
-  <p>Please sign in to Blik and select at least <strong>{{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }}</strong> you would like to request feedback from.</p>
-  <p><a href="{{ dashboard_url }}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px">Open Blik</a></p>
-  {% if campaign.due_date %}<p style="color:#64748b">Due {{ campaign.due_date|date:"j F Y" }}</p>{% endif %}
-</div>
-</body></html>
+<html>
+<body style="margin:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#172b4d;line-height:1.6">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f5f7;padding:28px 12px">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #dfe1e6;border-radius:12px;overflow:hidden">
+        <tr><td style="background:#403294;padding:30px 34px;text-align:center;color:#ffffff">
+          <div style="font-size:34px;line-height:1;margin-bottom:12px">🤝</div>
+          <h1 style="margin:0;font-size:26px;line-height:1.25;color:#ffffff">Choose your peer reviewers</h1>
+          <p style="margin:8px 0 0;color:#eae6ff;font-size:15px">Your perspective matters—and so does theirs.</p>
+        </td></tr>
+        <tr><td style="padding:30px 34px">
+          <p style="margin:0 0 16px">Hi <strong>{{ reviewee.name }}</strong>,</p>
+          <p style="margin:0 0 20px">You’ve been invited to take part in a peer review. Start by choosing the colleagues who can give you useful, thoughtful feedback.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 22px;background:#f5f3ff;border-left:4px solid #9f8fef;border-radius:8px">
+            <tr><td style="padding:17px 19px">
+              <p style="margin:0 0 6px"><strong>Cycle:</strong> {{ campaign.display_name }}</p>
+              {% if campaign.team %}<p style="margin:0 0 6px"><strong>Team:</strong> {{ campaign.team.name }}</p>{% endif %}
+              <p style="margin:0 0 6px"><strong>Assessment:</strong> Peer review</p>
+              <p style="margin:0 0 6px"><strong>Questionnaire:</strong> {{ questionnaire_name }}</p>
+              {% if assigned_by %}<p style="margin:0"><strong>Assigned by:</strong> {{ assigned_by }}</p>{% endif %}
+            </td></tr>
+          </table>
+          <p style="margin:0 0 8px;font-weight:700;color:#403294">What you need to do</p>
+          <ol style="margin:0 0 22px;padding-left:22px;color:#44546f">
+            <li style="margin-bottom:7px">Select at least <strong>{{ campaign.minimum_peer_reviewers }} colleague{{ campaign.minimum_peer_reviewers|pluralize }}</strong>.</li>
+            <li style="margin-bottom:7px">Submit your choices—we’ll send their invitations for you.</li>
+            <li>You can return later to update your selections if needed.</li>
+          </ol>
+          <div style="text-align:center;margin:26px 0">
+            <a href="{{ nomination_url }}" style="display:inline-block;background:#4f46e5;color:#ffffff!important;-webkit-text-fill-color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:7px;font-weight:700">Choose peer reviewers</a>
+          </div>
+          {% if campaign.due_date %}<p style="margin:22px 0 0;padding:12px 16px;background:#fffae6;border-radius:7px;color:#7a4d00;text-align:center"><strong>Due {{ campaign.due_date|date:"j F Y" }}</strong></p>{% endif %}
+        </td></tr>
+        <tr><td style="padding:18px 30px;background:#fafbfc;border-top:1px solid #ebecf0;text-align:center;color:#6b778c;font-size:13px">Sent by {{ product_name }}. If the button does not work, sign in and open your To do list.</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

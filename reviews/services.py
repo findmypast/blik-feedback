@@ -522,11 +522,23 @@ def send_peer_nomination_invitation(cycle):
         return stats
     try:
         campaign = cycle.campaign
+        assigned_by = None
+        if campaign.created_by:
+            assigned_by = (
+                campaign.created_by.get_full_name().strip()
+                or campaign.created_by.email
+                or campaign.created_by.username
+            )
         context = {
             'reviewee': cycle.reviewee,
             'campaign': campaign,
             'questionnaire_name': cycle.questionnaire.name,
             'dashboard_url': dashboard_url,
+            'nomination_url': _absolute_url(reverse(
+                'nominate_peer_reviewers', args=[cycle.uuid]
+            )),
+            'assigned_by': assigned_by,
+            'product_name': settings.PRODUCT_NAME,
         }
         send_email(
             subject=f'Select your peer reviewers: {cycle.questionnaire.name}',
