@@ -1,0 +1,8 @@
+Hi,
+
+Your team, {{ team.name }}, has completed its peer reviews for {{ organizational_cycle.display_name }}.
+
+View reports and cycle progress:
+{{ dashboard_url }}
+
+Your Feedback Team

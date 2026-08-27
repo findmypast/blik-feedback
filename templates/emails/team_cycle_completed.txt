@@ -1,0 +1,13 @@
+Hi {% firstof administrator.get_full_name administrator.email "administrator" %},
+
+{{ team.name }} has completed its review cycle for {{ organizational_cycle.display_name }}.
+
+Cycle: {{ organizational_cycle.display_name }}
+Team: {{ team.name }}
+Audience: {{ organizational_cycle.audience_label }}
+{% if organizational_cycle.due_date %}Due date: {{ organizational_cycle.due_date|date:"j F Y" }}
+{% endif %}
+The team’s completed reports are ready for you to review. You can view the assessment breakdown, open individual reports, and regenerate reports when required:
+{{ cycle_url }}
+
+This is an automated update from {{ site_name }}.

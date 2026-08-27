@@ -2,6 +2,7 @@ from datetime import date
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.conf import settings
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -11,7 +12,9 @@ from accounts.factories import RevieweeFactory, UserProfileFactory
 from accounts.models import Team, TeamMembership
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
+from reports.models import Report
 from reviews.campaign_services import launch_campaign, launch_organizational_cycle
+from reviews.services import _send_campaign_completion_notifications
 from reviews.models import (
     OrganizationalReviewCycle,
     ReviewCampaign,
@@ -75,6 +78,80 @@ class CampaignServiceTests(TestCase):
         emails = set(cycle.tokens.values_list('reviewer_email', flat=True))
         self.assertEqual(emails, {self.member_one.email, self.member_two.email})
         self.assertNotIn(self.manager_user.email, emails)
+
+    @patch('reviews.services.send_email')
+    def test_team_completion_notifies_leader_and_administrator_once(self, send_email):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=self.org,
+            created_by=self.manager_user,
+            self_questionnaire=self_questionnaire,
+            peer_questionnaire=peer_questionnaire,
+        )
+        parent.teams.add(self.team)
+        self_campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaire=self_questionnaire,
+            target_type='organization',
+            cycle_type='self',
+            status='completed',
+            organizational_cycle=parent,
+        )
+        self_cycle = ReviewCycle.objects.create(
+            reviewee=self.member_one,
+            questionnaire=self_questionnaire,
+            campaign=self_campaign,
+            status='completed',
+        )
+        ReviewerToken.objects.create(
+            cycle=self_cycle,
+            category='self',
+            reviewer_email=self.member_one.email,
+            completed_at=timezone.now(),
+        )
+        peer_campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaire=peer_questionnaire,
+            target_type='team',
+            team=self.team,
+            cycle_type='peer',
+            status='completed',
+            organizational_cycle=parent,
+        )
+
+        _send_campaign_completion_notifications(peer_campaign.pk)
+        _send_campaign_completion_notifications(peer_campaign.pk)
+
+        self.assertEqual(send_email.call_count, 2)
+        self.assertEqual(
+            [call.kwargs['subject'] for call in send_email.call_args_list],
+            [
+                'Platform has completed peer reviews',
+                'Platform has completed its review cycle',
+            ],
+        )
+        admin_email = send_email.call_args_list[1].kwargs
+        expected_cycle_url = (
+            f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
+            f'{reverse("organisation_cycle_detail", args=[parent.uuid])}'
+        )
+        self.assertIn('Team review cycle complete', admin_email['html_message'])
+        self.assertIn('Review reports', admin_email['html_message'])
+        self.assertIn(expected_cycle_url, admin_email['html_message'])
+        self.assertIn(
+            self.manager_user.get_full_name() or self.manager_user.email,
+            admin_email['message'],
+        )
 
     def test_incompatible_questionnaire_is_rejected(self):
         questionnaire = QuestionnaireFactory(
@@ -416,13 +493,35 @@ class CampaignCreationViewTests(TestCase):
         cycles_page = self.client.get(reverse('review_cycle_list'))
         self.assertContains(cycles_page, 'Cycles')
         self.assertContains(cycles_page, 'Q3 Development Review')
-        self.assertContains(cycles_page, 'View summary')
+        self.assertContains(cycles_page, 'View reports')
         summary_url = reverse('organisation_cycle_detail', args=[parent.uuid])
         self.assertContains(cycles_page, summary_url)
         cycle_summary = self.client.get(summary_url)
         self.assertContains(cycle_summary, 'Related Assessment Cycles')
         self.assertContains(cycle_summary, 'Peer Review')
         self.assertContains(cycle_summary, 'Manager Assessment')
+
+        reported_cycle = parent.campaigns.order_by('created_at').first().cycles.first()
+        Report.objects.create(cycle=reported_cycle, report_data={})
+        cycle_summary = self.client.get(summary_url)
+        report_url = reverse('reports:view_report', args=[reported_cycle.uuid])
+        self.assertContains(cycle_summary, report_url)
+        self.assertContains(cycle_summary, 'View report')
+        self.assertNotContains(cycle_summary, 'View assessment details')
+
+        cycles_with_report = self.client.get(reverse('review_cycle_list'))
+        self.assertContains(cycles_with_report, report_url)
+        self.assertNotContains(cycles_with_report, 'View reports')
+
+        reports_page = self.client.get(reverse('report_list'))
+        self.assertContains(reports_page, parent.display_name)
+        self.assertContains(reports_page, reported_cycle.reviewee.name)
+        self.assertContains(reports_page, report_url)
+
+        dashboard_with_report = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(dashboard_with_report, 'Recent Reports')
+        self.assertContains(dashboard_with_report, parent.display_name)
+        self.assertContains(dashboard_with_report, report_url)
 
         close_url = reverse(
             'close_organizational_cycle_scope', args=[parent.uuid]
@@ -447,7 +546,8 @@ class CampaignCreationViewTests(TestCase):
             ).exists()
         )
         dashboard_after_close = self.client.get(reverse('admin_dashboard'))
-        self.assertNotContains(dashboard_after_close, 'Q3 Development Review')
+        self.assertContains(dashboard_after_close, 'Recent Reports')
+        self.assertContains(dashboard_after_close, 'Q3 Development Review')
         completed_cycles_page = self.client.get(reverse('review_cycle_list'))
         self.assertContains(completed_cycles_page, 'Q3 Development Review')
         self.assertContains(completed_cycles_page, 'Completed')

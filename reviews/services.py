@@ -6,10 +6,142 @@ from django.utils import timezone
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.urls import reverse
+from django.db import transaction
 from core.email import send_email
 from datetime import timedelta
 from django.db.models import Q
-from .models import ReviewCycle, ReviewerToken
+from accounts.permissions import can_manage_organization
+from .models import (
+    ReviewCampaign, ReviewCycle, ReviewerToken, TeamCycleCompletionNotification,
+)
+
+
+def _dashboard_url():
+    return f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/'
+
+
+def _absolute_url(path):
+    return f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}{path}'
+
+
+def _team_has_completed_organizational_cycle(organizational_cycle, team):
+    team_campaigns = organizational_cycle.campaigns.filter(team=team)
+    if not team_campaigns.exists() or team_campaigns.exclude(status='completed').exists():
+        return False
+    return not ReviewCycle.objects.filter(
+        campaign__organizational_cycle=organizational_cycle,
+        campaign__cycle_type='self',
+        status='active',
+    ).filter(
+        Q(reviewee__team=team) | Q(reviewee__team_memberships__team=team)
+    ).exists()
+
+
+def _send_team_peer_reviews_completed(campaign):
+    if campaign.cycle_type != 'peer' or not campaign.team_id:
+        return
+    campaign = ReviewCampaign.objects.select_related(
+        'team__manager__user', 'organizational_cycle__organization'
+    ).get(pk=campaign.pk)
+    if campaign.completion_notification_sent_at:
+        return
+    manager = campaign.team.manager
+    if not manager or not manager.user.email:
+        return
+    campaign.completion_notification_sent_at = timezone.now()
+    campaign.save(update_fields=['completion_notification_sent_at', 'updated_at'])
+    context = {
+        'team': campaign.team,
+        'organizational_cycle': campaign.organizational_cycle,
+        'dashboard_url': _dashboard_url(),
+    }
+    send_email(
+        subject=f'{campaign.team.name} has completed peer reviews',
+        message=render_to_string('emails/team_peer_reviews_completed.txt', context),
+        recipient_list=[manager.user.email],
+        html_message=render_to_string('emails/team_peer_reviews_completed.html', context),
+    )
+
+
+def _send_team_cycle_completed_to_administrators(campaign):
+    if not campaign.team_id or not campaign.organizational_cycle_id:
+        return
+    campaign = ReviewCampaign.objects.select_related(
+        'team', 'organizational_cycle__organization'
+    ).get(pk=campaign.pk)
+    organizational_cycle = campaign.organizational_cycle
+    if not _team_has_completed_organizational_cycle(organizational_cycle, campaign.team):
+        return
+    administrators = [
+        profile.user for profile in organizational_cycle.organization.users.select_related('user')
+        if profile.user.email and can_manage_organization(profile.user)
+    ]
+    if not administrators:
+        return
+    notification, created = TeamCycleCompletionNotification.objects.get_or_create(
+        organizational_cycle=organizational_cycle,
+        team=campaign.team,
+        defaults={'sent_at': timezone.now()},
+    )
+    if not created:
+        return
+    context = {
+        'team': campaign.team,
+        'organizational_cycle': organizational_cycle,
+        'dashboard_url': _dashboard_url(),
+        'cycle_url': _absolute_url(reverse(
+            'organisation_cycle_detail', args=[organizational_cycle.uuid]
+        )),
+        'site_name': settings.SITE_NAME,
+    }
+    for administrator in administrators:
+        administrator_context = {**context, 'administrator': administrator}
+        send_email(
+            subject=f'{campaign.team.name} has completed its review cycle',
+            message=render_to_string(
+                'emails/team_cycle_completed.txt', administrator_context
+            ),
+            recipient_list=[administrator.email],
+            html_message=render_to_string(
+                'emails/team_cycle_completed.html', administrator_context
+            ),
+        )
+
+
+def schedule_campaign_completion_notifications(campaign):
+    """Queue aggregate notifications after a team campaign becomes complete."""
+    if not campaign.organizational_cycle_id:
+        return
+    transaction.on_commit(
+        lambda campaign_id=campaign.pk: _send_campaign_completion_notifications(campaign_id)
+    )
+
+
+def _send_campaign_completion_notifications(campaign_id):
+    campaign = ReviewCampaign.objects.get(pk=campaign_id)
+    _send_team_peer_reviews_completed(campaign)
+    _send_team_cycle_completed_to_administrators(campaign)
+
+
+def synchronize_cycle_parent_status(cycle):
+    """Complete parent campaigns and queue their aggregate notifications."""
+    if not cycle.campaign_id:
+        return
+    campaign = cycle.campaign
+    if campaign.cycles.filter(status='active').exists():
+        return
+    if campaign.status != 'completed':
+        campaign.status = 'completed'
+        campaign.save(update_fields=['status', 'updated_at'])
+        schedule_campaign_completion_notifications(campaign)
+    if campaign.organizational_cycle_id:
+        parent = campaign.organizational_cycle
+        if (
+            parent.status != 'completed'
+            and not parent.campaigns.filter(status='active').exists()
+        ):
+            parent.status = 'completed'
+            parent.save(update_fields=['status', 'updated_at'])
 
 
 def assign_tokens_to_emails(cycle, email_assignments):

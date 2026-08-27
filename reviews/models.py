@@ -87,6 +87,30 @@ class OrganizationalReviewCycle(TimeStampedModel):
         )
 
 
+class TeamCycleCompletionNotification(TimeStampedModel):
+    """Records the one-time administrator notification for a completed team."""
+
+    organizational_cycle = models.ForeignKey(
+        OrganizationalReviewCycle,
+        on_delete=models.CASCADE,
+        related_name='team_completion_notifications',
+    )
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        related_name='organizational_cycle_completion_notifications',
+    )
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['organizational_cycle', 'team'],
+                name='unique_organizational_team_completion_notification',
+            ),
+        ]
+
+
 class ReviewCampaign(TimeStampedModel):
     """A manager-created campaign grouping one or more individual cycles."""
 
@@ -133,6 +157,7 @@ class ReviewCampaign(TimeStampedModel):
     start_date = models.DateField(null=True, blank=True)
     due_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    completion_notification_sent_at = models.DateTimeField(null=True, blank=True)
     renewed_from = models.ForeignKey(
         'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='renewals'
     )

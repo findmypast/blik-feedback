@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="margin:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;line-height:1.6;color:#1e293b;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">{{ team.name }} has completed {{ organizational_cycle.display_name }}. Reports are ready to review.</div>
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f1f5f9;padding:28px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;box-shadow:0 8px 24px rgba(15,23,42,.08);">
+        <tr><td style="padding:32px;background:#242048;color:#ffffff;text-align:center;">
+          <div style="font-size:34px;line-height:1;margin-bottom:12px;">✓</div>
+          <h1 style="margin:0;font-size:25px;line-height:1.25;">Team review cycle complete</h1>
+          <p style="margin:9px 0 0;color:#e2e1ee;font-size:15px;">Reports are ready for administrator review</p>
+        </td></tr>
+        <tr><td style="padding:30px 32px;">
+          <p style="margin:0 0 16px;">Hi <strong>{% firstof administrator.get_full_name administrator.email "administrator" %}</strong>,</p>
+          <p style="margin:0 0 22px;"><strong>{{ team.name }}</strong> has completed its part of <strong>{{ organizational_cycle.display_name }}</strong>. You can now review the assessment breakdown and open the available reports.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;margin:0 0 24px;">
+            <tr><td style="padding:18px 20px;">
+              <p style="margin:0 0 8px;"><span style="color:#64748b;display:inline-block;width:92px;">Cycle</span><strong>{{ organizational_cycle.display_name }}</strong></p>
+              <p style="margin:0 0 8px;"><span style="color:#64748b;display:inline-block;width:92px;">Team</span><strong>{{ team.name }}</strong></p>
+              <p style="margin:0 0 8px;"><span style="color:#64748b;display:inline-block;width:92px;">Audience</span>{{ organizational_cycle.audience_label }}</p>
+              {% if organizational_cycle.due_date %}<p style="margin:0;"><span style="color:#64748b;display:inline-block;width:92px;">Due date</span>{{ organizational_cycle.due_date|date:"j F Y" }}</p>{% endif %}
+            </td></tr>
+          </table>
+          <div style="text-align:center;margin:26px 0;">
+            <a href="{{ cycle_url }}" style="display:inline-block;padding:13px 26px;background:#4f46e5;color:#ffffff!important;-webkit-text-fill-color:#ffffff;text-decoration:none;border-radius:7px;font-weight:700;">Review reports</a>
+          </div>
+          <p style="margin:22px 0 0;color:#64748b;font-size:14px;">From the cycle summary you can view each assessment report, check completion details, or regenerate a report if the underlying responses have changed.</p>
+        </td></tr>
+        <tr><td style="padding:18px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;color:#64748b;font-size:12px;">This is an automated administrator update from {{ site_name }}.</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
