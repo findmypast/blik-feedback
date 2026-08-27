@@ -523,6 +523,57 @@ class ReportAccessControlTestCase(TestCase):
         self.assertContains(response, 'Go back to Dashboard', status_code=404)
         self.assertNotContains(response, self.report.access_token, status_code=404)
 
+    def test_peer_reviewer_cannot_view_reviewees_report(self):
+        from reviews.models import ReviewerToken
+
+        ReviewerToken.objects.create(
+            cycle=self.cycle,
+            category='peer',
+            reviewer_email=self.user2.email,
+        )
+        self.client.force_login(self.user2)
+
+        cycle_response = self.client.get(
+            self.reverse('reports:view_report', args=[self.cycle.uuid])
+        )
+        token_response = self.client.get(
+            self.reverse(
+                'reports:reviewee_report',
+                args=[self.report.access_token],
+            )
+        )
+        report_list = self.client.get(self.reverse('report_list'))
+
+        self.assertEqual(cycle_response.status_code, 404)
+        self.assertEqual(token_response.status_code, 404)
+        self.assertNotContains(report_list, str(self.cycle.uuid))
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.access_count, 0)
+
+    def test_dashboard_omits_completed_campaign_with_no_visible_rows(self):
+        from reviews.models import ReviewCampaign
+
+        reporting_profile = UserProfile.objects.get(user=self.user2)
+        self.cycle.reviewee.reporting_manager = reporting_profile
+        self.cycle.reviewee.save(update_fields=['reporting_manager', 'updated_at'])
+        campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.user1,
+            questionnaire=self.cycle.questionnaire,
+            target_type='individual',
+            individual=self.cycle.reviewee,
+            cycle_type='peer',
+            status='completed',
+        )
+        self.cycle.campaign = campaign
+        self.cycle.save(update_fields=['campaign', 'updated_at'])
+        self.client.force_login(self.user2)
+
+        response = self.client.get(self.reverse('admin_dashboard'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['active_campaigns'], [])
+
     def test_member_cannot_open_other_members_cycle_detail(self):
         self.client.force_login(self.user2)
         response = self.client.get(

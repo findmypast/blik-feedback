@@ -141,12 +141,25 @@ def reviewee_report(request, access_token):
             'error': 'This report link has expired. Please contact your administrator for a new link.'
         }, status=403)
 
-    # Log access for security auditing
+    cycle = report.cycle
+
+    # The token supports external reviewees who do not have a Blik account.
+    # When somebody is signed in, however, their identity must agree with the
+    # report owner or their existing management scope. Completing a peer review
+    # never grants access to the reviewee's resulting report.
+    if request.user.is_authenticated:
+        can_access = visible_cycles(
+            request.user,
+            ReviewCycle.objects.filter(pk=cycle.pk),
+            request.organization,
+        ).exists()
+        if not is_own_cycle(request.user, cycle) and not can_access:
+            raise Http404
+
+    # Log only authorized report access for security auditing.
     report.last_accessed = timezone.now()
     report.access_count += 1
     report.save(update_fields=['last_accessed', 'access_count'])
-
-    cycle = report.cycle
 
     # Check if report is available (cycle should be completed)
     # Org admins can bypass this check
