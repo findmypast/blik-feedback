@@ -1,6 +1,13 @@
 Hi {{ reviewee.name }},
 
-Your 360-degree feedback report is now ready!
+Your {{ assessment_type|lower }} report is now ready!
+
+Report for: {{ reviewee.name }}{% if reviewee.email %} ({{ reviewee.email }}){% endif %}
+Assessment: {{ assessment_type }}
+Cycle: {{ cycle_name }}
+{% if scope %}Scope: {{ scope }}
+{% endif %}{% if assigned_by %}Assigned by: {{ assigned_by }}
+{% endif %}
 
 View your report here:
 {{ report_url }}

@@ -836,19 +836,39 @@ def send_report_ready_notification(report, request=None):
     summary = get_report_summary(report)
     response_count = summary.get('total_responses', 0)
 
+    campaign = cycle.campaign
+    assessment_type = (
+        campaign.get_cycle_type_display()
+        if campaign else cycle.get_cycle_type_display()
+    )
+    cycle_name = campaign.display_name if campaign else cycle.questionnaire.name
+    scope = campaign.scope_label if campaign else None
+    assigned_by_user = campaign.created_by if campaign else cycle.created_by
+    assigned_by = None
+    if assigned_by_user:
+        assigned_by = (
+            assigned_by_user.get_full_name().strip()
+            or assigned_by_user.email
+            or assigned_by_user.username
+        )
+
     try:
         context = {
             'reviewee': reviewee,
             'cycle': cycle,
             'report_url': report_url,
             'response_count': response_count,
+            'assessment_type': assessment_type,
+            'cycle_name': cycle_name,
+            'scope': scope,
+            'assigned_by': assigned_by,
         }
 
         html_message = render_to_string('emails/report_ready.html', context)
         text_message = render_to_string('emails/report_ready.txt', context)
 
         send_email(
-            subject=f'Your 360 Feedback Report is Ready!',
+            subject=f'Your {assessment_type} report is ready',
             message=text_message,
             recipient_list=[reviewee.email],
             html_message=html_message,

@@ -17,12 +17,20 @@
     <div class="container">
         <div class="header">
             <div style="font-size: 3rem; margin-bottom: 10px;">📊</div>
-            <h1 style="margin: 0; font-size: 1.75rem;">Your Report is Ready!</h1>
+            <h1 style="margin: 0; font-size: 1.75rem;">Your {{ assessment_type }} report is ready!</h1>
         </div>
         <div class="content">
             <p>Hi <strong>{{ reviewee.name }}</strong>,</p>
 
-            <p>Your 360-degree feedback report is now ready!</p>
+            <p>Your <strong>{{ assessment_type|lower }}</strong> report is now ready to view.</p>
+
+            <div class="info-box">
+                <p style="margin: 0 0 6px;"><strong>Report for:</strong> {{ reviewee.name }}{% if reviewee.email %} ({{ reviewee.email }}){% endif %}</p>
+                <p style="margin: 0 0 6px;"><strong>Assessment:</strong> {{ assessment_type }}</p>
+                <p style="margin: 0 0 6px;"><strong>Cycle:</strong> {{ cycle_name }}</p>
+                {% if scope %}<p style="margin: 0 0 6px;"><strong>Scope:</strong> {{ scope }}</p>{% endif %}
+                {% if assigned_by %}<p style="margin: 0;"><strong>Assigned by:</strong> {{ assigned_by }}</p>{% endif %}
+            </div>
 
             <div style="text-align: center;">
                 <a href="{{ report_url }}" class="button" style="background-color: #10b981 !important; color: #ffffff !important; -webkit-text-fill-color: #ffffff;">View Your Report</a>

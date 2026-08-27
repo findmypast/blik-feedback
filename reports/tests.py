@@ -563,8 +563,10 @@ class ReportEmailUrlTestCase(TestCase):
             reviewee=reviewee,
             questionnaire=Questionnaire.objects.create(name="Q", organization=self.org),
             created_by=user,
+            cycle_type='peer',
             status='completed',
         )
+        self.cycle = cycle
         self.report = generate_report(cycle)
 
     @patch('reports.services.send_email')
@@ -581,3 +583,22 @@ class ReportEmailUrlTestCase(TestCase):
         )
         self.assertIn('https://public.example.com/', rendered)
         self.assertNotIn('proxy.internal', rendered)
+
+    @patch('reports.services.send_email')
+    def test_identifies_assessment_reviewee_and_assigner(self, mock_send_email):
+        from reports.services import send_report_ready_notification
+
+        send_report_ready_notification(self.report)
+
+        email = mock_send_email.call_args.kwargs
+        rendered = email['html_message'] + '\n' + email['message']
+        self.assertEqual(email['subject'], 'Your Peer review report is ready')
+        self.assertIn('Report for:', rendered)
+        self.assertIn('R (r@example.org)', rendered)
+        self.assertIn('Assessment:', rendered)
+        self.assertIn('Peer review', rendered)
+        self.assertIn('Cycle:', rendered)
+        self.assertIn('Q', rendered)
+        self.assertIn('Assigned by:', rendered)
+        self.assertIn('admin@example.org', rendered)
+        self.assertNotIn('Your 360-degree feedback report is now ready', rendered)
