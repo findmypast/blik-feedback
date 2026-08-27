@@ -185,7 +185,7 @@ class MicrosoftLoginViewTests(TestCase):
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_login_hides_microsoft_button_when_not_configured(self):
         response = self.client.get(reverse('login'))
-        self.assertNotContains(response, 'Continue with Microsoft SSO')
+        self.assertNotContains(response, 'osoft SSO')
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_password_login_still_works(self):

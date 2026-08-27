@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Admin Dashboard{% endblock %} - Blik</title>
+    <title>{% block title %}Dashboard{% endblock %} - {{ product_name }}</title>
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%234f46e5'/><circle cx='50' cy='50' r='25' fill='none' stroke='white' stroke-width='3'/></svg>">
@@ -45,7 +45,7 @@
     <nav class="navbar">
         <div class="navbar-content">
             <div class="navbar-header">
-                <a href="{% url 'admin_dashboard' %}" class="navbar-brand">Blik</a>
+                <a href="{% url 'admin_dashboard' %}" class="navbar-brand">{{ product_name }}</a>
                 <button id="mobile-menu-toggle" class="mobile-menu-toggle" aria-label="Toggle menu">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="3" y1="12" x2="21" y2="12"></line>

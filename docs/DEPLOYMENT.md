@@ -24,6 +24,7 @@ This guide covers deploying Blik to production using various platforms.
 In Dokploy's environment variables section, set the following (use `.env.production` as a template):
 
 #### Required Security Settings
+
 ```env
 # SECRET_KEY is auto-generated if not set (recommended to set for production persistence)
 SECRET_KEY=<your-secret-key-here>
@@ -47,11 +48,13 @@ ENCRYPTION_KEY=<your-encryption-key-here>
 ```
 
 **Note on SECRET_KEY:**
+
 - If not set, a secure random key is **auto-generated on first startup**
 - For production, it's recommended to set a persistent value so sessions remain valid across restarts
 - The auto-generated key will be displayed in the logs on first startup
 
 **Generate keys manually:**
+
 ```bash
 # SECRET_KEY
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
@@ -61,6 +64,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 ```
 
 #### Database Settings
+
 ```env
 DATABASE_NAME=blik
 DATABASE_USER=blik
@@ -70,6 +74,7 @@ DATABASE_PORT=5432
 ```
 
 #### Email Configuration (Example: Gmail)
+
 ```env
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
 EMAIL_HOST=smtp.gmail.com
@@ -87,9 +92,17 @@ configure SMTP from the admin UI instead, leave these unset or empty
 (`EMAIL_HOST=`). See [ADMIN_GUIDE.md](ADMIN_GUIDE.md#settings-managed-by-environment-variables).
 
 #### Site URLs (used in every email link)
+
 ```env
 SITE_DOMAIN=feedback.yourdomain.com
 SITE_PROTOCOL=https
+```
+
+Optional deployment branding can change the visible product name without
+changing application components or technical identifiers:
+
+```env
+PRODUCT_NAME=Findmypast 360
 ```
 
 ### Microsoft Entra SSO (optional)
@@ -125,11 +138,13 @@ deriving links from it would send recipients a URL they cannot open. Set
 `SITE_DOMAIN` to the public hostname your users type in the browser.
 
 #### Organization Settings
+
 ```env
 ORGANIZATION_NAME=Your Company Name
 ```
 
 #### Port Configuration (Optional)
+
 ```env
 # Internal port for main application container
 # Default: 8000 (usually no need to change)
@@ -187,6 +202,7 @@ See [docs/STRIPE_WEBHOOKS.md](STRIPE_WEBHOOKS.md) for complete Stripe setup inst
 **Option B: Auto-Setup (Advanced)**
 
 Add these to environment variables before first deployment:
+
 ```env
 DJANGO_SUPERUSER_USERNAME=admin
 DJANGO_SUPERUSER_EMAIL=admin@yourdomain.com
@@ -212,6 +228,7 @@ Your load balancer or reverse proxy handles SSL termination:
 The container listens on HTTP (port 8000). SSL is terminated upstream.
 
 **Security cookie settings:**
+
 ```env
 SESSION_COOKIE_SECURE=True   # Safe: Django sees X-Forwarded-Proto: https
 CSRF_COOKIE_SECURE=True      # Safe: Django sees X-Forwarded-Proto: https
@@ -222,11 +239,13 @@ These work because the load balancer forwards the `X-Forwarded-Proto: https` hea
 **❌ Avoid infinite redirect loops:**
 
 Do NOT force HTTPS at the application level when SSL is terminated upstream:
+
 1. Load balancer terminates SSL, forwards HTTP to container
 2. If container redirects to HTTPS, load balancer forwards HTTP again
 3. Infinite loop
 
 **✅ Correct configuration:**
+
 - SSL termination at load balancer/proxy
 - Set `SESSION_COOKIE_SECURE=True` and `CSRF_COOKIE_SECURE=True`
 - Do NOT set `SECURE_SSL_REDIRECT=True` in Django
@@ -254,6 +273,7 @@ nano .env
 ```
 
 **Critical settings to change:**
+
 - `SECRET_KEY` - Generate a new one (or leave blank for auto-generation)
 - `ENCRYPTION_KEY` - Generate with cryptography.fernet (required!)
 - `DEBUG=False`
@@ -272,6 +292,7 @@ docker compose up -d
 ```
 
 The entrypoint script will automatically:
+
 - Wait for PostgreSQL
 - Run migrations
 - Collect static files
@@ -363,16 +384,19 @@ Visit `https://yourdomain.com/setup/` to complete the setup wizard.
 DigitalOcean offers two deployment options:
 
 **App Platform (Recommended)** - Fully managed PaaS with auto-scaling and zero-downtime deployments:
+
 - One-click deploy via "Deploy to DigitalOcean" button in README
 - Automatic SSL certificates and GitHub integration
 - Cost: ~$20/month (web + database)
 
 **Droplet** - VPS with full control and lower cost:
+
 - Docker Compose setup with automated deployment script
 - Manual SSL setup with Let's Encrypt
 - Cost: ~$7-15/month depending on configuration
 
 See the comprehensive **[DigitalOcean Deployment Guide](DIGITALOCEAN.md)** for detailed instructions on both options, including:
+
 - One-click App Platform deployment
 - Droplet setup with automation scripts
 - SSL configuration
@@ -382,6 +406,7 @@ See the comprehensive **[DigitalOcean Deployment Guide](DIGITALOCEAN.md)** for d
 ### AWS/GCP/Azure
 
 Use the Docker Compose configuration with your platform's container orchestration:
+
 - **AWS:** ECS with RDS PostgreSQL
 - **GCP:** Cloud Run with Cloud SQL
 - **Azure:** Container Instances with Azure Database for PostgreSQL
@@ -391,6 +416,7 @@ Use the Docker Compose configuration with your platform's container orchestratio
 ## Post-Deployment Checklist
 
 ### Security
+
 - [ ] SSL/HTTPS is configured and working
 - [ ] `DEBUG=False` in production
 - [ ] Strong `SECRET_KEY` is set (or auto-generated)
@@ -401,12 +427,14 @@ Use the Docker Compose configuration with your platform's container orchestratio
 - [ ] Security cookies enabled (`SESSION_COOKIE_SECURE=True`, `CSRF_COOKIE_SECURE=True`)
 
 ### Application
+
 - [ ] Email is configured and tested
 - [ ] Admin account created (via /setup/ or env vars)
 - [ ] Default questionnaires loaded
 - [ ] Static files are being served correctly
 
 ### Operations
+
 - [ ] Database backups configured
 - [ ] Monitoring/logging set up (optional)
 - [ ] Port configuration correct (if customized)
@@ -472,17 +500,20 @@ EMAIL_HOST_PASSWORD=your-mailgun-password
 ### Database Backups
 
 **Manual Backup:**
+
 ```bash
 docker compose exec db pg_dump -U blik blik > backup_$(date +%Y%m%d).sql
 ```
 
 **Restore from Backup:**
+
 ```bash
 docker compose exec -T db psql -U blik blik < backup_20241024.sql
 ```
 
 **Automated Backups:**
 Set up a cron job:
+
 ```bash
 0 2 * * * cd /path/to/blik && docker compose exec -T db pg_dump -U blik blik | gzip > /backups/blik_$(date +\%Y\%m\%d).sql.gz
 ```
@@ -530,6 +561,7 @@ docker compose up -d --scale web=3
 **Cause:** Application is redirecting to HTTPS, but load balancer already terminated SSL and forwards HTTP to the container.
 
 **Solution:**
+
 1. Verify `X-Forwarded-Proto` header is set by your load balancer/proxy
 2. Ensure Django settings do NOT include `SECURE_SSL_REDIRECT = True`
 3. Remove any HTTPS redirects in application-level nginx/code
@@ -546,9 +578,11 @@ docker compose up -d --scale web=3
 **Causes and solutions:**
 
 1. **Missing CSRF_TRUSTED_ORIGINS:**
+
    ```env
    CSRF_TRUSTED_ORIGINS=https://yourdomain.com,https://www.yourdomain.com
    ```
+
    Must include the full protocol (https://) and domain.
 
 2. **Load balancer not forwarding X-Forwarded-Proto:**
@@ -602,6 +636,7 @@ docker compose exec web chown -R www-data:www-data /app/mediafiles
    - Use `.env.production` as a template only
 
 2. **Generate unique keys for production**
+
    ```bash
    # SECRET_KEY (Django)
    python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
@@ -609,15 +644,18 @@ docker compose exec web chown -R www-data:www-data /app/mediafiles
    # ENCRYPTION_KEY (for SMTP passwords)
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
+
    **WARNING:** Never reuse the default `ENCRYPTION_KEY` from `.env.example` in production!
 
 3. **Keep dependencies updated**
+
    ```bash
    uv pip list --outdated
    uv pip install --upgrade <package>
    ```
 
 4. **Regular security audits**
+
    ```bash
    uv pip install safety
    safety check

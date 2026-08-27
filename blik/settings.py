@@ -119,6 +119,7 @@ TEMPLATES = [
                 'landing.context_processors.url_namespace',
                 'landing.context_processors.organization_metadata',
                 'blik.context_processors.stripe_settings',
+                'blik.context_processors.branding',
             ],
         },
     },
@@ -302,7 +303,8 @@ if MICROSOFT_SSO_CONFIGURED:
 ORGANIZATION_NAME = env('ORGANIZATION_NAME', default='Blik')
 
 # SEO settings
-SITE_NAME = 'Blik360'
+PRODUCT_NAME = env('PRODUCT_NAME', default='Blik')
+SITE_NAME = env('SITE_NAME', default=PRODUCT_NAME)
 SITE_DOMAIN = env('SITE_DOMAIN', default='localhost:8000' if DEBUG else 'blik360.com')
 SITE_PROTOCOL = env('SITE_PROTOCOL', default='http' if DEBUG else 'https')
 SITE_DESCRIPTION = 'Open source 360-degree feedback and performance review platform. Anonymous, secure, and easy to deploy.'

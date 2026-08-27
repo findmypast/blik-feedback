@@ -43,6 +43,7 @@ docker run -d --name blik -p 8000:8000 \
 **Manual Deployment:**
 
 See complete guides for:
+
 - [DigitalOcean Deployment](docs/DIGITALOCEAN.md) - App Platform or Droplet setup
 - [General Deployment Guide](docs/DEPLOYMENT.md) - Nginx/Caddy, email, SSL/HTTPS, backups
 
@@ -82,6 +83,7 @@ Blik implements several measures to ensure reviewer anonymity:
 ### Connecting to External Database
 
 The standalone Docker image supports SQLite (default) and PostgreSQL:
+
 ```bash
 docker run -d -p 8000:8000 \
   -e DATABASE_TYPE=postgres \
@@ -104,18 +106,22 @@ docker run -d -p 8000:8000 \
 ### Key Environment Variables
 
 **Database:**
+
 - `DATABASE_TYPE` - `sqlite` (default) or `postgres`
 - `DATABASE_URL` - Full connection string (overrides individual settings)
 - `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` - Individual settings
 
 **Security:**
+
 - `SECRET_KEY` - Django secret key (auto-generated if not provided)
 - `ENCRYPTION_KEY` - For encrypting SMTP passwords
 - `ALLOWED_HOSTS` - Comma-separated hostnames (default: `*`)
 - `DEBUG` - `True` or `False` (default: `False`)
 
 **Email & links:**
+
 - `SITE_DOMAIN`, `SITE_PROTOCOL` - Public URL; every link in outgoing email is built from these, not from the request host
+- `PRODUCT_NAME` - Visible application name (default: `Blik`)
 - `MICROSOFT_SSO_ENABLED`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`,
   `MICROSOFT_TENANT_ID` - Optional single-tenant Microsoft Entra SSO. All four
   must be set before the Microsoft button is shown.
@@ -206,7 +212,6 @@ See the [Issues](https://github.com/thijsdezoete/blik/issues) page for current d
 - **Deployment:** Docker and Docker Compose with Gunicorn
 - **Static Files:** WhiteNoise for efficient static file serving
 - **Email:** SMTP integration (supports Gmail, SendGrid, AWS SES, Mailgun, etc.)
-
 
 ## License
 

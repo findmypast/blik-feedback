@@ -1,6 +1,6 @@
 {% extends 'base_public.html' %}
 
-{% block title %}Login - Blik 360 Feedback{% endblock %}
+{% block title %}Login - {{ product_name }}{% endblock %}
 
 {% block content %}
 <div class="login-container">
@@ -14,7 +14,7 @@
   {% endfor %} {% endif %} {% if sso_access_denied %}
   <div class="alert alert-error">
     Microsoft sign-in could not be completed. Your account may not be authorised
-    for this organisation. Contact your Blik administrator.
+    for this organisation. Contact your {{ product_name }} administrator.
   </div>
   {% endif %} {% if microsoft_sso_enabled %}
   <form method="post" action="{% url 'microsoft_login' %}">

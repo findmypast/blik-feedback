@@ -14,3 +14,10 @@ def stripe_settings(request):
         'STRIPE_PRICE_ID_ENTERPRISE': settings.STRIPE_PRICE_ID_ENTERPRISE,
         'HAS_STRIPE_CONFIGURED': bool(settings.STRIPE_PRICE_ID_SAAS or settings.STRIPE_PRICE_ID_ENTERPRISE),
     }
+
+
+def branding(request):
+    """Expose the deployment-specific product name."""
+    return {
+        'product_name': settings.PRODUCT_NAME,
+    }
