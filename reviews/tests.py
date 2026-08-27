@@ -57,6 +57,26 @@ class FeedbackCompletionRedirectTests(TestCase):
 
         self.assertRedirects(response, reverse('admin_dashboard'))
 
+    def test_feedback_form_identifies_reviewee_and_assessment_type(self):
+        token = ReviewerTokenFactory(
+            cycle__reviewee__organization=self.organization,
+            reviewer_email=self.user.email,
+            category='peer',
+        )
+
+        response = self.client.get(
+            reverse('reviews:feedback_form', args=[token.token])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, token.cycle.reviewee.name)
+        self.assertContains(response, token.get_category_display())
+        self.assertContains(
+            response,
+            f'data-completion-url="{reverse("admin_dashboard")}"',
+        )
+        self.assertNotContains(response, '<h1>360 Feedback</h1>', html=False)
+
     def test_legacy_self_email_claims_existing_assigned_token(self):
         token = ReviewerTokenFactory(
             cycle__reviewee=Reviewee.objects.get(

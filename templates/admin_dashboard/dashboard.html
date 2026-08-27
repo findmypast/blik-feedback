@@ -336,45 +336,14 @@ document.addEventListener('DOMContentLoaded', function() {
 .organizational-cycle-header{display:grid!important;grid-template-columns:minmax(260px,1fr) minmax(180px,280px) auto auto}.organizational-cycle-progress{display:flex!important;flex-direction:column;gap:.35rem}.progress-track{display:block;width:100%;height:.55rem;overflow:hidden;border-radius:999px;background:var(--bg-light);border:1px solid var(--border)}.progress-track>span{display:block;height:100%;background:var(--primary);border-radius:inherit}.organizational-cycle-actions{display:flex!important;flex-direction:row!important;gap:.5rem;flex-wrap:wrap}.organizational-cycle-header form{margin:0}.assessment-chip-row{display:flex!important;flex-direction:row!important;gap:.35rem;flex-wrap:wrap;margin:.3rem 0}.campaign-card.is-overdue{border-color:var(--danger);box-shadow:inset 3px 0 0 var(--danger)}@media(max-width:1000px){.organizational-cycle-header{grid-template-columns:1fr auto}.organizational-cycle-progress,.organizational-cycle-actions{grid-column:1/-1}}
 </style>
 
-{% if recent_reports %}
+{% if recent_report_groups %}
 <div class="card">
     <div class="card-header">
         <h2 class="card-title">Recent Reports</h2>
-        <a href="{% url 'review_cycle_list' %}" class="btn btn-sm btn-secondary">View All</a>
+        <a href="{% url 'report_list' %}" class="btn btn-sm btn-secondary">View all reports</a>
     </div>
-    <div class="card-body">
-        <div class="table-wrapper">
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Reviewee</th>
-                    <th>Questionnaire</th>
-                    <th>Created</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for report in recent_reports %}
-                <tr>
-                    <td>
-                        <div style="font-weight: 500;">{{ report.cycle.reviewee.name }}</div>
-                        <div style="font-size: 0.875rem; color: #64748b;">{{ report.cycle.reviewee.email }}</div>
-                    </td>
-                    <td>{{ report.cycle.questionnaire.name }}</td>
-                    <td style="color: #64748b; font-size: 0.875rem;">
-                        {{ report.generated_at|date:"M d, Y" }}
-                    </td>
-                    <td><span class="badge badge-success">Ready</span></td>
-                    <td>
-                        <a href="{% url 'reports:view_report' report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>
-                        <a href="{% url 'reports:regenerate_report' report.cycle.uuid %}" class="btn btn-sm btn-secondary">Regenerate report</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        </div>
+    <div class="card-body report-cycle-list">
+        {% for group in recent_report_groups %}{% include "admin_dashboard/_report_cycle_group.html" with group=group %}{% endfor %}
     </div>
 </div>
 {% else %}

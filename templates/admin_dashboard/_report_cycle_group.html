@@ -1,0 +1,40 @@
+<details class="report-cycle-group"{% if open_by_default %} open{% endif %}>
+    <summary>
+        <span>
+            <strong>{{ group.title }}</strong>
+            <small>{{ group.subtitle }} · {{ group.report_count }} report{{ group.report_count|pluralize }}</small>
+        </span>
+        <span class="report-group-summary-actions">
+            {% if group.single_report %}
+            <a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' group.single_report.cycle.uuid %}" onclick="event.stopPropagation();">View report</a>
+            <a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' group.single_report.cycle.uuid %}" onclick="event.stopPropagation();">Regenerate report</a>
+            {% endif %}
+            <span aria-hidden="true">▾</span>
+        </span>
+    </summary>
+    <div class="report-assessment-list">
+        {% for assessment in group.assessments %}
+        <section class="report-assessment assessment-{{ assessment.cycle_type }}">
+            <header>
+                <span>
+                    <strong>{{ assessment.label }}</strong>
+                    <small>{{ assessment.scope_label }} · {{ assessment.questionnaire.name }}</small>
+                </span>
+                <span class="badge badge-success">{{ assessment.reports|length }} ready</span>
+            </header>
+            <div class="report-person-head"><span>Name</span><span>Email</span><span>Generated</span><span>Actions</span></div>
+            {% for report in assessment.reports %}
+            <div class="report-person-row">
+                <strong>{{ report.cycle.reviewee.name }}</strong>
+                <span>{{ report.cycle.reviewee.email }}</span>
+                <span>{{ report.generated_at|date:"j F Y" }}</span>
+                <span class="report-actions">
+                    <a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' report.cycle.uuid %}">View report</a>
+                    <a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' report.cycle.uuid %}">Regenerate report</a>
+                </span>
+            </div>
+            {% endfor %}
+        </section>
+        {% endfor %}
+    </div>
+</details>

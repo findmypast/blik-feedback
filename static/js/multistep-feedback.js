@@ -399,8 +399,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 const data = await response.json();
 
                 if (response.ok && data.success) {
-                    // Redirect to completion page (draft will be cleared there)
-                    window.location.href = data.redirect;
+                    // Return every completed assessment to the dashboard. The
+                    // destination comes from Django rather than the response so
+                    // stale completion URLs cannot route back to a cycle page.
+                    await clearDraft();
+                    window.location.href = form.dataset.completionUrl;
                 } else {
                     if (data.errors && data.errors.length > 0) {
                         showErrors(data.errors);

@@ -83,22 +83,75 @@ def get_cycle_or_404(request, cycle_uuid):
 
 def _synchronize_cycle_parent_status(cycle):
     """Complete campaign parents once their last active child has ended."""
-    if not cycle.campaign_id:
-        return
-    campaign = cycle.campaign
-    if campaign.cycles.filter(status='active').exists():
-        return
-    if campaign.status != 'completed':
-        campaign.status = 'completed'
-        campaign.save(update_fields=['status', 'updated_at'])
-    if campaign.organizational_cycle_id:
-        parent = campaign.organizational_cycle
-        if (
-            parent.status != 'completed'
-            and not parent.campaigns.filter(status='active').exists()
-        ):
-            parent.status = 'completed'
-            parent.save(update_fields=['status', 'updated_at'])
+    from reviews.services import synchronize_cycle_parent_status
+    synchronize_cycle_parent_status(cycle)
+
+
+def _group_available_reports(reports):
+    """Group authorized reports by cycle, then by assessment campaign."""
+    groups = {}
+    for report in reports:
+        cycle = report.cycle
+        campaign = cycle.campaign
+        organisation_cycle = campaign.organizational_cycle if campaign else None
+        if organisation_cycle:
+            group_key = ('organisation', organisation_cycle.pk)
+            group = groups.setdefault(group_key, {
+                'kind': 'organisation',
+                'cycle': organisation_cycle,
+                'title': organisation_cycle.display_name,
+                'subtitle': organisation_cycle.audience_label,
+                'assessments': {},
+                'report_count': 0,
+            })
+        elif campaign:
+            group_key = ('campaign', campaign.pk)
+            group = groups.setdefault(group_key, {
+                'kind': 'campaign',
+                'cycle': campaign,
+                'title': campaign.display_name,
+                'subtitle': campaign.scope_label,
+                'assessments': {},
+                'report_count': 0,
+            })
+        else:
+            group_key = ('cycle', cycle.pk)
+            group = groups.setdefault(group_key, {
+                'kind': 'cycle',
+                'cycle': cycle,
+                'title': (
+                    f'{cycle.start_date or cycle.created_at.date():%B %Y} — '
+                    f'{cycle.get_cycle_type_display().title()}'
+                ),
+                'subtitle': cycle.reviewee.name,
+                'assessments': {},
+                'report_count': 0,
+            })
+
+        assessment_key = campaign.pk if campaign else cycle.pk
+        assessment = group['assessments'].setdefault(assessment_key, {
+            'campaign': campaign,
+            'cycle_type': campaign.cycle_type if campaign else cycle.cycle_type,
+            'label': (
+                campaign.get_cycle_type_display().title()
+                if campaign else cycle.get_cycle_type_display().title()
+            ),
+            'questionnaire': cycle.questionnaire,
+            'scope_label': campaign.scope_label if campaign else cycle.reviewee.name,
+            'reports': [],
+        })
+        assessment['reports'].append(report)
+        group['report_count'] += 1
+
+    normalized = []
+    for group in groups.values():
+        group['assessments'] = list(group['assessments'].values())
+        group['single_report'] = (
+            group['assessments'][0]['reports'][0]
+            if group['report_count'] == 1 else None
+        )
+        normalized.append(group)
+    return normalized
 
 
 @login_required
@@ -129,8 +182,10 @@ def dashboard(request):
         cycle__in=cycles_qs,
         available=True,
     ).select_related(
-        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
-    ).order_by('-generated_at')[:6]
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign',
+        'cycle__campaign__team', 'cycle__campaign__organizational_cycle',
+    ).order_by('-generated_at')[:24]
+    recent_report_groups = _group_available_reports(recent_reports)[:6]
 
     # Pending reviews (tokens not completed)
     pending_tokens = ReviewerToken.objects.filter(
@@ -359,6 +414,7 @@ def dashboard(request):
         'completed_cycles': completed_cycles,
         'pending_tokens': pending_tokens,
         'recent_reports': recent_reports,
+        'recent_report_groups': recent_report_groups,
         'active_cycles_data': active_cycles_data,
         'completed_cycles_data': completed_cycles_data,
         'active_campaigns': active_campaigns,
@@ -1890,11 +1946,11 @@ def review_cycle_list(request):
     if org:
         # Filter out cycles for anonymized reviewees
         cycles_qs = ReviewCycle.objects.for_organization(org).select_related(
-            'reviewee', 'questionnaire', 'created_by'
+            'reviewee', 'questionnaire', 'created_by', 'report'
         )
     else:
         cycles_qs = ReviewCycle.objects.select_related(
-            'reviewee', 'questionnaire', 'created_by'
+            'reviewee', 'questionnaire', 'created_by', 'report'
         )
 
     cycles_qs = visible_cycles(request.user, cycles_qs)
@@ -1921,7 +1977,7 @@ def review_cycle_list(request):
     for campaign in campaign_qs:
         scoped_cycles = visible_cycles(
             request.user,
-            campaign.cycles.select_related('reviewee').prefetch_related('tokens'),
+            campaign.cycles.select_related('reviewee', 'report').prefetch_related('tokens'),
         ).order_by('reviewee__name')
         completed_people = scoped_cycles.filter(status='completed').count()
         campaign_item = {
@@ -1941,6 +1997,10 @@ def review_cycle_list(request):
             total_responses += max(len(tokens), 1)
             campaign_item['people'].append({
                 'cycle': cycle,
+                'report': (
+                    cycle.report
+                    if hasattr(cycle, 'report') and cycle.report.available else None
+                ),
                 'completed_count': completed_count,
                 'total_count': len(tokens),
                 'status_label': (
@@ -1953,6 +2013,14 @@ def review_cycle_list(request):
             })
         campaign_item['completed_responses'] = completed_responses
         campaign_item['total_responses'] = total_responses
+        available_reports = [
+            person['report'] for person in campaign_item['people']
+            if person['report']
+        ]
+        campaign_item['report_count'] = len(available_reports)
+        campaign_item['single_report'] = (
+            available_reports[0] if len(available_reports) == 1 else None
+        )
         if campaign.organizational_cycle_id:
             group = organizational_cycle_groups.setdefault(
                 campaign.organizational_cycle_id,
@@ -1961,11 +2029,18 @@ def review_cycle_list(request):
                     'campaigns': [],
                     'completed_count': 0,
                     'total_count': 0,
+                    'report_count': 0,
+                    'single_report': None,
                 },
             )
             group['campaigns'].append(campaign_item)
             group['completed_count'] += completed_responses
             group['total_count'] += total_responses
+            group['report_count'] += campaign_item['report_count']
+            if campaign_item['report_count'] and group['report_count'] == 1:
+                group['single_report'] = campaign_item['single_report']
+            elif group['report_count'] > 1:
+                group['single_report'] = None
         else:
             campaigns.append(campaign_item)
 
@@ -2007,6 +2082,10 @@ def review_cycle_list(request):
         cycles_with_latest.append({
             'cycle': cycle,
             'latest_questionnaire': latest_cycle.questionnaire if latest_cycle else None,
+            'report': (
+                cycle.report
+                if hasattr(cycle, 'report') and cycle.report.available else None
+            ),
         })
 
     context = {
@@ -2050,7 +2129,7 @@ def organisation_cycle_detail(request, cycle_uuid):
     for campaign in campaigns:
         cycles = visible_cycles(
             request.user,
-            campaign.cycles.select_related('reviewee').prefetch_related('tokens'),
+            campaign.cycles.select_related('reviewee', 'report').prefetch_related('tokens'),
         ).order_by('reviewee__name')
         people = []
         campaign_completed = 0
@@ -2063,6 +2142,10 @@ def organisation_cycle_detail(request, cycle_uuid):
             campaign_total += required_total
             people.append({
                 'cycle': cycle,
+                'report': (
+                    cycle.report
+                    if hasattr(cycle, 'report') and cycle.report.available else None
+                ),
                 'completed_count': completed,
                 'total_count': len(tokens),
                 'status_label': (
@@ -2106,9 +2189,13 @@ def report_list(request):
     reports = Report.objects.filter(
         cycle__in=cycles, available=True
     ).select_related(
-        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign'
+        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign',
+        'cycle__campaign__team', 'cycle__campaign__organizational_cycle',
     ).order_by('-generated_at')
-    return render(request, 'admin_dashboard/report_list.html', {'reports': reports})
+    return render(request, 'admin_dashboard/report_list.html', {
+        'reports': reports,
+        'report_groups': _group_available_reports(reports),
+    })
 
 
 @login_required
@@ -3006,6 +3093,8 @@ def close_organizational_cycle_scope(request, cycle_uuid):
             if not campaign.cycles.filter(status='active').exists():
                 campaign.status = 'completed'
                 campaign.save(update_fields=['status', 'updated_at'])
+                from reviews.services import schedule_campaign_completion_notifications
+                schedule_campaign_completion_notifications(campaign)
         if not organizational_cycle.campaigns.filter(status='active').exists():
             organizational_cycle.status = 'completed'
             organizational_cycle.save(update_fields=['status', 'updated_at'])
@@ -3059,6 +3148,8 @@ def close_review_campaign(request, campaign_uuid):
         generate_report(cycle)
     campaign.status = 'completed'
     campaign.save(update_fields=['status', 'updated_at'])
+    from reviews.services import schedule_campaign_completion_notifications
+    schedule_campaign_completion_notifications(campaign)
     if campaign.organizational_cycle_id:
         parent = campaign.organizational_cycle
         if not parent.campaigns.filter(status='active').exists():

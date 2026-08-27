@@ -1,223 +1,275 @@
 {% load static feedback_tags %}
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Feedback - {{ reviewee.name }}</title>
-    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ token.get_category_display }} for {{ reviewee.name }}</title>
+    <link rel="stylesheet" href="{% static 'css/main.css' %}" />
     <script>
-        // Theme detection and initialization
-        (function() {
-            const getPreferredTheme = () => {
-                const stored = localStorage.getItem('theme');
-                if (stored) return stored;
-                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            };
+      // Theme detection and initialization
+      (function () {
+        const getPreferredTheme = () => {
+          const stored = localStorage.getItem("theme");
+          if (stored) return stored;
+          return window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light";
+        };
 
-            const setTheme = (theme) => {
-                document.documentElement.setAttribute('data-theme', theme);
-                localStorage.setItem('theme', theme);
-            };
+        const setTheme = (theme) => {
+          document.documentElement.setAttribute("data-theme", theme);
+          localStorage.setItem("theme", theme);
+        };
 
-            setTheme(getPreferredTheme());
+        setTheme(getPreferredTheme());
 
-            // Listen for system theme changes
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-                if (!localStorage.getItem('theme')) {
-                    setTheme(e.matches ? 'dark' : 'light');
-                }
-            });
-        })();
+        // Listen for system theme changes
+        window
+          .matchMedia("(prefers-color-scheme: dark)")
+          .addEventListener("change", (e) => {
+            if (!localStorage.getItem("theme")) {
+              setTheme(e.matches ? "dark" : "light");
+            }
+          });
+      })();
     </script>
-</head>
-<body style="background: var(--bg-body);">
+  </head>
+  <body style="background: var(--bg-body)">
     <div class="feedback-container">
-        <div class="feedback-header">
-            <h1>360 Feedback</h1>
-            <div class="reviewee-name">{{ reviewee.name }}</div>
-            <div class="category-badge">{{ token.get_category_display }}</div>
+      <div class="feedback-header">
+        <h1>{{ reviewee.name }}</h1>
+        <div class="category-badge">{{ token.get_category_display }}</div>
+        <div class="reviewee-name">{{ questionnaire.name }}</div>
+      </div>
+
+      <div class="progress-container">
+        <div class="progress-bar">
+          <div class="progress-fill"></div>
         </div>
+        <div class="progress-text">Step 1 of {{ sections|length }}</div>
+      </div>
 
-        <div class="progress-container">
-            <div class="progress-bar">
-                <div class="progress-fill"></div>
+      <div
+        id="error-container"
+        class="error-message"
+        style="display: none"
+      ></div>
+
+      <form
+        id="feedback-form"
+        action="{% url 'reviews:submit_feedback' token=token.token %}"
+        method="post"
+        data-token="{{ token.token }}"
+        data-completion-url="{% url 'admin_dashboard' %}"
+      >
+        {% csrf_token %} {% for section in sections %}
+        <div class="section" data-section="{{ forloop.counter0 }}">
+          <div class="section-header">
+            <h2 class="section-title">{{ section.title }}</h2>
+            {% if section.description %}
+            <p class="section-description">{{ section.description }}</p>
+            {% endif %}
+          </div>
+
+          {% for question in section.questions.all %}
+          <div class="question">
+            <div class="question-text">
+              {{ question.question_text|personalize:reviewee.name }} {% if question.required %}<span class="required">*</span>{% endif %}
             </div>
-            <div class="progress-text">Step 1 of {{ sections|length }}</div>
+
+            {% if question.question_type == 'rating' %}
+            <div class="rating-group">
+              {% for value in "12345" %}
+              <div class="rating-option">
+                <input
+                  type="radio"
+                  name="question_{{ question.id }}"
+                  value="{{ value }}"
+                  id="q{{ question.id }}_{{ value }}"
+                  {% if existing_responses|get_item:question.id == value %}checked{% endif %}
+                  {% if question.required %}required{% endif %}
+                />
+                <label
+                  for="q{{ question.id }}_{{ value }}"
+                  class="rating-label"
+                >
+                  <span class="rating-value">{{ value }}</span>
+                  {% if question.config.labels|get_item:value %}
+                  <span class="rating-description"
+                    >{{ question.config.labels|get_item:value }}</span
+                  >
+                  {% endif %}
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+
+            {% elif question.question_type == 'likert' %}
+            <div class="likert-group">
+              {% for item in question.config.scale %}
+              <div class="likert-option">
+                <input
+                  type="radio"
+                  name="question_{{ question.id }}"
+                  value="{{ item }}"
+                  id="q{{ question.id }}_{{ forloop.counter }}"
+                  {% if existing_responses|get_item:question.id == item %}checked{% endif %}
+                  {% if question.required %}required{% endif %}
+                />
+                <label
+                  for="q{{ question.id }}_{{ forloop.counter }}"
+                  class="likert-label"
+                >
+                  {{ item }}
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+
+            {% elif question.question_type == 'text' %}
+            <textarea
+              name="question_{{ question.id }}"
+              class="text-input"
+              {% if question.required %}required{% endif %}
+              placeholder="Share your thoughts..."
+            >
+{% if existing_responses|get_item:question.id %}{{ existing_responses|get_item:question.id }}{% endif %}</textarea
+            >
+
+            {% elif question.question_type == 'single_choice' %}
+            <select
+              name="question_{{ question.id }}"
+              class="text-input"
+              {% if question.required %}required{% endif %}
+            >
+              <option value="">Select an option</option>
+              {% for choice in question.config.choices %}
+              <option
+                value="{{ choice }}"
+                {% if existing_responses|get_item:question.id == choice %}selected{% endif %}
+              >
+                {{ choice }}
+              </option>
+              {% endfor %}
+            </select>
+
+            {% elif question.question_type == 'multiple_choice' %}
+            <div class="multiple-choice-group">
+              {% for choice in question.config.choices %}
+              <div class="multiple-choice-option">
+                <input
+                  type="checkbox"
+                  name="question_{{ question.id }}"
+                  value="{{ choice }}"
+                  id="q{{ question.id }}_{{ forloop.counter }}"
+                  {% if existing_responses|get_item:question.id and choice in existing_responses|get_item:question.id %}checked{% endif %}
+                  class="multiple-choice-checkbox"
+                />
+                <label
+                  for="q{{ question.id }}_{{ forloop.counter }}"
+                  class="multiple-choice-label"
+                >
+                  {{ choice }}
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+            {% if question.required %}
+            <input
+              type="hidden"
+              class="multiple-choice-validator"
+              data-question-id="{{ question.id }}"
+              data-required="true"
+            />
+            {% endif %} {% elif question.question_type == 'scale' %}
+            <div class="scale-group">
+              <div class="scale-labels">
+                {% if question.config.min_label %}
+                <span class="scale-label-min"
+                  >{{ question.config.min_label }}</span
+                >
+                {% endif %}
+                <span
+                  class="scale-value-display"
+                  id="scale_value_{{ question.id }}"
+                >
+                  {% if existing_responses|get_item:question.id %}{{
+                  existing_responses|get_item:question.id }}{% else %}{{
+                  question.config.min }}{% endif %}
+                </span>
+                {% if question.config.max_label %}
+                <span class="scale-label-max"
+                  >{{ question.config.max_label }}</span
+                >
+                {% endif %}
+              </div>
+              <input
+                type="range"
+                name="question_{{ question.id }}"
+                id="scale_input_{{ question.id }}"
+                class="scale-slider"
+                min="{{ question.config.min }}"
+                max="{{ question.config.max }}"
+                step="{{ question.config.step }}"
+                value="{% if existing_responses|get_item:question.id %}{{ existing_responses|get_item:question.id }}{% else %}{{ question.config.min }}{% endif %}"
+                {% if question.required %}required{% endif %}
+                oninput="document.getElementById('scale_value_{{ question.id }}').textContent = this.value"
+              />
+              <div class="scale-range-labels">
+                <span>{{ question.config.min }}</span>
+                <span>{{ question.config.max }}</span>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+          {% endfor %}
         </div>
+        {% endfor %}
 
-        <div id="error-container" class="error-message" style="display: none;"></div>
-
-        <form id="feedback-form" action="{% url 'reviews:submit_feedback' token=token.token %}" method="post" data-token="{{ token.token }}">
-            {% csrf_token %}
-
-            {% for section in sections %}
-            <div class="section" data-section="{{ forloop.counter0 }}">
-                <div class="section-header">
-                    <h2 class="section-title">{{ section.title }}</h2>
-                    {% if section.description %}
-                    <p class="section-description">{{ section.description }}</p>
-                    {% endif %}
-                </div>
-
-                {% for question in section.questions.all %}
-                <div class="question">
-                    <div class="question-text">
-                        {{ question.question_text|personalize:reviewee.name }}
-                        {% if question.required %}<span class="required">*</span>{% endif %}
-                    </div>
-
-                    {% if question.question_type == 'rating' %}
-                    <div class="rating-group">
-                        {% for value in "12345" %}
-                        <div class="rating-option">
-                            <input
-                                type="radio"
-                                name="question_{{ question.id }}"
-                                value="{{ value }}"
-                                id="q{{ question.id }}_{{ value }}"
-                                {% if existing_responses|get_item:question.id == value %}checked{% endif %}
-                                {% if question.required %}required{% endif %}
-                            >
-                            <label for="q{{ question.id }}_{{ value }}" class="rating-label">
-                                <span class="rating-value">{{ value }}</span>
-                                {% if question.config.labels|get_item:value %}
-                                <span class="rating-description">{{ question.config.labels|get_item:value }}</span>
-                                {% endif %}
-                            </label>
-                        </div>
-                        {% endfor %}
-                    </div>
-
-                    {% elif question.question_type == 'likert' %}
-                    <div class="likert-group">
-                        {% for item in question.config.scale %}
-                        <div class="likert-option">
-                            <input
-                                type="radio"
-                                name="question_{{ question.id }}"
-                                value="{{ item }}"
-                                id="q{{ question.id }}_{{ forloop.counter }}"
-                                {% if existing_responses|get_item:question.id == item %}checked{% endif %}
-                                {% if question.required %}required{% endif %}
-                            >
-                            <label for="q{{ question.id }}_{{ forloop.counter }}" class="likert-label">
-                                {{ item }}
-                            </label>
-                        </div>
-                        {% endfor %}
-                    </div>
-
-                    {% elif question.question_type == 'text' %}
-                    <textarea
-                        name="question_{{ question.id }}"
-                        class="text-input"
-                        {% if question.required %}required{% endif %}
-                        placeholder="Share your thoughts..."
-                    >{% if existing_responses|get_item:question.id %}{{ existing_responses|get_item:question.id }}{% endif %}</textarea>
-
-                    {% elif question.question_type == 'single_choice' %}
-                    <select
-                        name="question_{{ question.id }}"
-                        class="text-input"
-                        {% if question.required %}required{% endif %}
-                    >
-                        <option value="">Select an option</option>
-                        {% for choice in question.config.choices %}
-                        <option value="{{ choice }}" {% if existing_responses|get_item:question.id == choice %}selected{% endif %}>
-                            {{ choice }}
-                        </option>
-                        {% endfor %}
-                    </select>
-
-                    {% elif question.question_type == 'multiple_choice' %}
-                    <div class="multiple-choice-group">
-                        {% for choice in question.config.choices %}
-                        <div class="multiple-choice-option">
-                            <input
-                                type="checkbox"
-                                name="question_{{ question.id }}"
-                                value="{{ choice }}"
-                                id="q{{ question.id }}_{{ forloop.counter }}"
-                                {% if existing_responses|get_item:question.id and choice in existing_responses|get_item:question.id %}checked{% endif %}
-                                class="multiple-choice-checkbox"
-                            >
-                            <label for="q{{ question.id }}_{{ forloop.counter }}" class="multiple-choice-label">
-                                {{ choice }}
-                            </label>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    {% if question.required %}
-                    <input type="hidden" class="multiple-choice-validator" data-question-id="{{ question.id }}" data-required="true">
-                    {% endif %}
-
-                    {% elif question.question_type == 'scale' %}
-                    <div class="scale-group">
-                        <div class="scale-labels">
-                            {% if question.config.min_label %}
-                            <span class="scale-label-min">{{ question.config.min_label }}</span>
-                            {% endif %}
-                            <span class="scale-value-display" id="scale_value_{{ question.id }}">
-                                {% if existing_responses|get_item:question.id %}{{ existing_responses|get_item:question.id }}{% else %}{{ question.config.min }}{% endif %}
-                            </span>
-                            {% if question.config.max_label %}
-                            <span class="scale-label-max">{{ question.config.max_label }}</span>
-                            {% endif %}
-                        </div>
-                        <input
-                            type="range"
-                            name="question_{{ question.id }}"
-                            id="scale_input_{{ question.id }}"
-                            class="scale-slider"
-                            min="{{ question.config.min }}"
-                            max="{{ question.config.max }}"
-                            step="{{ question.config.step }}"
-                            value="{% if existing_responses|get_item:question.id %}{{ existing_responses|get_item:question.id }}{% else %}{{ question.config.min }}{% endif %}"
-                            {% if question.required %}required{% endif %}
-                            oninput="document.getElementById('scale_value_{{ question.id }}').textContent = this.value"
-                        >
-                        <div class="scale-range-labels">
-                            <span>{{ question.config.min }}</span>
-                            <span>{{ question.config.max }}</span>
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% endfor %}
-
-            <div class="form-actions">
-                <button type="button" id="prev-btn" class="btn btn-secondary" style="display: none;">
-                    Previous
-                </button>
-                <button type="button" id="next-btn" class="btn btn-primary">
-                    Next
-                </button>
-                <button type="submit" id="submit-btn" class="btn btn-primary" style="display: none;">
-                    Submit Feedback
-                </button>
-            </div>
-        </form>
+        <div class="form-actions">
+          <button
+            type="button"
+            id="prev-btn"
+            class="btn btn-secondary"
+            style="display: none"
+          >
+            Previous
+          </button>
+          <button type="button" id="next-btn" class="btn btn-primary">
+            Next
+          </button>
+          <button
+            type="submit"
+            id="submit-btn"
+            class="btn btn-primary"
+            style="display: none"
+          >
+            Submit Feedback
+          </button>
+        </div>
+      </form>
     </div>
 
     <script src="{% static 'js/multistep-feedback.js' %}"></script>
     <script>
-        // Store token in localStorage for easy return
-        (function() {
-            const token = '{{ token.token }}';
-            const invitationToken = '{{ invitation_token }}';
+      // Store token in localStorage for easy return
+      (function () {
+        const token = "{{ token.token }}";
+        const invitationToken = "{{ invitation_token }}";
 
-            // Save token to localStorage (use invitation token as key for security)
-            const storageKey = `feedback_token_${invitationToken}`;
-            localStorage.setItem(storageKey, token);
+        // Save token to localStorage (use invitation token as key for security)
+        const storageKey = `feedback_token_${invitationToken}`;
+        localStorage.setItem(storageKey, token);
 
-            // Save timestamp of last access
-            localStorage.setItem(`${storageKey}_last_access`, new Date().toISOString());
+        // Save timestamp of last access
+        localStorage.setItem(
+          `${storageKey}_last_access`,
+          new Date().toISOString(),
+        );
 
-            console.log('Token saved to localStorage for easy return');
-        })();
+        console.log("Token saved to localStorage for easy return");
+      })();
     </script>
-</body>
+  </body>
 </html>

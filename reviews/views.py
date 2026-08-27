@@ -4,6 +4,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.db import transaction
+from django.urls import reverse
 from django_ratelimit.decorators import ratelimit
 from .models import ReviewerToken, Response, ReviewCycle
 from questionnaires.models import Question
@@ -277,6 +278,8 @@ def submit_feedback(request, token):
                 # Auto-close the cycle
                 cycle.status = 'completed'
                 cycle.save()
+                from reviews.services import synchronize_cycle_parent_status
+                synchronize_cycle_parent_status(cycle)
 
                 # Auto-generate report
                 from reports.services import generate_report, send_report_ready_notification
@@ -293,7 +296,10 @@ def submit_feedback(request, token):
                     # Log error but don't fail the submission
                     print(f"Error auto-generating report for cycle {cycle.id}: {e}")
 
-        return JsonResponse({'success': True, 'redirect': '/dashboard/'})
+        return JsonResponse({
+            'success': True,
+            'redirect': reverse('admin_dashboard'),
+        })
 
     except Exception as e:
         logger.exception('Error submitting feedback')

@@ -26,7 +26,13 @@
                 <span>{{ group.completed_count }} / {{ group.total_count }} reviews complete</span>
                 <div class="progress"><div class="progress-bar" style="width:{% widthratio group.completed_count group.total_count 100 %}%;"></div></div>
             </div>
-            <div class="cycle-summary-actions"><a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View summary</a></div>
+            <div class="cycle-summary-actions">
+                {% if group.single_report %}
+                <a href="{% url 'reports:view_report' group.single_report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>
+                {% else %}
+                <a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View reports</a>
+                {% endif %}
+            </div>
         </div>
         {% endfor %}
         {% for item in campaigns %}
@@ -41,7 +47,7 @@
                 <div class="progress"><div class="progress-bar" style="width:{% widthratio item.completed_people item.participant_count 100 %}%;"></div></div>
             </div>
             <div class="cycle-summary-actions">
-                <a href="{% url 'review_campaign_detail' item.campaign.uuid %}" class="btn btn-sm btn-secondary">View summary</a>
+                {% if item.single_report %}<a href="{% url 'reports:view_report' item.single_report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>{% else %}<a href="{% url 'review_campaign_detail' item.campaign.uuid %}" class="btn btn-sm btn-secondary">View reports</a>{% endif %}
                 {% if item.can_manage and item.all_complete %}
                 <form method="post" action="{% url 'renew_review_campaign' item.campaign.uuid %}">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary" title="Create a new cycle with the same team, questionnaire and settings">Reuse setup</button></form>
                 {% endif %}
@@ -112,7 +118,8 @@
                     </td>
                     <td>
                         <div style="display:flex;gap:.5rem;align-items:center;">
-                        <a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>
+                        {% if item.report %}<a href="{% url 'reports:view_report' item.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>{% else %}<a href="{% url 'review_cycle_detail' item.cycle.uuid %}" class="btn btn-sm btn-secondary">View</a>{% endif %}
+                        {% if item.report and perms.accounts.can_manage_organization %}<a href="{% url 'reports:regenerate_report' item.cycle.uuid %}" class="btn btn-sm btn-secondary">Regenerate</a>{% endif %}
                         {% if item.cycle.status == 'active' and perms.accounts.can_manage_organization %}<form method="post" action="{% url 'close_cycle' item.cycle.uuid %}" style="margin:0;display:inline;">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary">End cycle</button></form>{% endif %}
                         {% if perms.accounts.can_manage_organization and item.cycle.status == 'completed' %}<form method="post" action="{% url 'renew_review_cycle' item.cycle.uuid %}" style="margin:0;display:inline;">{% csrf_token %}<button type="submit" class="btn btn-sm btn-primary" title="Create a new cycle using this cycle's questionnaire and reviewers">Reuse setup</button></form>{% endif %}
                         </div>
