@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
@@ -445,9 +445,104 @@ class CampaignCreationViewTests(TestCase):
         self.assertContains(response, 'Include nested teams')
         self.assertContains(response, 'Manager assessment')
         self.assertContains(response, 'Minimum peer reviewers')
-        self.assertContains(response, 'Entire organisation')
+        self.assertNotContains(response, 'Entire organisation')
         self.assertContains(response, 'Member email addresses')
         self.assertContains(response, 'Select one or more teams')
+
+    def test_team_member_can_choose_organisation_but_not_entire_organisation(self):
+        member_user = UserFactory(email=self.member.email)
+        member_profile = UserProfileFactory(
+            user=member_user,
+            organization=self.org,
+        )
+        self.member.profile = member_profile
+        self.member.save(update_fields=['profile', 'updated_at'])
+        self.client.force_login(member_user)
+
+        response = self.client.get(reverse('review_cycle_create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<strong>Organisation</strong>', html=False)
+        self.assertContains(response, 'Individual(s)')
+        self.assertContains(response, 'Team(s)')
+        self.assertNotContains(response, 'Entire organisation')
+        self.assertContains(response, self.team.name)
+
+    def test_team_member_cannot_post_entire_organisation_cycle(self):
+        member_user = UserFactory(email=self.member.email)
+        member_profile = UserProfileFactory(
+            user=member_user,
+            organization=self.org,
+        )
+        self.member.profile = member_profile
+        self.member.save(update_fields=['profile', 'updated_at'])
+        self.client.force_login(member_user)
+
+        response = self.client.post(reverse('review_cycle_create'), {
+            'campaign_flow': '1',
+            'target_type': 'organization',
+            'organization_audience': 'entire',
+            'minimum_peer_reviewers': 3,
+            'due_date': '2026-09-01',
+        })
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_cycle_rejects_a_past_due_date(self):
+        past_due_date = timezone.localdate() - timedelta(days=1)
+
+        response = self.client.post(reverse('review_cycle_create'), {
+            'campaign_flow': '1',
+            'target_type': 'team',
+            'team': self.team.id,
+            'cycle_type': 'manager',
+            'questionnaire': self.questionnaire.id,
+            'due_date': past_due_date.isoformat(),
+        })
+
+        self.assertRedirects(response, reverse('review_cycle_create'))
+        self.assertFalse(ReviewCampaign.objects.exists())
+        messages = list(response.wsgi_request._messages)
+        self.assertIn('The due date cannot be in the past.', str(messages[0]))
+
+    def test_create_cycle_date_inputs_disallow_past_dates(self):
+        response = self.client.get(reverse('review_cycle_create'))
+        minimum = timezone.localdate().isoformat()
+
+        self.assertContains(response, f'min="{minimum}"', count=2)
+
+    @patch('reviews.services.send_campaign_invitations')
+    def test_manager_can_send_one_assessment_to_multiple_individuals(self, send):
+        self_questionnaire = QuestionnaireFactory(
+            organization=self.org,
+            allow_self_assessment=True,
+        )
+        second_member = RevieweeFactory(
+            organization=self.org,
+            team=self.team,
+            email='second@example.com',
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(reverse('review_cycle_create'), {
+                'campaign_flow': '1',
+                'target_type': 'individual',
+                'multiple_individuals': '1',
+                'individual_emails': (
+                    f'{self.member.email},\n{second_member.email}'
+                ),
+                'cycle_type': 'self',
+                'questionnaire': self_questionnaire.id,
+                'due_date': '2026-09-01',
+            })
+
+        self.assertRedirects(response, reverse('admin_dashboard'))
+        self.assertEqual(ReviewCampaign.objects.count(), 2)
+        self.assertEqual(
+            set(ReviewCampaign.objects.values_list('individual__email', flat=True)),
+            {self.member.email, second_member.email},
+        )
+        self.assertEqual(send.call_count, 2)
 
     @patch('reviews.services.send_organizational_cycle_invitations')
     def test_admin_can_launch_organizational_cycle(self, send):

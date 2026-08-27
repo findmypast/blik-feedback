@@ -295,6 +295,11 @@ def dashboard(request):
                 'awaiting_nominations': campaign.cycle_type == 'peer' and not tokens,
                 'report': getattr(cycle, 'report', None),
             })
+        # A user may have row-level visibility related to a campaign while the
+        # campaign's participant rows are intentionally hidden from them. Do
+        # not render an empty campaign shell as actionable work.
+        if not people:
+            continue
         card = {
             'campaign': campaign,
             'people': people,
@@ -2254,6 +2259,9 @@ def review_cycle_create(request):
         if start_date and due_date and due_date < start_date:
             messages.error(request, 'The due date cannot be before the start date.')
             return redirect('review_cycle_create')
+        if due_date and due_date < timezone.localdate():
+            messages.error(request, 'The due date cannot be in the past.')
+            return redirect('review_cycle_create')
 
         if not questionnaire_id:
             messages.error(request, 'Questionnaire is required.')
@@ -2422,6 +2430,7 @@ def review_cycle_create(request):
 def _render_campaign_form(request):
     org = request.organization
     teams = manageable_teams(request.user, org).select_related('manager__user').order_by('name')
+    organisation_teams = _organisation_cycle_teams(request.user, org).order_by('name')
     reviewees = visible_reviewees(
         request.user,
         Reviewee.objects.for_organization(org).filter(is_active=True),
@@ -2432,9 +2441,43 @@ def _render_campaign_form(request):
     ).order_by('-is_default', 'name')
     return render(request, 'admin_dashboard/review_campaign_form.html', {
         'teams': teams,
+        'organisation_teams': organisation_teams,
+        'can_create_organisation_cycle': organisation_teams.exists(),
+        'can_target_entire_organisation': request.user.has_perm(
+            'accounts.can_manage_organization'
+        ),
         'reviewees': reviewees,
         'questionnaires': questionnaires,
+        'today': timezone.localdate(),
     })
+
+
+def _organisation_cycle_teams(user, organization):
+    """Teams a member may include in an Organisation cycle."""
+    teams = Team.objects.for_organization(organization)
+    if user.has_perm('accounts.can_manage_organization'):
+        return teams
+
+    allowed_ids = set(
+        manageable_teams(user, organization).values_list('id', flat=True)
+    )
+    profile = getattr(user, 'profile', None)
+    if profile and profile.organization_id == organization.id:
+        memberships = Reviewee.objects.for_organization(organization).filter(
+            Q(profile=profile) | Q(email__iexact=user.email)
+        )
+        allowed_ids.update(
+            memberships.exclude(team_id__isnull=True).values_list(
+                'team_id', flat=True
+            )
+        )
+        allowed_ids.update(
+            TeamMembership.objects.filter(
+                reviewee__in=memberships,
+                team__organization=organization,
+            ).values_list('team_id', flat=True)
+        )
+    return teams.filter(id__in=allowed_ids)
 
 
 def _create_review_campaign(request):
@@ -2474,17 +2517,26 @@ def _create_review_campaign(request):
     if start_date and due_date and due_date < start_date:
         messages.error(request, 'The due date cannot be before the start date.')
         return redirect('review_cycle_create')
+    if due_date and due_date < timezone.localdate():
+        messages.error(request, 'The due date cannot be in the past.')
+        return redirect('review_cycle_create')
 
     if target_type == 'organization':
-        if not request.user.has_perm('accounts.can_manage_organization'):
+        allowed_organisation_teams = _organisation_cycle_teams(request.user, org)
+        if not allowed_organisation_teams.exists():
             raise PermissionDenied
         audience_type = request.POST.get('organization_audience', 'entire')
+        if (
+            audience_type == 'entire'
+            and not request.user.has_perm('accounts.can_manage_organization')
+        ):
+            raise PermissionDenied
         selected_teams = None
         selected_participants = None
         if audience_type == 'teams':
             selected_team_ids = set(request.POST.getlist('organization_teams'))
             selected_teams = list(
-                Team.objects.for_organization(org).filter(id__in=selected_team_ids)
+                allowed_organisation_teams.filter(id__in=selected_team_ids)
             )
             if not selected_team_ids or len(selected_teams) != len(selected_team_ids):
                 messages.error(request, 'Select at least one valid team.')
@@ -2507,8 +2559,12 @@ def _create_review_campaign(request):
             for email in emails:
                 participant_filter |= Q(email__iexact=email)
             selected_participants = list(
-                Reviewee.objects.for_organization(org).filter(
-                    participant_filter, is_active=True
+                visible_reviewees(
+                    request.user,
+                    Reviewee.objects.for_organization(org).filter(
+                        participant_filter, is_active=True
+                    ),
+                    org,
                 )
             ) if emails else []
             found_emails = {person.email.lower() for person in selected_participants}
@@ -2579,49 +2635,96 @@ def _create_review_campaign(request):
         return redirect('review_cycle_create')
 
     team = None
-    individual = None
+    individuals = []
     if target_type == 'team':
         team = get_object_or_404(
             manageable_teams(request.user, org), id=request.POST.get('team')
         )
+    elif request.POST.get('multiple_individuals') == '1':
+        emails = {
+            value.strip().lower()
+            for value in re.split(
+                r'[,;\n]+', request.POST.get('individual_emails', '')
+            )
+            if value.strip()
+        }
+        try:
+            for email in emails:
+                validate_email(email)
+        except ValidationError:
+            messages.error(
+                request,
+                'Enter valid email addresses separated by commas.',
+            )
+            return redirect('review_cycle_create')
+        scoped_reviewees = visible_reviewees(
+            request.user,
+            Reviewee.objects.for_organization(org).filter(is_active=True),
+            org,
+        )
+        email_filter = Q()
+        for email in emails:
+            email_filter |= Q(email__iexact=email)
+        individuals = list(scoped_reviewees.filter(email_filter))
+        found_emails = {person.email.lower() for person in individuals}
+        missing_emails = sorted(emails - found_emails)
+        if not emails or missing_emails:
+            detail = f" Missing: {', '.join(missing_emails)}." if missing_emails else ''
+            messages.error(
+                request,
+                'Enter at least one active, permitted organisation member email.'
+                + detail,
+            )
+            return redirect('review_cycle_create')
     else:
-        individual = get_object_or_404(
+        individuals = [get_object_or_404(
             visible_reviewees(
                 request.user,
                 Reviewee.objects.for_organization(org).filter(is_active=True),
                 org,
             ),
             id=request.POST.get('individual'),
-        )
+        )]
 
-    campaign = ReviewCampaign.objects.create(
-        organization=org,
-        created_by=request.user,
-        name=cycle_name,
-        questionnaire=questionnaire,
-        target_type=target_type,
-        team=team,
-        individual=individual,
-        include_descendants=(
-            target_type == 'team' and request.POST.get('include_descendants') == '1'
-        ),
-        cycle_type=cycle_type,
-        minimum_peer_reviewers=minimum_peer_reviewers,
-        start_date=start_date,
-        due_date=due_date,
-    )
+    campaign_individuals = individuals if target_type == 'individual' else [None]
+    campaigns = []
     try:
-        launch_campaign(campaign)
+        with transaction.atomic():
+            for individual in campaign_individuals:
+                campaign = ReviewCampaign.objects.create(
+                    organization=org,
+                    created_by=request.user,
+                    name=cycle_name,
+                    questionnaire=questionnaire,
+                    target_type=target_type,
+                    team=team,
+                    individual=individual,
+                    include_descendants=(
+                        target_type == 'team'
+                        and request.POST.get('include_descendants') == '1'
+                    ),
+                    cycle_type=cycle_type,
+                    minimum_peer_reviewers=minimum_peer_reviewers,
+                    start_date=start_date,
+                    due_date=due_date,
+                )
+                launch_campaign(campaign)
+                campaigns.append(campaign)
     except ValidationError as exc:
-        campaign.delete()
         messages.error(request, '; '.join(exc.messages))
         return redirect('review_cycle_create')
 
     from reviews.services import send_campaign_invitations
-    transaction.on_commit(lambda c=campaign: send_campaign_invitations(c))
+    for campaign in campaigns:
+        transaction.on_commit(lambda c=campaign: send_campaign_invitations(c))
+    campaign_count = len(campaigns)
+    audience = (
+        f' for {campaign_count} individuals' if campaign_count > 1 else ''
+    )
     messages.success(
         request,
-        f'{campaign.get_cycle_type_display()} campaign created. Invitations are being sent.',
+        f'{campaigns[0].get_cycle_type_display()} campaign{audience} created. '
+        'Invitations are being sent.',
     )
     return redirect('admin_dashboard')
 
@@ -3194,6 +3297,7 @@ def _render_legacy_cycle_form(request):
         'can_create_for_others': hasattr(request.user, 'profile') and request.user.profile.can_create_cycles_for_others,
         'prefill_peer_email': request.GET.get('reviewer_email', '').strip(),
         'cycle_types': ReviewCycle.TYPE_CHOICES,
+        'today': timezone.localdate(),
     }
 
     return render(request, 'admin_dashboard/review_cycle_form.html', context)

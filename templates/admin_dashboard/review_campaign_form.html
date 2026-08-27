@@ -29,13 +29,13 @@
             <div style="display:flex; gap:1rem; margin-bottom:1rem;">
                 <label class="selection-card">
                     <input type="radio" name="target_type" value="team" checked>
-                    <span><strong>Team</strong><small>Invite a team you manage</small></span>
+                    <span><strong>Team</strong><small>Send one assessment type to a team you manage</small></span>
                 </label>
                 <label class="selection-card">
                     <input type="radio" name="target_type" value="individual">
-                    <span><strong>Individual</strong><small>Send this to one person</small></span>
+                    <span><strong>Individual</strong><small>Send one assessment type to one or more people</small></span>
                 </label>
-                {% if perms.accounts.can_manage_organization %}<label class="selection-card">
+                {% if can_create_organisation_cycle %}<label class="selection-card">
                     <input type="radio" name="target_type" value="organization">
                     <span><strong>Organisation</strong><small>Run self, peer, and manager assessments together</small></span>
                 </label>{% endif %}
@@ -52,11 +52,22 @@
                 </label>
             </div>
             <div id="individualTarget" style="display:none;">
-                <label for="individual" class="form-label">Individual *</label>
-                <select name="individual" id="individual" class="form-control">
-                    <option value="">Select an individual…</option>
-                    {% for person in reviewees %}<option value="{{ person.id }}">{{ person.name }} ({{ person.email }})</option>{% endfor %}
-                </select>
+                <label class="checkbox-row multiple-people-toggle">
+                    <input type="checkbox" name="multiple_individuals" id="multipleIndividuals" value="1">
+                    Send the same assessment to multiple individuals
+                </label>
+                <div id="singleIndividualField">
+                    <label for="individual" class="form-label">Individual *</label>
+                    <select name="individual" id="individual" class="form-control">
+                        <option value="">Select an individual…</option>
+                        {% for person in reviewees %}<option value="{{ person.id }}">{{ person.name }} ({{ person.email }})</option>{% endfor %}
+                    </select>
+                </div>
+                <div id="multipleIndividualsField" style="display:none;">
+                    <label for="individual_emails" class="form-label">Individual email addresses *</label>
+                    <textarea name="individual_emails" id="individual_emails" class="form-control" rows="4" placeholder="alex@example.com, sam@example.com"></textarea>
+                    <small>Separate email addresses with commas, semicolons, or new lines. Everyone receives the same assessment type and questionnaire.</small>
+                </div>
             </div>
         </div>
     </div>
@@ -99,8 +110,8 @@
                     <label class="form-label">Who should be included? *</label>
                     <div class="organisation-audience-options">
                         <label><input type="radio" name="organization_audience" value="individuals"> Individual(s)</label>
-                        <label><input type="radio" name="organization_audience" value="teams"> Team(s)</label>
-                        <label><input type="radio" name="organization_audience" value="entire" checked> Entire organisation</label>
+                        <label><input type="radio" name="organization_audience" value="teams" {% if not can_target_entire_organisation %}checked{% endif %}> Team(s)</label>
+                        {% if can_target_entire_organisation %}<label><input type="radio" name="organization_audience" value="entire" checked> Entire organisation</label>{% endif %}
                     </div>
                 </div>
                 <div id="organisationIndividuals" class="form-group" style="display:none;">
@@ -113,7 +124,7 @@
                     <details class="team-checklist">
                         <summary id="organisationTeamSummary">Select one or more teams</summary>
                         <div class="team-checklist-options">
-                            {% for team in teams %}<label><input type="checkbox" name="organization_teams" value="{{ team.id }}"> <span>{{ team.name }}</span></label>{% endfor %}
+                            {% for team in organisation_teams %}<label><input type="checkbox" name="organization_teams" value="{{ team.id }}"> <span>{{ team.name }}</span></label>{% endfor %}
                         </div>
                     </details>
                 </div>
@@ -129,23 +140,25 @@
     <div class="card" style="margin-bottom: 1.5rem;">
         <div class="card-header"><h2 class="card-title">3. Schedule</h2></div>
         <div class="card-body schedule-grid">
-            <div>
+            <div class="schedule-field">
                 <label for="start_date" class="form-label">Start date</label>
                 <div class="date-picker-field">
-                    <input type="date" name="start_date" id="start_date" class="form-control">
+                    <input type="date" name="start_date" id="start_date" class="form-control" min="{{ today|date:'Y-m-d' }}">
                     <button type="button" class="calendar-button" data-date-picker="start_date" aria-label="Open start date calendar" title="Choose from calendar">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v14h-17V6a2 2 0 0 1 2-2Z"/></svg>
                     </button>
                 </div>
+                <small>Optional — leave blank to begin immediately.</small>
             </div>
-            <div>
-                <label for="due_date" class="form-label">Due date *</label>
+            <div class="schedule-field schedule-field-required">
+                <label for="due_date" class="form-label">Due date <span aria-hidden="true">*</span></label>
                 <div class="date-picker-field">
-                    <input type="date" name="due_date" id="due_date" class="form-control" required>
+                    <input type="date" name="due_date" id="due_date" class="form-control" min="{{ today|date:'Y-m-d' }}" required>
                     <button type="button" class="calendar-button" data-date-picker="due_date" aria-label="Open due date calendar" title="Choose from calendar">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v14h-17V6a2 2 0 0 1 2-2Z"/></svg>
                     </button>
                 </div>
+                <small>Choose today or a future date.</small>
             </div>
         </div>
     </div>
@@ -157,7 +170,7 @@
 </form>
 
 <style>
-.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.organisation-audience-options{display:flex;gap:1.25rem;flex-wrap:wrap}.organisation-audience-options label{display:flex;align-items:center;gap:.4rem}.team-checklist{position:relative;border:1px solid var(--border);border-radius:6px;background:var(--bg-card)}.team-checklist summary{padding:.75rem 1rem;cursor:pointer;list-style:none}.team-checklist-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.15rem .5rem;max-height:240px;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--border);padding:.6rem}.team-checklist-options label{display:flex;align-items:center;gap:.55rem;min-width:0;padding:.5rem;border-radius:5px}.team-checklist-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.team-checklist-options label:hover{background:var(--bg-light)}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:720px){.team-checklist-options{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.team-checklist-options{grid-template-columns:1fr}}
+.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.organisation-audience-options{display:flex;gap:1.25rem;flex-wrap:wrap}.organisation-audience-options label{display:flex;align-items:center;gap:.4rem}.team-checklist{position:relative;border:1px solid var(--border);border-radius:6px;background:var(--bg-card)}.team-checklist summary{padding:.75rem 1rem;cursor:pointer;list-style:none}.team-checklist-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.15rem .5rem;max-height:240px;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--border);padding:.6rem}.team-checklist-options label{display:flex;align-items:center;gap:.55rem;min-width:0;padding:.5rem;border-radius:5px}.team-checklist-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.team-checklist-options label:hover{background:var(--bg-light)}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.schedule-field{padding:1rem;border:1px solid var(--border);border-radius:9px;background:var(--bg-light)}.schedule-field:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 14%,transparent)}.schedule-field .form-label{display:flex;align-items:center;gap:.25rem;font-weight:700}.schedule-field-required .form-label span{color:var(--danger)}.schedule-field small{display:block;margin-top:.55rem;color:var(--text-secondary)}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem;background:var(--bg-card)}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:720px){.team-checklist-options{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.team-checklist-options{grid-template-columns:1fr}}
 </style>
 <script>
 const typeHelp = {peer:'Members will nominate colleagues to review them.',self:'Each selected member will complete their own assessment.',manager:'Team members will anonymously assess their manager.'};
@@ -166,6 +179,11 @@ function updateCampaignForm(){
   const type=document.getElementById('cycle_type').value;
   document.getElementById('teamTarget').style.display=target==='team'?'block':'none';
   document.getElementById('individualTarget').style.display=target==='individual'?'block':'none';
+  const multipleIndividuals=document.getElementById('multipleIndividuals').checked;
+  document.getElementById('singleIndividualField').style.display=target==='individual'&&!multipleIndividuals?'block':'none';
+  document.getElementById('multipleIndividualsField').style.display=target==='individual'&&multipleIndividuals?'block':'none';
+  document.getElementById('individual').required=target==='individual'&&!multipleIndividuals;
+  document.getElementById('individual_emails').required=target==='individual'&&multipleIndividuals;
   const organizational=target==='organization';
   document.getElementById('standardAssessmentFields').style.display=organizational?'none':'block';
   document.getElementById('organizationAssessmentFields').style.display=organizational?'block':'none';
@@ -200,6 +218,7 @@ function updateCampaignForm(){
   managerQuestionnaire.disabled=organizational&&audience==='individuals';
 }
 document.querySelectorAll('input[name="target_type"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
+document.getElementById('multipleIndividuals').addEventListener('change',updateCampaignForm);
 document.getElementById('cycle_type').addEventListener('change',updateCampaignForm);
 document.querySelectorAll('input[name="organization_audience"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
 document.querySelectorAll('input[name="organization_teams"]').forEach(el=>el.addEventListener('change',()=>{
