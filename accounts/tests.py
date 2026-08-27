@@ -936,6 +936,22 @@ class ProfileViewTestCase(TestCase):
         self.assertContains(response, 'data-theme-choice="dark"')
         self.assertContains(response, 'data-theme-choice="system"')
 
+    def test_profile_name_update_is_reflected_on_teams_page(self):
+        response = self.client.post(reverse('profile'), {
+            'first_name': 'Jordan',
+            'last_name': 'Washington',
+            'email': self.user.email,
+        })
+
+        self.assertRedirects(response, reverse('profile'))
+        self.reviewee.refresh_from_db()
+        self.assertEqual(self.reviewee.name, 'Jordan Washington')
+
+        response = self.client.get(reverse('team_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Jordan Washington')
+        self.assertNotContains(response, 'Alex Member')
+
 
 class RevieweeManagementTestCase(TestCase):
     """Test reviewee management"""

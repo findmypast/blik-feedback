@@ -2,7 +2,9 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from accounts.models import UserProfile
+from django.db import transaction
+
+from accounts.models import Reviewee
 
 
 class ProfileEditForm(forms.ModelForm):
@@ -49,9 +51,27 @@ class ProfileEditForm(forms.ModelForm):
     def clean_email(self):
         email = self.cleaned_data.get('email')
         # Check if email is already taken by another user
-        if User.objects.filter(email=email).exclude(pk=self.instance.pk).exists():
+        if User.objects.filter(email__iexact=email).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError('This email address is already in use.')
+
+        profile = getattr(self.instance, 'profile', None)
+        if profile and Reviewee.objects.filter(
+            organization=profile.organization,
+            email__iexact=email,
+        ).exclude(profile=profile).exists():
             raise forms.ValidationError('This email address is already in use.')
         return email
+
+    @transaction.atomic
+    def save(self, commit=True):
+        user = super().save(commit=commit)
+        if commit:
+            display_name = user.get_full_name().strip() or user.email
+            Reviewee.objects.filter(profile__user=user).update(
+                name=display_name,
+                email=user.email,
+            )
+        return user
 
 
 class ForgotPasswordForm(forms.Form):
