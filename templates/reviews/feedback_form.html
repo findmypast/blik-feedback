@@ -39,7 +39,9 @@
     <div class="feedback-container">
       <div class="feedback-header">
         <h1>{{ reviewee.name }}</h1>
-        <div class="category-badge">{{ token.get_category_display }}</div>
+        <div class="category-badge assessment-{{ token.category }}">
+          {{ token.get_category_display }}
+        </div>
         <div class="reviewee-name">{{ questionnaire.name }}</div>
       </div>
 

@@ -946,13 +946,45 @@ body.setup-page {
 }
 
 .feedback-header .category-badge {
-  display: inline-block;
-  background: #667eea;
-  color: white;
+  display: inline-flex;
+  align-items: center;
   padding: 6px 16px;
-  border-radius: 16px;
+  border-radius: 6px;
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.feedback-header .category-badge.assessment-self {
+  background: #deebff;
+  color: #0747a6;
+}
+
+.feedback-header .category-badge.assessment-peer {
+  background: #eae6ff;
+  color: #403294;
+}
+
+.feedback-header .category-badge.assessment-manager,
+.feedback-header .category-badge.assessment-direct_report {
+  background: #e3fcef;
+  color: #006644;
+}
+
+[data-theme="dark"] .feedback-header .category-badge.assessment-self {
+  background: #173b65;
+  color: #b3d4ff;
+}
+
+[data-theme="dark"] .feedback-header .category-badge.assessment-peer {
+  background: #352c63;
+  color: #c0b6f2;
+}
+
+[data-theme="dark"] .feedback-header .category-badge.assessment-manager,
+[data-theme="dark"] .feedback-header .category-badge.assessment-direct_report {
+  background: #164b3b;
+  color: #abf5d1;
 }
 
 .section {

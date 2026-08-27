@@ -71,6 +71,7 @@ class FeedbackCompletionRedirectTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, token.cycle.reviewee.name)
         self.assertContains(response, token.get_category_display())
+        self.assertContains(response, 'category-badge assessment-peer')
         self.assertContains(
             response,
             f'data-completion-url="{reverse("admin_dashboard")}"',
