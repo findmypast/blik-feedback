@@ -27,12 +27,27 @@ SSO_SETTINGS = {
 }
 
 
-def social_login(email, *, tenant=TENANT_ID, verified=True, first_name='Jamie'):
+def social_login(
+    email,
+    *,
+    tenant=TENANT_ID,
+    verified=True,
+    first_name='Jamie',
+    last_name='Member',
+):
     user = UserFactory.build(
-        username=email, email=email, first_name=first_name, last_name='Member'
+        username=email, email=email, first_name=first_name, last_name=last_name
     )
     return SimpleNamespace(
-        account=SimpleNamespace(provider='microsoft', extra_data={'tid': tenant}),
+        account=SimpleNamespace(
+            provider='microsoft',
+            extra_data={
+                'tid': tenant,
+                'givenName': first_name,
+                'surname': last_name,
+                'displayName': f'{first_name} {last_name}'.strip(),
+            },
+        ),
         user=user,
         email_addresses=[SimpleNamespace(email=email, verified=verified)],
         connect=Mock(),
@@ -67,16 +82,51 @@ class MicrosoftSocialAdapterTests(TestCase):
         self.assertEqual(profile.organization, self.organization)
         self.assertTrue(user.groups.filter(name=ORG_ADMIN_GROUP).exists())
 
+    def test_existing_user_and_reviewee_names_sync_from_microsoft(self):
+        user = UserFactory(
+            email='renamed@example.com',
+            first_name='Old',
+            last_name='Name',
+        )
+        profile = UserProfileFactory(user=user, organization=self.organization)
+        reviewee = Reviewee.objects.get(
+            organization=self.organization,
+            email=user.email,
+        )
+        reviewee.profile = profile
+        reviewee.name = 'Old Name'
+        reviewee.save(update_fields=['profile', 'name', 'updated_at'])
+        login = social_login(
+            user.email,
+            first_name='Microsoft',
+            last_name='Person',
+        )
+
+        self.adapter.pre_social_login(self.request, login)
+
+        user.refresh_from_db()
+        reviewee.refresh_from_db()
+        self.assertEqual(user.first_name, 'Microsoft')
+        self.assertEqual(user.last_name, 'Person')
+        self.assertEqual(reviewee.name, 'Microsoft Person')
+        login.connect.assert_called_once_with(self.request, user)
+
     def test_repeat_login_uses_existing_social_connection_without_reconnecting(self):
         user = UserFactory(email='linked@example.com')
         UserProfileFactory(user=user, organization=self.organization)
         login = social_login(user.email)
+        login.account.extra_data.update({
+            'givenName': 'Updated',
+            'surname': 'Microsoft',
+        })
         login.user = user
         login.is_existing = True
 
         self.adapter.pre_social_login(self.request, login)
 
         login.connect.assert_not_called()
+        user.refresh_from_db()
+        self.assertEqual(user.get_full_name(), 'Updated Microsoft')
 
     def test_valid_invitation_creates_member_profile_and_team_membership(self):
         manager = UserProfileFactory(organization=self.organization)

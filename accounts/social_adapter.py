@@ -86,6 +86,7 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
                 or not hasattr(user, 'profile')
             ):
                 raise ImmediateHttpResponse(_access_denied_response())
+            self._sync_microsoft_name(user, sociallogin)
             return
 
         users = list(User.objects.filter(email__iexact=email)[:2])
@@ -105,6 +106,7 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
                 self._accept_invitation(user, invitation, sociallogin)
             elif invitation and user.profile.organization_id != invitation.organization_id:
                 raise ImmediateHttpResponse(_access_denied_response())
+            self._sync_microsoft_name(user, sociallogin)
             sociallogin.connect(request, user)
             return
 
@@ -130,6 +132,52 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
         return suggested if suggested in verified else None
 
     @staticmethod
+    def _microsoft_names(sociallogin):
+        """Return normalized Entra names from Graph, with allauth as fallback."""
+        extra_data = sociallogin.account.extra_data or {}
+        first_name = (
+            extra_data.get('givenName')
+            or extra_data.get('given_name')
+            or sociallogin.user.first_name
+            or ''
+        ).strip()
+        last_name = (
+            extra_data.get('surname')
+            or extra_data.get('family_name')
+            or sociallogin.user.last_name
+            or ''
+        ).strip()
+        if not first_name and not last_name:
+            display_name = (
+                extra_data.get('displayName')
+                or extra_data.get('name')
+                or ''
+            ).strip()
+            if display_name:
+                first_name, separator, last_name = display_name.partition(' ')
+                if not separator:
+                    last_name = ''
+        return first_name[:150], last_name[:150]
+
+    @classmethod
+    def _sync_microsoft_name(cls, user, sociallogin):
+        """Synchronize the Django user and its linked Reviewee from Entra."""
+        first_name, last_name = cls._microsoft_names(sociallogin)
+        if not first_name and not last_name:
+            return
+        changed_fields = []
+        if user.first_name != first_name:
+            user.first_name = first_name
+            changed_fields.append('first_name')
+        if user.last_name != last_name:
+            user.last_name = last_name
+            changed_fields.append('last_name')
+        if changed_fields:
+            user.save(update_fields=changed_fields)
+        display_name = f'{first_name} {last_name}'.strip() or user.email
+        Reviewee.objects.filter(profile__user=user).update(name=display_name)
+
+    @staticmethod
     def _accept_invitation(user, invitation, sociallogin):
         with transaction.atomic():
             profile, created = UserProfile.objects.get_or_create(
@@ -150,12 +198,15 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
                         invitation.organization.default_users_can_create_cycles
                     ),
                 )
-            first_name = user.first_name or sociallogin.user.first_name
-            last_name = user.last_name or sociallogin.user.last_name
-            if invitation.first_name:
-                first_name = invitation.first_name
-            if invitation.last_name:
-                last_name = invitation.last_name
+            microsoft_first_name, microsoft_last_name = (
+                BlikSocialAccountAdapter._microsoft_names(sociallogin)
+            )
+            first_name = (
+                microsoft_first_name or invitation.first_name or user.first_name
+            )
+            last_name = (
+                microsoft_last_name or invitation.last_name or user.last_name
+            )
             if first_name != user.first_name or last_name != user.last_name:
                 user.first_name = first_name
                 user.last_name = last_name
