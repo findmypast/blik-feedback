@@ -522,6 +522,7 @@ class CampaignCreationViewTests(TestCase):
             allow_self_assessment=False,
             allow_manager_assessment=True,
         )
+        self.future_due_date = (timezone.localdate() + timedelta(days=30)).isoformat()
         self.client.force_login(self.manager_user)
 
     def test_create_screen_has_team_individual_and_review_type_controls(self):
@@ -571,7 +572,7 @@ class CampaignCreationViewTests(TestCase):
             'target_type': 'organization',
             'organization_audience': 'entire',
             'minimum_peer_reviewers': 3,
-            'due_date': '2026-09-01',
+            'due_date': self.future_due_date,
         })
 
         self.assertEqual(response.status_code, 403)
@@ -621,7 +622,7 @@ class CampaignCreationViewTests(TestCase):
                 ),
                 'cycle_type': 'self',
                 'questionnaire': self_questionnaire.id,
-                'due_date': '2026-09-01',
+                'due_date': self.future_due_date,
             })
 
         self.assertRedirects(response, reverse('admin_dashboard'))
@@ -653,7 +654,7 @@ class CampaignCreationViewTests(TestCase):
                 'peer_questionnaire': peer_q.id,
                 'manager_questionnaire': self.questionnaire.id,
                 'minimum_peer_reviewers': 4,
-                'due_date': '2026-09-01',
+                'due_date': self.future_due_date,
             })
 
         self.assertRedirects(response, reverse('admin_dashboard'))
@@ -746,7 +747,7 @@ class CampaignCreationViewTests(TestCase):
                 'team': self.team.id,
                 'cycle_type': 'manager',
                 'questionnaire': self.questionnaire.id,
-                'due_date': '2026-09-01',
+                'due_date': self.future_due_date,
             })
 
         self.assertRedirects(response, reverse('admin_dashboard'))
@@ -770,7 +771,7 @@ class CampaignCreationViewTests(TestCase):
             'team': other_team.id,
             'cycle_type': 'manager',
             'questionnaire': self.questionnaire.id,
-            'due_date': '2026-09-01',
+            'due_date': self.future_due_date,
         })
 
         self.assertEqual(response.status_code, 404)
