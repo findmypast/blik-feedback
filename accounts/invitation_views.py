@@ -9,7 +9,8 @@ from django.utils import timezone
 from django.urls import reverse
 from django.db import transaction
 from django.core.exceptions import ValidationError
-from accounts.models import OrganizationInvitation, Reviewee, Team
+from accounts.models import OrganizationInvitation, Reviewee, Team, UserProfile
+from accounts.name_utils import normalize_name_part
 from accounts.permissions import organization_admin_required
 from core.email import send_email
 from subscriptions.utils import check_user_limit
@@ -26,14 +27,16 @@ def send_invitation(request):
     if request.method == 'POST':
         redirect_name = 'settings' if request.POST.get('return_to') == 'settings' else 'team_list'
         email = request.POST.get('email', '').strip().lower()
-        first_name = request.POST.get('first_name', '').strip()
-        last_name = request.POST.get('last_name', '').strip()
+        first_name = normalize_name_part(request.POST.get('first_name'))
+        last_name = normalize_name_part(request.POST.get('last_name'))
         team_id = request.POST.get('team')
         no_team = request.POST.get('no_team') == 'on'
         create_team = not no_team and (
             request.POST.get('create_team') == 'on' or team_id == '__new__'
         )
         team_name = request.POST.get('team_name', '').strip()
+        manager_choice = request.POST.get('reporting_manager_choice', 'none')
+        manager_email = request.POST.get('reporting_manager_email', '').strip().casefold()
 
         # Get organization from request or user's profile
         org = request.organization
@@ -84,12 +87,43 @@ def send_invitation(request):
                 else:
                     raise ValidationError('Select a team or create a new one.')
 
+                reporting_manager = None
+                pending_reporting_manager_email = ''
+                if manager_choice == 'team_leader':
+                    if not team or not team.manager_id:
+                        raise ValidationError(
+                            'The selected team does not have a team leader. Choose someone else.'
+                        )
+                    reporting_manager = team.manager
+                elif manager_choice == 'other':
+                    if not manager_email:
+                        raise ValidationError('Enter the reporting manager’s email address.')
+                    if manager_email == email:
+                        raise ValidationError('A person cannot be their own reporting manager.')
+                    try:
+                        from django.core.validators import validate_email
+                        validate_email(manager_email)
+                    except ValidationError as exc:
+                        raise ValidationError(
+                            'Enter a valid reporting manager email address.'
+                        ) from exc
+                    reporting_manager = UserProfile.objects.for_organization(org).filter(
+                        user__email__iexact=manager_email,
+                        user__is_active=True,
+                    ).first()
+                    if not reporting_manager:
+                        pending_reporting_manager_email = manager_email
+                elif manager_choice != 'none':
+                    raise ValidationError('Select a valid reporting manager option.')
+
                 invitation = OrganizationInvitation.objects.create(
                     organization=org,
                     email=email,
                     first_name=first_name,
                     last_name=last_name,
                     team=team,
+                    reporting_manager=reporting_manager,
+                    pending_reporting_manager_email=pending_reporting_manager_email,
                     invited_by=request.user,
                     expires_at=timezone.now() + timedelta(days=7)
                 )
@@ -227,6 +261,9 @@ def accept_invitation(request, token):
         reviewee.save(update_fields=['name', 'profile', 'team', 'is_active', 'updated_at'])
         if invitation.team:
             reviewee.teams.add(invitation.team)
+
+        from accounts.invitation_provisioning import apply_invitation_access
+        apply_invitation_access(invitation, profile)
 
         # Mark invitation accepted
         invitation.accepted_at = timezone.now()

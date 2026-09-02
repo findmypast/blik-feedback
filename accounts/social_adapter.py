@@ -15,6 +15,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import OrganizationInvitation, Reviewee, UserProfile
+from accounts.name_utils import normalize_name_part
 from accounts.permissions import assign_organization_member
 
 User = get_user_model()
@@ -157,7 +158,7 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
                 first_name, separator, last_name = display_name.partition(' ')
                 if not separator:
                     last_name = ''
-        return first_name[:150], last_name[:150]
+        return normalize_name_part(first_name)[:150], normalize_name_part(last_name)[:150]
 
     @classmethod
     def _sync_microsoft_name(cls, user, sociallogin):
@@ -225,5 +226,7 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
             reviewee.save()
             if invitation.team_id:
                 reviewee.teams.add(invitation.team)
+            from accounts.invitation_provisioning import apply_invitation_access
+            apply_invitation_access(invitation, profile)
             invitation.accepted_at = timezone.now()
             invitation.save(update_fields=['accepted_at', 'updated_at'])

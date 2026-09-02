@@ -1,0 +1,14 @@
+Welcome to {{ product_name }}
+
+Hi{% if first_name %} {{ first_name }}{% endif %},
+
+You have been invited to join {{ organization.name }} on {{ product_name }}, our 360-feedback tool for sharing constructive feedback, supporting development and celebrating great work.
+
+Organisation: {{ organization.name }}
+Role: {{ role_name }}
+{% if team_names %}Team{% if team_names|length > 1 %}s{% endif %}: {{ team_names|join:", " }}
+{% else %}You will initially join without a team assignment.
+{% endif %}
+Accept your invitation: {{ accept_url }}
+
+You can sign in with Microsoft or create a password. This invitation expires on {{ expires_at|date:"j F Y" }}.

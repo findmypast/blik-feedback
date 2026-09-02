@@ -135,6 +135,32 @@ class OrganizationInvitation(TimeStampedModel):
         'Team', on_delete=models.PROTECT, null=True, blank=True,
         related_name='invitations'
     )
+    requested_role = models.CharField(
+        max_length=32,
+        blank=True,
+        choices=[
+            ('member', 'Member'),
+            ('reporting_manager', 'Reporting Manager'),
+            ('team_leader', 'Team Leader'),
+            ('admin', 'Organisation Administrator'),
+        ],
+        help_text='Role to apply when this invitation is accepted.',
+    )
+    organization_role = models.ForeignKey(
+        OrganizationRole,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pending_invitations',
+    )
+    reporting_manager = models.ForeignKey(
+        UserProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pending_direct_report_invitations',
+    )
+    pending_reporting_manager_email = models.EmailField(blank=True)
     token = models.CharField(max_length=64, unique=True, db_index=True)
     invited_by = models.ForeignKey(
         User,
@@ -159,6 +185,13 @@ class OrganizationInvitation(TimeStampedModel):
         from django.core.exceptions import ValidationError
         if self.team_id and self.team.organization_id != self.organization_id:
             raise ValidationError({'team': 'Invitation team must belong to the same organization.'})
+        if (
+            self.reporting_manager_id
+            and self.reporting_manager.organization_id != self.organization_id
+        ):
+            raise ValidationError({
+                'reporting_manager': 'Reporting manager must belong to the same organization.'
+            })
 
     def save(self, *args, **kwargs):
         if not self.token:
@@ -217,6 +250,10 @@ class Team(TimeStampedModel):
     manager = models.ForeignKey(
         UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='managed_teams'
+    )
+    pending_manager_email = models.EmailField(
+        blank=True,
+        help_text='Imported manager to assign when their account is provisioned.',
     )
     archived_at = models.DateTimeField(null=True, blank=True)
 
@@ -313,6 +350,10 @@ class Reviewee(TimeStampedModel):
     reporting_manager = models.ForeignKey(
         UserProfile, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='direct_report_reviewees'
+    )
+    pending_reporting_manager_email = models.EmailField(
+        blank=True,
+        help_text='Imported reporting manager to link when their account is provisioned.',
     )
     name = models.CharField(max_length=255)
     email = models.EmailField()

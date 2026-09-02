@@ -21,6 +21,23 @@
         {% endfor %}
     {% endif %}
 
+    {% if microsoft_sso_enabled %}
+        <form method="post" action="{% url 'microsoft_login' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn-primary" style="width:100%;">
+                Continue with Microsoft SSO
+            </button>
+        </form>
+        <p class="form-text" style="text-align:center;margin-top:.65rem;">
+            Use this option if your invited email belongs to your organisation's Microsoft account.
+        </p>
+        <div style="display:flex;align-items:center;gap:.75rem;margin:1.25rem 0;color:var(--text-secondary);">
+            <span style="height:1px;background:var(--border-color);flex:1;"></span>
+            <span>or create a password</span>
+            <span style="height:1px;background:var(--border-color);flex:1;"></span>
+        </div>
+    {% endif %}
+
     <form method="post" action="">
         {% csrf_token %}
 

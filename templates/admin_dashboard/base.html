@@ -86,6 +86,10 @@
     </nav>
 
     <div class="container">
+        <div id="live-update-banner" class="live-update-banner" hidden>
+            <span>New updates are available.</span>
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.location.reload()">Refresh</button>
+        </div>
         {% if messages %}
         <div class="messages">
             {% for message in messages %}
@@ -138,6 +142,84 @@
             localStorage.removeItem('theme');
             updateIcon(next);
         });
+
+        // Check for organisation changes without interrupting active edits.
+        (() => {
+            const revisionUrl = '{% url "dashboard_revision" %}';
+            const banner = document.getElementById('live-update-banner');
+            let currentRevision = null;
+            let formIsDirty = false;
+            let updatePending = false;
+
+            document.addEventListener('input', event => {
+                if (event.target.closest('form')) formIsDirty = true;
+            });
+            document.addEventListener('change', event => {
+                if (event.target.closest('form')) formIsDirty = true;
+            });
+            document.addEventListener('submit', () => {
+                formIsDirty = false;
+            });
+
+            function modalIsOpen() {
+                return Array.from(document.querySelectorAll('[role="dialog"], dialog')).some(modal => {
+                    const style = window.getComputedStyle(modal);
+                    return !modal.hidden && style.display !== 'none' && style.visibility !== 'hidden';
+                });
+            }
+
+            function safelyRefresh() {
+                if (formIsDirty || modalIsOpen()) {
+                    updatePending = true;
+                    banner.hidden = false;
+                    return;
+                }
+                window.location.reload();
+            }
+
+            async function checkForUpdates() {
+                if (document.hidden || updatePending) return;
+                try {
+                    const response = await fetch(revisionUrl, {
+                        headers: {'Accept': 'application/json'},
+                        cache: 'no-store',
+                    });
+                    if (!response.ok) return;
+                    const {revision} = await response.json();
+                    if (currentRevision === null) {
+                        currentRevision = revision;
+                    } else if (revision && revision !== currentRevision) {
+                        safelyRefresh();
+                    }
+                } catch (error) {
+                    // A temporary network problem should not disrupt the page.
+                }
+            }
+
+            checkForUpdates();
+            window.setInterval(checkForUpdates, 30000);
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) checkForUpdates();
+            });
+        })();
     </script>
+    <style>
+        .live-update-banner {
+            position: sticky;
+            top: .75rem;
+            z-index: 950;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            padding: .75rem 1rem;
+            border: 1px solid var(--primary-color);
+            border-radius: 8px;
+            background: var(--bg-card);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+        }
+        .live-update-banner[hidden] { display: none; }
+    </style>
 </body>
 </html>

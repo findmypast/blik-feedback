@@ -205,6 +205,56 @@ class UserInvitationTestCase(TestCase):
             team,
         )
 
+    def test_invitation_can_use_team_leader_as_reporting_manager(self):
+        team = Team.objects.create(
+            organization=self.org, name='Engineering', manager=self.profile
+        )
+        with patch('accounts.invitation_views.send_email'):
+            self.client.post(reverse('send_invitation'), {
+                'email': 'member@test.local',
+                'team': team.id,
+                'reporting_manager_choice': 'team_leader',
+            })
+
+        invitation = OrganizationInvitation.objects.get(email='member@test.local')
+        self.assertEqual(invitation.reporting_manager, self.profile)
+        self.assertEqual(invitation.pending_reporting_manager_email, '')
+
+    def test_invitation_normalizes_entered_names(self):
+        team = Team.objects.create(
+            organization=self.org, name='Engineering', manager=self.profile
+        )
+        with patch('accounts.invitation_views.send_email'):
+            self.client.post(reverse('send_invitation'), {
+                'email': 'member@test.local',
+                'first_name': 'jEREMY',
+                'last_name': 'hOY',
+                'team': team.id,
+                'reporting_manager_choice': 'team_leader',
+            })
+
+        invitation = OrganizationInvitation.objects.get(email='member@test.local')
+        self.assertEqual(invitation.first_name, 'Jeremy')
+        self.assertEqual(invitation.last_name, 'Hoy')
+
+    def test_invitation_can_store_another_pending_reporting_manager(self):
+        team = Team.objects.create(
+            organization=self.org, name='Engineering', manager=self.profile
+        )
+        with patch('accounts.invitation_views.send_email'):
+            self.client.post(reverse('send_invitation'), {
+                'email': 'member@test.local',
+                'team': team.id,
+                'reporting_manager_choice': 'other',
+                'reporting_manager_email': 'supervisor@test.local',
+            })
+
+        invitation = OrganizationInvitation.objects.get(email='member@test.local')
+        self.assertIsNone(invitation.reporting_manager)
+        self.assertEqual(
+            invitation.pending_reporting_manager_email, 'supervisor@test.local'
+        )
+
 
 class OrganizationPeopleSettingsTestCase(TestCase):
     def setUp(self):

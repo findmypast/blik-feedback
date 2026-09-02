@@ -246,3 +246,34 @@ class MicrosoftLoginViewTests(TestCase):
             {'login': user.email, 'password': 'valid-password'},
         )
         self.assertRedirects(response, reverse('admin_dashboard'))
+
+    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    def test_invitation_signup_offers_microsoft_sso(self):
+        invitation = OrganizationInvitationFactory(
+            organization=OrganizationFactory(),
+            email='invited@example.com',
+        )
+        session = self.client.session
+        session['invitation_token'] = invitation.token
+        session['invitation_email'] = invitation.email
+        session.save()
+
+        response = self.client.get(reverse('signup_from_invitation'))
+
+        self.assertContains(response, 'Continue with Microsoft SSO')
+        self.assertContains(response, reverse('microsoft_login'))
+
+    @override_settings(MICROSOFT_SSO_CONFIGURED=False)
+    def test_invitation_signup_hides_microsoft_when_not_configured(self):
+        invitation = OrganizationInvitationFactory(
+            organization=OrganizationFactory(),
+            email='external@example.com',
+        )
+        session = self.client.session
+        session['invitation_token'] = invitation.token
+        session['invitation_email'] = invitation.email
+        session.save()
+
+        response = self.client.get(reverse('signup_from_invitation'))
+
+        self.assertNotContains(response, 'Continue with Microsoft SSO')

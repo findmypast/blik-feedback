@@ -1,6 +1,6 @@
 from django.urls import path
 from django.contrib.auth.views import LogoutView
-from . import views, invitation_views
+from . import views, invitation_views, import_views
 
 urlpatterns = [
     path('login/', views.login_view, name='login'),
@@ -12,4 +12,7 @@ urlpatterns = [
     path('reset-password/<str:token>/', views.reset_password_view, name='reset_password'),
     path('invite/', invitation_views.send_invitation, name='send_invitation'),
     path('invite/<str:token>/', invitation_views.accept_invitation, name='accept_invitation'),
+    path('people-import/headers/', import_views.people_import_headers, name='people_import_headers'),
+    path('people-import/preview/', import_views.people_import_preview, name='people_import_preview'),
+    path('people-import/commit/', import_views.people_import_commit, name='people_import_commit'),
 ]

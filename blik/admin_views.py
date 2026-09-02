@@ -4014,6 +4014,11 @@ def settings_view(request):
             key=lambda item: (item.user.get_full_name() or item.user.email).casefold(),
         )
         people_page = Paginator(people, 25).get_page(request.GET.get('users_page'))
+        reporting_manager_ids = set(
+            Reviewee.objects.for_organization(organization)
+            .exclude(reporting_manager_id=None)
+            .values_list('reporting_manager_id', flat=True)
+        )
         for profile in people_page:
             profile.is_org_admin = profile.user.has_perm(
                 'accounts.can_manage_organization'
@@ -4036,6 +4041,7 @@ def settings_view(request):
             profile.is_team_leader = bool(
                 profile.managed_team_list or profile.lead_grants_list
             )
+            profile.is_reporting_manager = profile.id in reporting_manager_ids
         context.update({
             'organization_roles': organization_roles,
             'role_permission_fields': [

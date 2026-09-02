@@ -61,6 +61,26 @@
                     <small class="help-text">You will become this team’s manager.</small>
                 </div>
             </div>
+            <fieldset class="form-group" style="border:0; padding:0;">
+                <legend style="font-weight:600; margin-bottom:.5rem;">Reporting manager</legend>
+                <label style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem;">
+                    <input type="radio" name="reporting_manager_choice" value="team_leader" checked onchange="setInviteManagerChoice(this.value)">
+                    The selected team’s leader
+                </label>
+                <label style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem;">
+                    <input type="radio" name="reporting_manager_choice" value="other" onchange="setInviteManagerChoice(this.value)">
+                    Someone else
+                </label>
+                <label style="display:flex; gap:.5rem; align-items:center;">
+                    <input type="radio" name="reporting_manager_choice" value="none" onchange="setInviteManagerChoice(this.value)">
+                    Not assigned yet
+                </label>
+                <div id="invite-reporting-manager-email" style="display:none; margin-top:.75rem;">
+                    <label for="invite-manager-email">Reporting manager email</label>
+                    <input id="invite-manager-email" class="form-control" type="email" name="reporting_manager_email" disabled>
+                    <small class="help-text">If they have not joined yet, the relationship will link when they accept an invitation.</small>
+                </div>
+            </fieldset>
             <div style="display:flex; justify-content:flex-end; gap:.75rem;"><button class="btn btn-secondary" type="button" onclick="document.getElementById('invite-modal').style.display='none'">Cancel</button><button class="btn btn-primary" type="submit">Send invitation</button></div>
         </form>
     </div>
@@ -73,6 +93,8 @@ function openTeamInvite(teamId, teamName) {
     const newTeamBox = document.getElementById('invite-new-team');
     const newTeamInput = document.getElementById('invite-team-name');
     document.getElementById('invite-no-team').checked = false;
+    document.querySelector('#invite-modal [name="reporting_manager_choice"][value="team_leader"]').checked = true;
+    setInviteManagerChoice('team_leader');
     select.value = teamId || '';
     title.textContent = teamId ? `Invite a new member to ${teamName}` : 'Invite user';
     newTeamBox.style.display = 'none';
@@ -80,6 +102,14 @@ function openTeamInvite(teamId, teamName) {
     newTeamInput.required = false;
     setInviteNoTeam(false);
     modal.style.display = 'flex';
+}
+function setInviteManagerChoice(choice) {
+    const box = document.getElementById('invite-reporting-manager-email');
+    const input = document.getElementById('invite-manager-email');
+    const visible = choice === 'other';
+    box.style.display = visible ? 'block' : 'none';
+    input.disabled = !visible;
+    input.required = visible;
 }
 function setInviteNoTeam(unassigned) {
     const controls = document.getElementById('invite-team-controls');
@@ -91,6 +121,8 @@ function setInviteNoTeam(unassigned) {
     if (unassigned) {
         newTeamInput.disabled = true;
         newTeamInput.required = false;
+        document.querySelector('#invite-modal [name="reporting_manager_choice"][value="none"]').checked = true;
+        setInviteManagerChoice('none');
     }
 }
 </script>

@@ -16,6 +16,7 @@ handler500 = 'blik.views.handler500'
 urlpatterns = [
     path('', views.home, name='home'),
     path('health/', views.health_check, name='health_check'),
+    path('dashboard/revision/', views.dashboard_revision, name='dashboard_revision'),
     path('admin/', admin.site.urls),
 
     # Superuser tools

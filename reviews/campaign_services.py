@@ -19,6 +19,17 @@ QUESTIONNAIRE_FLAG = {
 }
 
 
+def _reviewee_for_profile(profile):
+    if not profile:
+        return None
+    return Reviewee.objects.filter(
+        Q(profile=profile) | Q(
+            organization=profile.organization,
+            email__iexact=profile.user.email,
+        )
+    ).first()
+
+
 def questionnaire_supports(questionnaire, cycle_type):
     flag = QUESTIONNAIRE_FLAG.get(cycle_type)
     return bool(flag and getattr(questionnaire, flag, False))
@@ -106,6 +117,7 @@ def launch_organizational_cycle(
     self_campaign.save(update_fields=['status', 'updated_at'])
 
     assigned_participant_ids = set()
+    assigned_manager_reviews = set()
     for team in sorted(selected_teams, key=lambda selected: selected.name.lower()):
         team_participants = list(campaign_members_for_team(team).filter(
             id__in=participant_ids
@@ -133,42 +145,36 @@ def launch_organizational_cycle(
         peer_campaign.status = 'active'
         peer_campaign.save(update_fields=['status', 'updated_at'])
 
-        if audience_type == 'individuals' or not team.manager_id:
+        if audience_type == 'individuals' or not questionnaires.get('manager'):
             continue
-        manager_reviewee = getattr(team.manager, 'reviewee', None)
-        reviewers = [
-            participant for participant in team_participants
-            if participant.email and (
-                not manager_reviewee or participant.id != manager_reviewee.id
+        manager_groups = {}
+        for participant in team_participants:
+            manager = participant.reporting_manager or team.manager
+            manager_reviewee = _reviewee_for_profile(manager)
+            assignment = (participant.id, getattr(manager_reviewee, 'id', None))
+            if (
+                not participant.email or not manager_reviewee
+                or not manager_reviewee.is_active or participant.id == manager_reviewee.id
+                or assignment in assigned_manager_reviews
+            ):
+                continue
+            assigned_manager_reviews.add(assignment)
+            manager_groups.setdefault(manager_reviewee, []).append(participant)
+        for manager_reviewee, reviewers in manager_groups.items():
+            manager_campaign = ReviewCampaign.objects.create(
+                organization=organization, created_by=created_by, name=name,
+                questionnaire=questionnaires['manager'], target_type='team', team=team,
+                cycle_type='manager', minimum_peer_reviewers=1,
+                start_date=start_date, due_date=due_date, organizational_cycle=parent,
             )
-        ]
-        if not manager_reviewee or not manager_reviewee.is_active or not reviewers:
-            continue
-        manager_campaign = ReviewCampaign.objects.create(
-            organization=organization,
-            created_by=created_by,
-            name=name,
-            questionnaire=questionnaires['manager'],
-            target_type='team',
-            team=team,
-            cycle_type='manager',
-            minimum_peer_reviewers=1,
-            start_date=start_date,
-            due_date=due_date,
-            organizational_cycle=parent,
-        )
-        cycle = _create_cycle(manager_campaign, manager_reviewee)
-        ReviewerToken.objects.bulk_create([
-            ReviewerToken(
-                cycle=cycle,
-                category='direct_report',
-                reviewer_email=participant.email,
-                assigned_team=team,
-            )
-            for participant in reviewers
-        ])
-        manager_campaign.status = 'active'
-        manager_campaign.save(update_fields=['status', 'updated_at'])
+            cycle = _create_cycle(manager_campaign, manager_reviewee)
+            ReviewerToken.objects.bulk_create([
+                ReviewerToken(cycle=cycle, category='direct_report',
+                              reviewer_email=participant.email, assigned_team=team)
+                for participant in reviewers
+            ])
+            manager_campaign.status = 'active'
+            manager_campaign.save(update_fields=['status', 'updated_at'])
 
     unassigned_participant_ids = participant_ids - assigned_participant_ids
     if audience_type == 'entire' and unassigned_participant_ids:
@@ -276,29 +282,32 @@ def launch_campaign(campaign):
 
 
 def _launch_organization_manager_campaign(campaign):
-    """Invite employees to assess each distinct manager of their teams."""
+    """Invite employees to assess their reporting manager, then their team lead."""
     from accounts.models import Team
 
     invited_assignments = set()
     created_cycles = {}
-    teams = Team.objects.for_organization(campaign.organization).filter(
-        manager__isnull=False,
-    ).select_related('manager__reviewee').prefetch_related('members')
+    teams = Team.objects.for_organization(campaign.organization).select_related(
+        'manager__reviewee'
+    ).prefetch_related('members')
     for team in teams:
-        manager_reviewee = getattr(team.manager, 'reviewee', None)
-        if not manager_reviewee or not manager_reviewee.is_active:
-            continue
-        cycle = created_cycles.get(manager_reviewee.id)
-        if not cycle:
-            cycle = _create_cycle(campaign, manager_reviewee)
-            created_cycles[manager_reviewee.id] = cycle
-        for member in team.members.filter(is_active=True).exclude(pk=manager_reviewee.pk):
+        for member in team.members.filter(is_active=True).select_related(
+            'reporting_manager__reviewee'
+        ):
             if not member.email:
                 continue
-            assignment = (manager_reviewee.id, member.email.lower(), team.id)
+            manager = member.reporting_manager or team.manager
+            manager_reviewee = _reviewee_for_profile(manager)
+            if not manager_reviewee or not manager_reviewee.is_active or member == manager_reviewee:
+                continue
+            assignment = (manager_reviewee.id, member.email.lower())
             if assignment in invited_assignments:
                 continue
             invited_assignments.add(assignment)
+            cycle = created_cycles.get(manager_reviewee.id)
+            if not cycle:
+                cycle = _create_cycle(campaign, manager_reviewee)
+                created_cycles[manager_reviewee.id] = cycle
             ReviewerToken.objects.create(
                 cycle=cycle,
                 category='direct_report',

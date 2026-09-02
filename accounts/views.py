@@ -1,16 +1,16 @@
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.shortcuts import render, redirect
-from django.views.decorators.http import require_http_methods
+from django.shortcuts import redirect, render
 from django.utils import timezone
-from django.conf import settings
+from django.views.decorators.http import require_http_methods
 from django_ratelimit.decorators import ratelimit
-from core.models import Organization
-from accounts.models import UserProfile, OrganizationInvitation, PasswordResetToken, Reviewee
-from accounts.services import create_user_with_email_as_username
+
 from accounts.forms import ForgotPasswordForm, ResetPasswordForm
+from accounts.models import OrganizationInvitation, PasswordResetToken, Reviewee, UserProfile
+from accounts.services import create_user_with_email_as_username
 
 
 @require_http_methods(["GET", "POST"])
@@ -72,12 +72,15 @@ def signup_view(request):
     Signup view for invited users.
     Creates account and links to organization from invitation.
     """
-    from django.contrib.auth.models import User
+    def signup_context(invitation):
+        return {
+            'organization': invitation.organization,
+            'invitation_email': invitation.email,
+            'microsoft_sso_enabled': settings.MICROSOFT_SSO_CONFIGURED,
+        }
 
     # Check if there's an invitation in session
     invitation_token = request.session.get('invitation_token')
-    invitation_email = request.session.get('invitation_email')
-
     if not invitation_token:
         messages.error(request, 'Invalid signup link. Please use your invitation email.')
         return redirect('login')
@@ -100,17 +103,11 @@ def signup_view(request):
         # Validate
         if email != invitation.email.lower():
             messages.error(request, f'You must use the invited email: {invitation.email}')
-            return render(request, 'accounts/register.html', {
-                'organization': invitation.organization,
-                'invitation_email': invitation.email
-            })
+            return render(request, 'accounts/register.html', signup_context(invitation))
 
         if password1 != password2:
             messages.error(request, 'Passwords do not match.')
-            return render(request, 'accounts/register.html', {
-                'organization': invitation.organization,
-                'invitation_email': invitation.email
-            })
+            return render(request, 'accounts/register.html', signup_context(invitation))
 
         # Use Django's built-in password validators
         from django.contrib.auth.password_validation import validate_password
@@ -120,10 +117,7 @@ def signup_view(request):
         except ValidationError as e:
             for error in e.messages:
                 messages.error(request, error)
-            return render(request, 'accounts/register.html', {
-                'organization': invitation.organization,
-                'invitation_email': invitation.email
-            })
+            return render(request, 'accounts/register.html', signup_context(invitation))
 
         # Create user using centralized function
         try:
@@ -161,6 +155,8 @@ def signup_view(request):
             user,
             can_create_cycles_for_others=invitation.organization.default_users_can_create_cycles
         )
+        from accounts.invitation_provisioning import apply_invitation_access
+        apply_invitation_access(invitation, profile)
 
         # Mark invitation as accepted
         invitation.accepted_at = timezone.now()
@@ -187,10 +183,7 @@ def signup_view(request):
         return redirect('admin_dashboard')
 
     # GET request - show form
-    return render(request, 'accounts/register.html', {
-        'organization': invitation.organization,
-        'invitation_email': invitation.email
-    })
+    return render(request, 'accounts/register.html', signup_context(invitation))
 
 
 @require_http_methods(["GET", "POST"])
@@ -278,11 +271,12 @@ def reset_password_view(request, token):
 @require_http_methods(["GET", "POST"])
 def profile_view(request):
     """User profile view with editing capabilities and cycle reports."""
-    from accounts.forms import ProfileEditForm
     from django.db.models import Q
-    from reviews.models import ReviewCycle, ReviewerToken
+
+    from accounts.forms import ProfileEditForm
     from reports.models import Report
     from reports.services import get_report_summary
+    from reviews.models import ReviewCycle, ReviewerToken
 
     try:
         profile = request.user.profile

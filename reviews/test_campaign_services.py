@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from accounts.authorization import visible_cycles
 from accounts.factories import RevieweeFactory, UserProfileFactory
-from accounts.models import Team, TeamMembership
+from accounts.models import Reviewee, Team, TeamMembership
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reports.models import Report
@@ -258,6 +258,53 @@ class CampaignServiceTests(TestCase):
             {'Platform', 'Second Team'},
         )
 
+    def test_organization_manager_review_prefers_explicit_reporting_manager(self):
+        reporting_user = UserFactory(email='reporting@example.com')
+        reporting_manager = UserProfileFactory(
+            user=reporting_user, organization=self.org
+        )
+        reporting_reviewee = Reviewee.objects.get(
+            organization=self.org, email=reporting_user.email
+        )
+        self.member_one.reporting_manager = reporting_manager
+        self.member_one.save(update_fields=['reporting_manager', 'updated_at'])
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=False,
+            allow_self_assessment=False, allow_manager_assessment=True,
+        )
+
+        campaign = launch_campaign(ReviewCampaign.objects.create(
+            organization=self.org, created_by=self.manager_user,
+            questionnaire=questionnaire, target_type='organization',
+            cycle_type='manager',
+        ))
+
+        token = campaign.cycles.get(reviewee=reporting_reviewee).tokens.get(
+            reviewer_email=self.member_one.email
+        )
+        self.assertEqual(token.assigned_team, self.team)
+        self.assertFalse(campaign.cycles.filter(
+            reviewee=self.manager_reviewee,
+            tokens__reviewer_email=self.member_one.email,
+        ).exists())
+
+    def test_organization_manager_review_falls_back_to_team_manager(self):
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=False,
+            allow_self_assessment=False, allow_manager_assessment=True,
+        )
+
+        campaign = launch_campaign(ReviewCampaign.objects.create(
+            organization=self.org, created_by=self.manager_user,
+            questionnaire=questionnaire, target_type='organization',
+            cycle_type='manager',
+        ))
+
+        self.assertTrue(campaign.cycles.filter(
+            reviewee=self.manager_reviewee,
+            tokens__reviewer_email=self.member_one.email,
+        ).exists())
+
     def test_organizational_cycle_shares_self_but_splits_peer_and_manager_by_team(self):
         second_manager_user = UserFactory(email='second-lead@example.com')
         second_manager = UserProfileFactory(
@@ -318,6 +365,47 @@ class CampaignServiceTests(TestCase):
             ).count(),
             2,
         )
+
+    def test_full_organisational_cycle_uses_reporting_manager_then_team_fallback(self):
+        reporting_user = UserFactory(email='line-manager@example.com')
+        reporting_manager = UserProfileFactory(
+            user=reporting_user, organization=self.org
+        )
+        reporting_reviewee = Reviewee.objects.get(email=reporting_user.email)
+        self.member_one.reporting_manager = reporting_manager
+        self.member_one.save(update_fields=['reporting_manager', 'updated_at'])
+        questionnaires = {
+            'self': QuestionnaireFactory(
+                organization=self.org, allow_self_assessment=True
+            ),
+            'peer': QuestionnaireFactory(
+                organization=self.org, allow_peer_review=True
+            ),
+            'manager': QuestionnaireFactory(
+                organization=self.org, allow_manager_assessment=True
+            ),
+        }
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires=questionnaires,
+            minimum_peer_reviewers=1,
+        )
+
+        manager_campaigns = parent.campaigns.filter(cycle_type='manager')
+        self.assertTrue(manager_campaigns.filter(
+            cycles__reviewee=reporting_reviewee,
+            cycles__tokens__reviewer_email=self.member_one.email,
+        ).exists())
+        self.assertTrue(manager_campaigns.filter(
+            cycles__reviewee=self.manager_reviewee,
+            cycles__tokens__reviewer_email=self.member_two.email,
+        ).exists())
+        self.assertFalse(manager_campaigns.filter(
+            cycles__reviewee=self.manager_reviewee,
+            cycles__tokens__reviewer_email=self.member_one.email,
+        ).exists())
 
     def test_individual_organisation_audience_without_team_gets_only_self(self):
         unteamed = RevieweeFactory(
