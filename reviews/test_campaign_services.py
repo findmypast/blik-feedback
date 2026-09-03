@@ -663,6 +663,7 @@ class CampaignCreationViewTests(TestCase):
         self.assertEqual(parent.minimum_peer_reviewers, 4)
         send.assert_called_once_with(parent)
         dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertEqual(dashboard.context['active_cycles'], 1)
         self.assertContains(dashboard, 'Organisation cycle progress')
         self.assertContains(dashboard, 'Active Cycles')
         self.assertNotContains(dashboard, '>Organisation Cycles<')
