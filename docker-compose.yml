@@ -38,9 +38,26 @@ services:
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
       - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-}
       - PRODUCT_NAME=${PRODUCT_NAME:-Blik}
+      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      - EMAIL_HOST=${EMAIL_HOST:-mailpit}
+      - EMAIL_PORT=${EMAIL_PORT:-1025}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-False}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-360-feedback@findmypast.com}
     depends_on:
       db:
         condition: service_healthy
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1125}:1025"
+      - "${MAILPIT_UI_PORT:-8125}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
