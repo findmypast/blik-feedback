@@ -2,6 +2,9 @@
 Custom email utilities that use Organization SMTP settings
 """
 import logging
+import re
+from email.mime.image import MIMEImage
+from pathlib import Path
 
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.mail.backends.smtp import EmailBackend
@@ -9,6 +12,74 @@ from django.conf import settings
 from .models import Organization
 
 logger = logging.getLogger(__name__)
+EMAIL_LOGO_CID = 'findmypast-logo'
+
+
+def get_email_brand_name():
+    """Return the public product name used to identify application email."""
+    return getattr(settings, 'PRODUCT_NAME', None) or getattr(
+        settings, 'SITE_NAME', '360 Feedback'
+    )
+
+
+def brand_email_subject(subject):
+    """Prefix a subject consistently without duplicating an existing brand."""
+    brand = get_email_brand_name().strip()
+    subject = str(subject).strip()
+    if subject.casefold().startswith(brand.casefold()):
+        return subject
+    if brand.casefold().endswith('360') and subject.casefold().startswith('360 '):
+        return f'{brand} {subject[4:]}'
+    return f'{brand}: {subject}'
+
+
+def add_email_footer(message, html=False):
+    """Add a branded header and unambiguous notice to application email."""
+    notice = f'This is an automated message from {get_email_brand_name()} Feedback system.'
+    if notice in (message or '') and (
+        not html or 'role="banner"' in (message or '')
+    ):
+        return message
+    if not html:
+        return f'{(message or "").rstrip()}\n\n---\n{notice}\n'
+
+    brand = get_email_brand_name()
+    if brand.casefold().startswith('findmypast'):
+        identity = (
+            f'<img src="cid:{EMAIL_LOGO_CID}" width="180" '
+            f'alt="{brand}" style="display:block;width:180px;max-width:100%;'
+            'height:auto;border:0;margin:0 auto 10px;">'
+            '<div style="color:#232147;font-size:16px;font-weight:700;">'
+            '360 Feedback</div>'
+        )
+    else:
+        identity = (
+            f'<div style="color:#232147;font-size:20px;font-weight:700;">{brand}</div>'
+        )
+    header = (
+        '<div role="banner" style="padding:22px 24px 18px;text-align:center;'
+        'font-family:Arial,sans-serif;background:#ffffff;">'
+        f'{identity}</div>'
+    )
+    footer = (
+        '<div role="contentinfo" style="margin:28px auto 0;padding:18px 24px;'
+        'border-top:1px solid #d8dee8;color:#5f6b7a;font-family:Arial,sans-serif;'
+        'font-size:12px;line-height:1.5;text-align:center;">'
+        f'{notice}</div>'
+    )
+    html_message = message or ''
+    body_open = re.search(r'<body\b[^>]*>', html_message, flags=re.IGNORECASE)
+    if body_open:
+        html_message = (
+            f'{html_message[:body_open.end()]}{header}{html_message[body_open.end():]}'
+        )
+    else:
+        html_message = f'{header}{html_message}'
+    lower_message = html_message.lower()
+    body_end = lower_message.rfind('</body>')
+    if body_end >= 0:
+        return f'{html_message[:body_end]}{footer}{html_message[body_end:]}'
+    return f'{html_message}{footer}'
 
 
 def get_email_backend():
@@ -69,15 +140,24 @@ def send_email(subject, message, recipient_list, html_message=None, from_email=N
     backend = get_email_backend()
 
     email = EmailMultiAlternatives(
-        subject=subject,
-        body=message,
+        subject=brand_email_subject(subject),
+        body=add_email_footer(message),
         from_email=from_email,
         to=recipient_list,
         connection=backend,
     )
 
     if html_message:
-        email.attach_alternative(html_message, 'text/html')
+        email.attach_alternative(add_email_footer(html_message, html=True), 'text/html')
+        if get_email_brand_name().casefold().startswith('findmypast'):
+            logo_path = Path(settings.BASE_DIR) / 'static' / 'img' / 'findmypast-logo-email.png'
+            if logo_path.exists():
+                logo = MIMEImage(logo_path.read_bytes(), _subtype='png')
+                logo.add_header('Content-ID', f'<{EMAIL_LOGO_CID}>')
+                logo.add_header(
+                    'Content-Disposition', 'inline', filename='findmypast-logo.png'
+                )
+                email.attach(logo)
 
     return email.send()
 

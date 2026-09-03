@@ -1,7 +1,6 @@
-from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
 from django.core.management.base import BaseCommand
 from django.template.loader import render_to_string
+from core.email import send_email
 
 
 class Command(BaseCommand):
@@ -24,20 +23,15 @@ class Command(BaseCommand):
             "feedback_url": "https://example.test/feedback/sample-token/",
         }
 
-        email = EmailMultiAlternatives(
+        sent = send_email(
             subject="[Test] 360 Feedback Request",
-            body=(
+            message=(
                 "You have been invited to provide Peer feedback for Alex Example.\n\n"
                 f"Complete the sample review: {context['feedback_url']}"
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[recipient],
+            recipient_list=[recipient],
+            html_message=render_to_string("emails/reviewer_invitation.html", context),
         )
-        email.attach_alternative(
-            render_to_string("emails/reviewer_invitation.html", context),
-            "text/html",
-        )
-        sent = email.send(fail_silently=False)
 
         if sent != 1:
             raise RuntimeError("The email backend did not accept the test email")

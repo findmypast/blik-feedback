@@ -3,7 +3,6 @@ from django.http import HttpResponse
 from django.conf import settings
 from django.urls import reverse
 from django.contrib import messages
-from django.core.mail import send_mail
 from django.template.loader import render_to_string
 import uuid
 import logging
@@ -467,13 +466,12 @@ def dreyfus_capture_email(request):
                 text_message = render_to_string('emails/assessment_report.txt', email_context)
 
                 logger.debug(f"Attempting to send email to: {email}")
-                send_mail(
+                from core.email import send_email
+                send_email(
                     subject='Your Developer Skills Assessment Results',
                     message=text_message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[email],
                     html_message=html_message,
-                    fail_silently=False,
                 )
 
                 logger.debug(f"Assessment report email sent successfully to: {email}")
