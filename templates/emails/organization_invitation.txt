@@ -9,6 +9,8 @@ Role: {{ role_name }}
 {% if team_names %}Team{% if team_names|length > 1 %}s{% endif %}: {{ team_names|join:", " }}
 {% else %}You will initially join without a team assignment.
 {% endif %}
+{% if reporting_manager_name %}Reporting manager: {{ reporting_manager_name }}
+{% endif %}
 Accept your invitation: {{ accept_url }}
 
 You can sign in with Microsoft or create a password. This invitation expires on {{ expires_at|date:"j F Y" }}.

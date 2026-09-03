@@ -24,6 +24,9 @@
                 {% else %}
                     <p style="margin:10px 0 0;color:#4b5563;">You’ll initially join without a team assignment. An administrator can add one later.</p>
                 {% endif %}
+                {% if reporting_manager_name %}
+                    <p style="margin:10px 0 0;color:#4b5563;">Reporting manager: <strong>{{ reporting_manager_name }}</strong></p>
+                {% endif %}
             </div>
 
             <p style="line-height:1.65;">Accept your invitation to sign in with Microsoft or create a password and finish setting up your account.</p>

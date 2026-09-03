@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -209,7 +210,7 @@ class UserInvitationTestCase(TestCase):
         team = Team.objects.create(
             organization=self.org, name='Engineering', manager=self.profile
         )
-        with patch('accounts.invitation_views.send_email'):
+        with patch('accounts.invitation_views.send_email') as send_email:
             self.client.post(reverse('send_invitation'), {
                 'email': 'member@test.local',
                 'team': team.id,
@@ -219,6 +220,12 @@ class UserInvitationTestCase(TestCase):
         invitation = OrganizationInvitation.objects.get(email='member@test.local')
         self.assertEqual(invitation.reporting_manager, self.profile)
         self.assertEqual(invitation.pending_reporting_manager_email, '')
+        email = send_email.call_args.kwargs
+        self.assertEqual(email['subject'], f'Welcome to {settings.PRODUCT_NAME}')
+        self.assertIn('Role: <strong>Member</strong>', email['html_message'])
+        self.assertIn('Team: <strong>Engineering</strong>', email['html_message'])
+        self.assertIn('Reporting manager:', email['html_message'])
+        self.assertIn(self.user.get_full_name(), email['html_message'])
 
     def test_invitation_normalizes_entered_names(self):
         team = Team.objects.create(

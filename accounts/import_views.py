@@ -56,6 +56,14 @@ def _send_import_invitation(request, invitation):
         if invitation.organization_role_id
         else invitation.get_requested_role_display() or 'Member'
     )
+    reporting_manager_name = ''
+    if invitation.reporting_manager_id:
+        reporting_manager_name = (
+            invitation.reporting_manager.user.get_full_name()
+            or invitation.reporting_manager.user.email
+        )
+    elif invitation.pending_reporting_manager_email:
+        reporting_manager_name = invitation.pending_reporting_manager_email
     context = {
         'accept_url': url,
         'expires_at': invitation.expires_at,
@@ -63,6 +71,7 @@ def _send_import_invitation(request, invitation):
         'invitation': invitation,
         'organization': organization,
         'product_name': settings.PRODUCT_NAME,
+        'reporting_manager_name': reporting_manager_name,
         'role_name': role_name,
         'team_names': team_names,
     }

@@ -2,6 +2,7 @@
 Views for organization invitations
 """
 from datetime import timedelta
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
@@ -9,6 +10,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.template.loader import render_to_string
 from accounts.models import OrganizationInvitation, Reviewee, Team, UserProfile
 from accounts.name_utils import normalize_name_part
 from accounts.permissions import organization_admin_required
@@ -136,45 +138,42 @@ def send_invitation(request):
             reverse('accept_invitation', kwargs={'token': invitation.token})
         )
 
-        team_message = (
-            f' on the <strong>{team.name}</strong> team' if team else ''
+        role_name = (
+            invitation.organization_role.name
+            if invitation.organization_role_id
+            else invitation.get_requested_role_display() or 'Member'
         )
+        reporting_manager_name = ''
+        if invitation.reporting_manager_id:
+            reporting_manager_name = (
+                invitation.reporting_manager.user.get_full_name()
+                or invitation.reporting_manager.user.email
+            )
+        elif invitation.pending_reporting_manager_email:
+            reporting_manager_name = invitation.pending_reporting_manager_email
+        email_context = {
+            'accept_url': invite_url,
+            'expires_at': invitation.expires_at,
+            'first_name': first_name,
+            'invitation': invitation,
+            'organization': org,
+            'product_name': settings.PRODUCT_NAME,
+            'reporting_manager_name': reporting_manager_name,
+            'role_name': role_name,
+            'team_names': [team.name] if team else [],
+        }
 
         # Send invitation email
         try:
             send_email(
-                subject=f'Invitation to join {org.name} on Blik',
-                message=f'''
-Hello{f' {first_name}' if first_name else ''},
-
-You've been invited to join {org.name} on Blik 360 Feedback Platform.
-
-Click the link below to accept this invitation and create your account:
-{invite_url}
-
-This invitation will expire in 7 days.
-
-Best regards,
-{org.name} Team
-                '''.strip(),
+                subject=f'Welcome to {settings.PRODUCT_NAME}',
+                message=render_to_string(
+                    'emails/organization_invitation.txt', email_context
+                ),
                 recipient_list=[email],
-                html_message=f'''
-<!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-        <h2>You're Invited!</h2>
-        <p>Hello{f' {first_name}' if first_name else ''},</p>
-        <p>You've been invited to join <strong>{org.name}</strong>{team_message} in Blik 360 Feedback Platform.</p>
-        <p style="margin: 30px 0;">
-            <a href="{invite_url}" style="display: inline-block; padding: 12px 24px; background-color: #4f46e5; color: white; text-decoration: none; border-radius: 8px;">Accept Invitation</a>
-        </p>
-        <p style="color: #666; font-size: 14px;">This invitation will expire in 7 days.</p>
-        <p>Best regards,<br>{org.name} Team</p>
-    </div>
-</body>
-</html>
-                ''',
+                html_message=render_to_string(
+                    'emails/organization_invitation.html', email_context
+                ),
                 from_email=org.from_email if org.from_email else None
             )
             messages.success(request, f'Invitation sent to {email}')
