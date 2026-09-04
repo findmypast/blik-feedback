@@ -26,7 +26,8 @@ from accounts.models import (
 from accounts.permissions import can_view_all_reports, visible_cycles
 from accounts.authorization import (
     can_edit_questionnaire, descendant_team_ids, visible_reviewees,
-    visible_invitations, visible_profiles, led_teams, manageable_teams,
+    visible_invitations, visible_profiles, visible_reports, led_teams,
+    manageable_teams,
 )
 from reviews.models import ReviewCampaign, ReviewCycle, ReviewerToken
 from reviews.services import (
@@ -177,9 +178,10 @@ def dashboard(request):
     subscription_status = get_subscription_status(org) if org else None
 
     # Recent reports the current user is permitted to see.
-    recent_reports = Report.objects.filter(
-        cycle__in=cycles_qs,
-        available=True,
+    recent_reports = visible_reports(
+        request.user,
+        Report.objects.for_organization(org).filter(available=True),
+        org,
     ).select_related(
         'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign',
         'cycle__campaign__team', 'cycle__campaign__organizational_cycle',
@@ -2195,12 +2197,12 @@ def organisation_cycle_detail(request, cycle_uuid):
 @login_required
 def report_list(request):
     """List generated reports within the user's effective authorization scope."""
-    cycles = visible_cycles(
+    reports = visible_reports(
         request.user,
-        ReviewCycle.objects.for_organization(request.organization),
-    )
-    reports = Report.objects.filter(
-        cycle__in=cycles, available=True
+        Report.objects.for_organization(request.organization).filter(
+            available=True
+        ),
+        request.organization,
     ).select_related(
         'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign',
         'cycle__campaign__team', 'cycle__campaign__organizational_cycle',
@@ -2760,16 +2762,32 @@ def nominate_peer_reviewers(request, cycle_uuid):
     )
     if not is_reviewee and not _can_manage_campaign(request.user, cycle.campaign, org):
         raise Http404
-    candidates = Reviewee.objects.for_organization(org).filter(
+    candidates_qs = Reviewee.objects.for_organization(org).filter(
         is_active=True,
-    ).exclude(id=cycle.reviewee_id).order_by('name')
+    ).exclude(id=cycle.reviewee_id).select_related('team').prefetch_related(
+        'teams'
+    ).order_by('name')
     direct_manager_candidate_ids = set()
     direct_manager = cycle.reviewee.reporting_manager
     if direct_manager:
-        direct_manager_candidate_ids.update(candidates.filter(
+        direct_manager_candidate_ids.update(candidates_qs.filter(
             Q(profile=direct_manager)
             | Q(email__iexact=direct_manager.user.email)
         ).values_list('id', flat=True))
+    candidates = list(candidates_qs.exclude(id__in=direct_manager_candidate_ids))
+    for candidate in candidates:
+        candidate_teams = {team.id: team for team in candidate.teams.all()}
+        if candidate.team_id:
+            candidate_teams[candidate.team_id] = candidate.team
+        candidate.peer_teams = sorted(
+            candidate_teams.values(), key=lambda team: team.name.casefold()
+        )
+        candidate.peer_team_ids = ' '.join(
+            str(team.id) for team in candidate.peer_teams
+        ) or 'unassigned'
+        candidate.peer_team_names = ', '.join(
+            team.name for team in candidate.peer_teams
+        )
     existing_emails = {
         email.lower() for email in cycle.tokens.filter(category='peer').exclude(
             reviewer_email__isnull=True
@@ -2795,9 +2813,14 @@ def nominate_peer_reviewers(request, cycle_uuid):
 
     if request.method == 'POST':
         selected_ids = request.POST.getlist('reviewers')
-        selected = list(candidates.filter(id__in=selected_ids).exclude(
-            id__in=direct_manager_candidate_ids
-        ))
+        selected_id_set = {
+            int(selected_id) for selected_id in selected_ids
+            if selected_id.isdigit()
+        }
+        selected = [
+            candidate for candidate in candidates
+            if candidate.id in selected_id_set
+        ]
         selected_emails = {person.email.lower() for person in selected if person.email}
         desired_emails = selected_emails | protected_emails
         minimum_reviewers = cycle.campaign.minimum_peer_reviewers
@@ -4045,6 +4068,9 @@ def settings_view(request):
                 profile.managed_team_list or profile.lead_grants_list
             )
             profile.is_reporting_manager = profile.id in reporting_manager_ids
+            profile.reporting_manager_id = (
+                reviewee.reporting_manager_id if reviewee else None
+            )
         context.update({
             'organization_roles': organization_roles,
             'role_permission_fields': [
@@ -4250,6 +4276,15 @@ def manage_organization_person(request):
         })
         teams = list(selected_by_id.values())
         can_create = request.POST.get('can_create_cycles_for_others') == 'on'
+        reporting_manager_id = request.POST.get('reporting_manager') or None
+        reporting_manager = None
+        if reporting_manager_id:
+            reporting_manager = get_object_or_404(
+                UserProfile.objects.for_organization(organization).filter(
+                    user__is_active=True
+                ).exclude(pk=profile.pk),
+                pk=reporting_manager_id,
+            )
 
         lead_team_ids = {
             int(value) for value in request.POST.getlist('lead_teams') if value.isdigit()
@@ -4317,7 +4352,12 @@ def manage_organization_person(request):
             reviewee.email = email
             reviewee.is_active = True
             reviewee.team = teams[0] if teams else None
-            reviewee.save(update_fields=['email', 'is_active', 'team', 'updated_at'])
+            reviewee.reporting_manager = reporting_manager
+            reviewee.pending_reporting_manager_email = ''
+            reviewee.save(update_fields=[
+                'email', 'is_active', 'team', 'reporting_manager',
+                'pending_reporting_manager_email', 'updated_at',
+            ])
             reviewee.teams.set(teams)
             transfer_notifications = [
                 (

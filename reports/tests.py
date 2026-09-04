@@ -3,9 +3,10 @@ from unittest.mock import patch
 from django.test import RequestFactory, TestCase, override_settings
 from django.contrib.auth.models import User
 from core.models import Organization
-from accounts.models import UserProfile, Reviewee
+from accounts.models import Team, UserProfile, Reviewee
 from questionnaires.models import Questionnaire, QuestionSection, Question
 from reviews.models import ReviewCycle, ReviewerToken, Response
+from .models import Report
 from .services import generate_report, apply_display_anonymization
 
 
@@ -595,6 +596,72 @@ class ReportAccessControlTestCase(TestCase):
             response,
             self.reverse('reports:reviewee_report', args=[self.report.access_token]),
         )
+
+    def test_reporting_manager_can_view_reports_from_a_report_leads_team(self):
+        senior_profile = UserProfile.objects.get(user=self.user2)
+        lead = User.objects.create_user(
+            username='lead', email='lead@example.org', password='pw'
+        )
+        lead_profile = UserProfile.objects.create(
+            user=lead, organization=self.org
+        )
+        lead_reviewee = Reviewee.objects.get(
+            organization=self.org, email=lead.email
+        )
+        lead_reviewee.profile = lead_profile
+        lead_reviewee.reporting_manager = senior_profile
+        lead_reviewee.save(update_fields=[
+            'profile', 'reporting_manager', 'updated_at',
+        ])
+        team = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=lead_profile
+        )
+        self.cycle.reviewee.team = team
+        self.cycle.reviewee.save(update_fields=['team', 'updated_at'])
+        self.cycle.reviewee.teams.add(team)
+        self.client.force_login(self.user2)
+
+        report_response = self.client.get(
+            self.reverse('reports:view_report', args=[self.cycle.uuid])
+        )
+        report_list = self.client.get(self.reverse('report_list'))
+        cycle_list = self.client.get(self.reverse('review_cycle_list'))
+        regenerate = self.client.post(
+            self.reverse('reports:regenerate_report', args=[self.cycle.uuid])
+        )
+
+        self.assertEqual(report_response.status_code, 200)
+        self.assertContains(report_list, str(self.cycle.uuid))
+        self.assertNotContains(cycle_list, str(self.cycle.uuid))
+        self.assertEqual(regenerate.status_code, 404)
+
+    def test_inherited_report_scope_does_not_generate_a_missing_report(self):
+        senior_profile = UserProfile.objects.get(user=self.user2)
+        lead = User.objects.create_user(
+            username='lead-no-report', email='lead-no-report@example.org', password='pw'
+        )
+        lead_profile = UserProfile.objects.create(
+            user=lead, organization=self.org
+        )
+        lead_reviewee = Reviewee.objects.get(
+            organization=self.org, email=lead.email
+        )
+        lead_reviewee.reporting_manager = senior_profile
+        lead_reviewee.save(update_fields=['reporting_manager', 'updated_at'])
+        team = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=lead_profile
+        )
+        self.cycle.reviewee.team = team
+        self.cycle.reviewee.save(update_fields=['team', 'updated_at'])
+        self.report.delete()
+        self.client.force_login(self.user2)
+
+        response = self.client.get(
+            self.reverse('reports:view_report', args=[self.cycle.uuid])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(Report.objects.filter(cycle=self.cycle).exists())
 
 
 @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')

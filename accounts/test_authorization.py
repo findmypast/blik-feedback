@@ -1,7 +1,7 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from accounts.authorization import effective_scope
+from accounts.authorization import effective_report_scope, effective_scope
 from accounts.factories import RevieweeFactory, UserProfileFactory
 from accounts.models import Team, TeamLeadGrant, TeamLeadRevocation
 from core.factories import OrganizationFactory, UserFactory
@@ -86,6 +86,47 @@ class EffectiveScopeTests(TestCase):
             profile=self.profile, team=self.root, include_descendants=True
         )
         self.assertNotIn(self.cross_org.id, self.ids())
+
+    def test_reporting_manager_inherits_direct_reports_effective_lead_scope_for_reports_only(self):
+        lead_user = UserFactory(email='lead@example.test')
+        lead_profile = UserProfileFactory(user=lead_user, organization=self.org)
+        lead_reviewee = self.org.reviewees.get(email=lead_user.email)
+        lead_reviewee.profile = lead_profile
+        lead_reviewee.reporting_manager = self.profile
+        lead_reviewee.save(update_fields=['profile', 'reporting_manager'])
+        self.root.manager = lead_profile
+        self.root.save(update_fields=['manager'])
+
+        self.assertNotIn(self.root_member.id, self.ids())
+        self.assertIn(
+            self.root_member.id,
+            effective_report_scope(self.user, self.org).reviewee_ids,
+        )
+
+    def test_inherited_report_scope_is_recursive_and_respects_revocations(self):
+        middle_user = UserFactory(email='middle@example.test')
+        middle = UserProfileFactory(user=middle_user, organization=self.org)
+        middle_reviewee = self.org.reviewees.get(email=middle_user.email)
+        middle_reviewee.profile = middle
+        middle_reviewee.reporting_manager = self.profile
+        middle_reviewee.save(update_fields=['profile', 'reporting_manager'])
+        lead_user = UserFactory(email='nested-lead@example.test')
+        lead = UserProfileFactory(user=lead_user, organization=self.org)
+        lead_reviewee = self.org.reviewees.get(email=lead_user.email)
+        lead_reviewee.profile = lead
+        lead_reviewee.reporting_manager = middle
+        lead_reviewee.save(update_fields=['profile', 'reporting_manager'])
+        grant = TeamLeadGrant.objects.create(
+            profile=lead, team=self.root, include_descendants=True
+        )
+        TeamLeadRevocation.objects.create(grant=grant, team=self.child)
+
+        report_ids = effective_report_scope(
+            self.user, self.org
+        ).reviewee_ids
+        self.assertIn(self.root_member.id, report_ids)
+        self.assertNotIn(self.child_member.id, report_ids)
+        self.assertNotIn(self.cross_org.id, report_ids)
 
     def test_direct_api_identifier_returns_not_found_outside_scope(self):
         self.client.force_login(self.user)

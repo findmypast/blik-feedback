@@ -5,7 +5,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404
 from django.views.decorators.http import require_http_methods
 from accounts.permissions import can_view_all_reports
-from accounts.authorization import visible_cycles
+from accounts.authorization import visible_cycles, visible_report_cycles
 from reviews.models import ReviewCycle
 from .models import Report
 from .services import generate_report, get_report_summary, apply_display_anonymization
@@ -52,17 +52,25 @@ def view_report(request, cycle_uuid):
         cycle = get_object_or_404(
             ReviewCycle.objects.select_related('reviewee'), uuid=cycle_uuid
         )
-        can_access = visible_cycles(
+        can_manage_or_own = visible_cycles(
             request.user, ReviewCycle.objects.filter(pk=cycle.pk), request.organization
         ).exists()
-        if not is_own_cycle(request.user, cycle) and not can_access:
+        can_view_generated_report = visible_report_cycles(
+            request.user, ReviewCycle.objects.filter(pk=cycle.pk),
+            request.organization,
+        ).exists()
+        if not is_own_cycle(request.user, cycle) and not can_view_generated_report:
             raise Http404
-        try:
-            report = Report.objects.filter(cycle=cycle).first() or generate_report(cycle)
-        except ValidationError as exc:
-            return render(request, 'reports/report_not_ready.html', {
-                'cycle': cycle, 'error': '; '.join(exc.messages),
-            })
+        report = Report.objects.filter(cycle=cycle, available=True).first()
+        if not report and not can_manage_or_own:
+            raise Http404
+        if not report:
+            try:
+                report = generate_report(cycle)
+            except ValidationError as exc:
+                return render(request, 'reports/report_not_ready.html', {
+                    'cycle': cycle, 'error': '; '.join(exc.messages),
+                })
         if is_own_cycle(request.user, cycle):
             return redirect('reports:reviewee_report', access_token=report.access_token)
         summary = get_report_summary(report)
@@ -148,7 +156,7 @@ def reviewee_report(request, access_token):
     # report owner or their existing management scope. Completing a peer review
     # never grants access to the reviewee's resulting report.
     if request.user.is_authenticated:
-        can_access = visible_cycles(
+        can_access = visible_report_cycles(
             request.user,
             ReviewCycle.objects.filter(pk=cycle.pk),
             request.organization,

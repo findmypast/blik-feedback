@@ -927,7 +927,7 @@ class PeerNominationFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
-    def test_direct_manager_is_visible_but_cannot_be_selected_as_a_peer(self):
+    def test_direct_manager_is_not_listed_as_a_peer(self):
         self.member.reporting_manager = self.manager
         self.member.save(update_fields=['reporting_manager', 'updated_at'])
         manager_reviewee = self.manager.reviewee
@@ -937,11 +937,7 @@ class PeerNominationFlowTests(TestCase):
             reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
         )
 
-        self.assertContains(response, 'Direct manager — unavailable')
-        self.assertContains(
-            response,
-            f'name="reviewers" value="{manager_reviewee.id}"  disabled',
-        )
+        self.assertNotContains(response, manager_reviewee.email)
 
         response = self.client.post(
             reverse('nominate_peer_reviewers', args=[self.cycle.uuid]),
@@ -974,6 +970,35 @@ class PeerNominationFlowTests(TestCase):
         self.assertContains(response, 'id="peerSearch"')
         self.assertContains(response, 'id="peerTeamFilter"')
         self.assertContains(response, self.team.name)
+
+    def test_peer_picker_filters_candidates_by_every_team_membership(self):
+        second_team = Team.objects.create(
+            organization=self.org, name='Engineering'
+        )
+        self.peer.teams.add(self.team, second_team)
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertContains(
+            response,
+            f'data-teams="{second_team.id} {self.team.id}"',
+        )
+        self.assertContains(response, 'Engineering, Product')
+
+    def test_peer_picker_shows_the_campaign_minimum(self):
+        self.campaign.minimum_peer_reviewers = 4
+        self.campaign.save(update_fields=['minimum_peer_reviewers'])
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertContains(response, 'Choose at least 4 people')
+        self.assertContains(response, 'const minimumReviewers=4;')
 
     @patch('blik.admin_views.send_reviewer_invitations')
     def test_manager_can_edit_peer_reviewers_organization_wide(self, send):

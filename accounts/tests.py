@@ -354,8 +354,10 @@ class OrganizationPeopleSettingsTestCase(TestCase):
     def test_admin_can_search_people_by_name_or_email(self):
         response = self.client.get(reverse('settings'), {'user_q': 'unassigned@'})
 
-        self.assertContains(response, 'Amy Member')
-        self.assertNotContains(response, 'Zoe Admin')
+        result_ids = {
+            profile.id for profile in response.context['organization_people']
+        }
+        self.assertEqual(result_ids, {self.member_profile.id})
 
     def test_team_list_is_condensed_after_two_teams(self):
         teams = [
@@ -393,6 +395,33 @@ class OrganizationPeopleSettingsTestCase(TestCase):
         self.assertEqual(
             set(self.member_profile.reviewee.teams.values_list('id', flat=True)),
             {team.id},
+        )
+
+    def test_admin_can_edit_a_members_reporting_manager(self):
+        manager_user = UserFactory(
+            email='manager@example.com', first_name='Morgan', last_name='Manager'
+        )
+        manager_profile = UserProfileFactory(
+            user=manager_user, organization=self.org
+        )
+
+        page = self.client.get(reverse('settings'))
+        self.assertContains(page, 'name="reporting_manager"')
+        self.assertContains(page, manager_user.email)
+
+        response = self.client.post(reverse('manage_organization_person'), {
+            'action': 'update_user',
+            'user_profile_id': self.member_profile.id,
+            'email': self.member.email,
+            'status': 'active',
+            'role': 'member',
+            'reporting_manager': manager_profile.id,
+        })
+
+        self.assertRedirects(response, reverse('settings') + '#people')
+        self.member_reviewee.refresh_from_db()
+        self.assertEqual(
+            self.member_reviewee.reporting_manager, manager_profile
         )
 
     def test_organization_admin_can_also_be_a_scoped_team_leader(self):

@@ -14,7 +14,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 
 from accounts.models import Reviewee
 from accounts.permissions import visible_cycles
-from accounts.authorization import visible_reviewees
+from accounts.authorization import visible_reports, visible_reviewees
 from reviews.models import ReviewCycle, ReviewerToken
 from questionnaires.models import Questionnaire
 from reports.models import Report
@@ -676,12 +676,12 @@ class ReportViewSet(viewsets.ReadOnlyModelViewSet):
         detail view hands out access_token, which is an unauthenticated URL.
         """
         org = self.request.organization
-        return visible_cycles(
+        return visible_reports(
             self.request.user,
             Report.objects.for_organization(org).select_related(
                 "cycle__reviewee", "cycle__questionnaire"
             ),
-            email_field="cycle__reviewee__email",
+            org,
         )
 
     @extend_schema(

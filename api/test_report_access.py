@@ -9,7 +9,7 @@ an unauthenticated URL to the full report.
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from accounts.models import Organization, Reviewee, User, UserProfile
+from accounts.models import Organization, Reviewee, Team, User, UserProfile
 from accounts.permissions import assign_organization_admin
 from api.models import APIToken
 from questionnaires.models import Questionnaire
@@ -96,5 +96,53 @@ class ReportApiAccessControlTest(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token.token}')
 
         response = self.client.get(f'/api/v1/reports/{self.report.uuid}/')
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_reporting_manager_can_read_report_from_a_report_leads_team(self):
+        senior_profile = UserProfile.objects.get(user=self.user2)
+        lead = User.objects.create_user(
+            username='lead', email='lead@example.org', password='pw'
+        )
+        lead_profile = UserProfile.objects.create(
+            user=lead, organization=self.org
+        )
+        lead_reviewee = Reviewee.objects.get(
+            organization=self.org, email=lead.email
+        )
+        lead_reviewee.reporting_manager = senior_profile
+        lead_reviewee.save(update_fields=['reporting_manager', 'updated_at'])
+        team = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=lead_profile
+        )
+        self.cycle.reviewee.team = team
+        self.cycle.reviewee.save(update_fields=['team', 'updated_at'])
+        self.client.force_login(self.user2)
+
+        response = self.client.get(f'/api/v1/reports/{self.report.uuid}/')
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_reporting_manager_does_not_inherit_cycle_api_access(self):
+        senior_profile = UserProfile.objects.get(user=self.user2)
+        lead = User.objects.create_user(
+            username='cycle-lead', email='cycle-lead@example.org', password='pw'
+        )
+        lead_profile = UserProfile.objects.create(
+            user=lead, organization=self.org
+        )
+        lead_reviewee = Reviewee.objects.get(
+            organization=self.org, email=lead.email
+        )
+        lead_reviewee.reporting_manager = senior_profile
+        lead_reviewee.save(update_fields=['reporting_manager', 'updated_at'])
+        team = Team.objects.create(
+            organization=self.org, name='Odyssey', manager=lead_profile
+        )
+        self.cycle.reviewee.team = team
+        self.cycle.reviewee.save(update_fields=['team', 'updated_at'])
+        self.client.force_login(self.user2)
+
+        response = self.client.get(f'/api/v1/cycles/{self.cycle.uuid}/')
 
         self.assertEqual(response.status_code, 404)
