@@ -120,7 +120,10 @@ def get_from_email():
     return settings.DEFAULT_FROM_EMAIL
 
 
-def send_email(subject, message, recipient_list, html_message=None, from_email=None):
+def send_email(
+    subject, message, recipient_list, html_message=None, from_email=None,
+    connection=None,
+):
     """
     Send email using Organization SMTP settings.
 
@@ -137,7 +140,7 @@ def send_email(subject, message, recipient_list, html_message=None, from_email=N
     if from_email is None:
         from_email = get_from_email()
 
-    backend = get_email_backend()
+    backend = connection or get_email_backend()
 
     email = EmailMultiAlternatives(
         subject=brand_email_subject(subject),

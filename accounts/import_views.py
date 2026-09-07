@@ -14,7 +14,7 @@ from accounts.people_import import (
     read_people_file,
     validate_people_import,
 )
-from core.email import send_email
+from core.email import get_email_backend, send_email
 
 
 def _admin_organization(request):
@@ -41,7 +41,7 @@ def _public_preview(preview):
     return {key: value for key, value in preview.items() if not key.startswith('_')}
 
 
-def _send_import_invitation(request, invitation):
+def _send_import_invitation(request, invitation, connection=None):
     url = request.build_absolute_uri(
         reverse('accept_invitation', kwargs={'token': invitation.token})
     )
@@ -81,6 +81,7 @@ def _send_import_invitation(request, invitation):
         recipient_list=[invitation.email],
         html_message=render_to_string('emails/organization_invitation.html', context),
         from_email=organization.from_email or None,
+        connection=connection,
     )
 
 
@@ -139,9 +140,14 @@ def people_import_commit(request):
         return JsonResponse({'error': '; '.join(exc.messages)}, status=400)
 
     email_failures = []
-    for invitation in invitations:
-        try:
-            _send_import_invitation(request, invitation)
-        except Exception:  # noqa: BLE001 - each failed delivery must be reported separately
-            email_failures.append(invitation.email)
+    connection = get_email_backend()
+    try:
+        connection.open()
+        for invitation in invitations:
+            try:
+                _send_import_invitation(request, invitation, connection=connection)
+            except Exception:  # noqa: BLE001 - each failed delivery must be reported separately
+                email_failures.append(invitation.email)
+    finally:
+        connection.close()
     return JsonResponse({'ok': True, 'counts': counts, 'email_failures': email_failures})

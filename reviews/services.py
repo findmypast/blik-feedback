@@ -7,7 +7,7 @@ from django.template.loader import render_to_string
 from django.conf import settings
 from django.urls import reverse
 from django.db import transaction
-from core.email import send_email
+from core.email import get_email_backend, send_email
 from datetime import timedelta
 from django.db.models import Q
 from accounts.permissions import can_manage_organization
@@ -196,7 +196,7 @@ def assign_tokens_to_emails(cycle, email_assignments):
     return stats
 
 
-def send_reviewer_invitations(cycle, token_ids=None):
+def send_reviewer_invitations(cycle, token_ids=None, connection=None):
     """
     Send email invitations to reviewers.
 
@@ -223,43 +223,52 @@ def send_reviewer_invitations(cycle, token_ids=None):
         # Only send to tokens that haven't been sent yet and aren't completed
         tokens = tokens.filter(invitation_sent_at__isnull=True, completed_at__isnull=True)
 
-    for token in tokens:
-        try:
-            # Generate feedback URL
-            feedback_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/feedback/{token.token}/"
+    owns_connection = connection is None
+    connection = connection or get_email_backend()
+    try:
+        if owns_connection:
+            connection.open()
+        for token in tokens:
+            try:
+                feedback_url = (
+                    f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}"
+                    f"/feedback/{token.token}/"
+                )
+                context = {
+                    'reviewee_name': cycle.reviewee.name,
+                    'category': token.get_category_display(),
+                    'feedback_url': feedback_url,
+                    'questionnaire_name': cycle.questionnaire.name,
+                }
+                html_message = render_to_string(
+                    'emails/reviewer_invitation.html', context
+                )
+                text_message = render_to_string(
+                    'emails/reviewer_invitation.txt', context
+                )
+                send_email(
+                    subject=f'360 Feedback Request: {cycle.reviewee.name}',
+                    message=text_message,
+                    recipient_list=[token.reviewer_email],
+                    html_message=html_message,
+                    connection=connection,
+                )
 
-            # Render email templates
-            context = {
-                'reviewee_name': cycle.reviewee.name,
-                'category': token.get_category_display(),
-                'feedback_url': feedback_url,
-                'questionnaire_name': cycle.questionnaire.name,
-            }
+                token.invitation_sent_at = timezone.now()
+                token.save()
 
-            html_message = render_to_string('emails/reviewer_invitation.html', context)
-            text_message = render_to_string('emails/reviewer_invitation.txt', context)
+                stats['sent'] += 1
 
-            # Send email
-            send_email(
-                subject=f'360 Feedback Request: {cycle.reviewee.name}',
-                message=text_message,
-                recipient_list=[token.reviewer_email],
-                html_message=html_message,
-            )
-
-            # Mark as sent
-            token.invitation_sent_at = timezone.now()
-            token.save()
-
-            stats['sent'] += 1
-
-        except Exception as e:
-            stats['errors'].append(f"Failed to send to {token.reviewer_email}: {str(e)}")
+            except Exception as e:
+                stats['errors'].append(f"Failed to send to {token.reviewer_email}: {str(e)}")
+    finally:
+        if owns_connection:
+            connection.close()
 
     return stats
 
 
-def send_reminder_emails(cycle, token_ids=None):
+def send_reminder_emails(cycle, token_ids=None, connection=None):
     """
     Send reminder emails to reviewers who haven't completed feedback.
 
@@ -285,43 +294,52 @@ def send_reminder_emails(cycle, token_ids=None):
     if token_ids:
         tokens = tokens.filter(id__in=token_ids)
 
-    for token in tokens:
-        try:
-            # Generate feedback URL
-            feedback_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/feedback/{token.token}/"
+    owns_connection = connection is None
+    connection = connection or get_email_backend()
+    try:
+        if owns_connection:
+            connection.open()
+        for token in tokens:
+            try:
+                feedback_url = (
+                    f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}"
+                    f"/feedback/{token.token}/"
+                )
+                context = {
+                    'reviewee_name': cycle.reviewee.name,
+                    'category': token.get_category_display(),
+                    'feedback_url': feedback_url,
+                    'questionnaire_name': cycle.questionnaire.name,
+                }
+                html_message = render_to_string(
+                    'emails/reviewer_reminder.html', context
+                )
+                text_message = render_to_string(
+                    'emails/reviewer_reminder.txt', context
+                )
+                send_email(
+                    subject=f'Reminder: 360 Feedback Request for {cycle.reviewee.name}',
+                    message=text_message,
+                    recipient_list=[token.reviewer_email],
+                    html_message=html_message,
+                    connection=connection,
+                )
 
-            # Render email templates
-            context = {
-                'reviewee_name': cycle.reviewee.name,
-                'category': token.get_category_display(),
-                'feedback_url': feedback_url,
-                'questionnaire_name': cycle.questionnaire.name,
-            }
+                token.last_reminder_sent_at = timezone.now()
+                token.save(update_fields=['last_reminder_sent_at'])
 
-            html_message = render_to_string('emails/reviewer_reminder.html', context)
-            text_message = render_to_string('emails/reviewer_reminder.txt', context)
+                stats['sent'] += 1
 
-            # Send email
-            send_email(
-                subject=f'Reminder: 360 Feedback Request for {cycle.reviewee.name}',
-                message=text_message,
-                recipient_list=[token.reviewer_email],
-                html_message=html_message,
-            )
-
-            # Update last reminder sent timestamp
-            token.last_reminder_sent_at = timezone.now()
-            token.save(update_fields=['last_reminder_sent_at'])
-
-            stats['sent'] += 1
-
-        except Exception as e:
-            stats['errors'].append(f"Failed to send reminder to {token.reviewer_email}: {str(e)}")
+            except Exception as e:
+                stats['errors'].append(f"Failed to send reminder to {token.reviewer_email}: {str(e)}")
+    finally:
+        if owns_connection:
+            connection.close()
 
     return stats
 
 
-def send_reviewee_notifications(cycle, request=None):
+def send_reviewee_notifications(cycle, request=None, connection=None):
     """
     Send the reviewee their direct self-assessment task.
 
@@ -376,6 +394,7 @@ def send_reviewee_notifications(cycle, request=None):
             message=text_message,
             recipient_list=[cycle.reviewee.email],
             html_message=html_message,
+            connection=connection,
         )
 
         self_token.invitation_sent_at = timezone.now()
@@ -398,23 +417,30 @@ def send_campaign_invitations(campaign):
         # peer, and manager tasks into one email per participant. Never let a
         # child campaign send an additional assessment-specific email.
         return stats
-    if campaign.cycle_type == 'self':
-        for cycle in campaign.cycles.all():
-            result = send_reviewee_notifications(cycle)
+    connection = get_email_backend()
+    try:
+        connection.open()
+        if campaign.cycle_type == 'self':
+            cycles = campaign.cycles.all()
+            sender = lambda cycle: send_reviewee_notifications(
+                cycle, connection=connection
+            )
+        elif campaign.cycle_type == 'manager':
+            cycles = campaign.cycles.all()
+            sender = lambda cycle: send_reviewer_invitations(
+                cycle, connection=connection
+            )
+        else:
+            cycles = campaign.cycles.select_related('reviewee', 'questionnaire')
+            sender = lambda cycle: send_peer_nomination_invitation(
+                cycle, connection=connection
+            )
+        for cycle in cycles:
+            result = sender(cycle)
             stats['sent'] += result['sent']
             stats['errors'].extend(result['errors'])
-        return stats
-    if campaign.cycle_type == 'manager':
-        for cycle in campaign.cycles.all():
-            result = send_reviewer_invitations(cycle)
-            stats['sent'] += result['sent']
-            stats['errors'].extend(result['errors'])
-        return stats
-
-    for cycle in campaign.cycles.select_related('reviewee', 'questionnaire'):
-        result = send_peer_nomination_invitation(cycle)
-        stats['sent'] += result['sent']
-        stats['errors'].extend(result['errors'])
+    finally:
+        connection.close()
     return stats
 
 
@@ -432,6 +458,8 @@ def send_organizational_cycle_invitations(organizational_cycle):
             organizational_cycle.organization
         ).filter(is_active=True)
     participants = participants.exclude(email='').order_by('email').distinct()
+    connection = get_email_backend()
+    connection.open()
     for participant in participants:
         participant_cycles = ReviewCycle.objects.filter(
             campaign__organizational_cycle=organizational_cycle,
@@ -503,6 +531,7 @@ def send_organizational_cycle_invitations(organizational_cycle):
                 html_message=render_to_string(
                     'emails/organizational_cycle_invitation.html', context
                 ),
+                connection=connection,
             )
             assigned_tokens.update(invitation_sent_at=timezone.now())
             stats['sent'] += 1
@@ -511,10 +540,11 @@ def send_organizational_cycle_invitations(organizational_cycle):
                 f'Failed to send organizational cycle invitation to '
                 f'{participant.email}: {exc}'
             )
+    connection.close()
     return stats
 
 
-def send_peer_nomination_invitation(cycle):
+def send_peer_nomination_invitation(cycle, connection=None):
     """Invite one reviewee to nominate peers for their campaign cycle."""
     stats = {'sent': 0, 'errors': []}
     dashboard_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/"
@@ -545,6 +575,7 @@ def send_peer_nomination_invitation(cycle):
             message=render_to_string('emails/peer_nomination_invitation.txt', context),
             recipient_list=[cycle.reviewee.email],
             html_message=render_to_string('emails/peer_nomination_invitation.html', context),
+            connection=connection,
         )
         stats['sent'] += 1
     except Exception as exc:
