@@ -11,11 +11,23 @@ from django.core.mail.backends.locmem import EmailBackend as LocmemBackend
 from django.core.mail.backends.smtp import EmailBackend as SMTPBackend
 from django.test import TestCase, override_settings
 
-from core.email import add_email_footer, brand_email_subject, get_email_backend, send_email
+from core.email import (
+    absolute_site_url, add_email_footer, brand_email_subject,
+    get_email_backend, send_email,
+)
 from core.factories import OrganizationFactory
 
 
 class GetEmailBackendTests(TestCase):
+    @override_settings(
+        SITE_PROTOCOL='https', SITE_DOMAIN='blik.integration.service.dun.fh'
+    )
+    def test_absolute_site_url_uses_canonical_https_origin(self):
+        self.assertEqual(
+            absolute_site_url('/accounts/invite/example/'),
+            'https://blik.integration.service.dun.fh/accounts/invite/example/',
+        )
+
     def test_falls_back_to_configured_backend_when_org_has_no_smtp_host(self):
         OrganizationFactory(smtp_host='')
 

@@ -14,7 +14,7 @@ from accounts.people_import import (
     read_people_file,
     validate_people_import,
 )
-from core.email import get_email_backend, send_email
+from core.email import absolute_site_url, get_email_backend, send_email
 
 
 def _admin_organization(request):
@@ -42,7 +42,7 @@ def _public_preview(preview):
 
 
 def _send_import_invitation(request, invitation, connection=None):
-    url = request.build_absolute_uri(
+    url = absolute_site_url(
         reverse('accept_invitation', kwargs={'token': invitation.token})
     )
     organization = invitation.organization

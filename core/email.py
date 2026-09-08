@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 EMAIL_LOGO_CID = 'findmypast-logo'
 
 
+def absolute_site_url(path):
+    """Build public email links from canonical deployment settings."""
+    return (
+        f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN.rstrip("/")}'
+        f'/{str(path).lstrip("/")}'
+    )
+
+
 def get_email_brand_name():
     """Return the public product name used to identify application email."""
     return getattr(settings, 'PRODUCT_NAME', None) or getattr(

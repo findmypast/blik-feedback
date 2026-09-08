@@ -31,6 +31,11 @@ services:
       - DATABASE_USER=${DATABASE_USER:-blik}
       - DATABASE_PASSWORD=${DATABASE_PASSWORD:-changeme}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - DEBUG=${DEBUG:-True}
+      - SITE_DOMAIN=${SITE_DOMAIN:-localhost:8000}
+      - SITE_PROTOCOL=${SITE_PROTOCOL:-http}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-False}
+      - CSRF_COOKIE_SECURE=${CSRF_COOKIE_SECURE:-False}
       - PORT=${PORT:-8000}
       - SECRET_KEY=_^%5)g9u-ruti=ukblm3osv=2v7d*iiqe0fn-f%5hdsfsldf
       - MICROSOFT_SSO_ENABLED=${MICROSOFT_SSO_ENABLED:-False}

@@ -14,7 +14,7 @@ from django.template.loader import render_to_string
 from accounts.models import OrganizationInvitation, Reviewee, Team, UserProfile
 from accounts.name_utils import normalize_name_part
 from accounts.permissions import organization_admin_required
-from core.email import send_email
+from core.email import absolute_site_url, send_email
 from subscriptions.utils import check_user_limit
 
 
@@ -134,7 +134,7 @@ def send_invitation(request):
             return redirect(redirect_name)
 
         # Build invitation URL
-        invite_url = request.build_absolute_uri(
+        invite_url = absolute_site_url(
             reverse('accept_invitation', kwargs={'token': invitation.token})
         )
 
