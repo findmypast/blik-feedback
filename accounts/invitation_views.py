@@ -9,8 +9,9 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.urls import reverse
 from django.db import transaction
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.template.loader import render_to_string
+from django.views.decorators.http import require_POST
 from accounts.models import OrganizationInvitation, Reviewee, Team, UserProfile
 from accounts.name_utils import normalize_name_part
 from accounts.permissions import organization_admin_required
@@ -176,11 +177,65 @@ def send_invitation(request):
                 ),
                 from_email=org.from_email if org.from_email else None
             )
+            invitation.last_sent_at = timezone.now()
+            invitation.save(update_fields=['last_sent_at', 'updated_at'])
             messages.success(request, f'Invitation sent to {email}')
         except Exception as e:
             messages.error(request, f'Failed to send invitation: {e}')
 
     if request.method == 'POST' and request.POST.get('return_to') == 'settings':
+        return redirect(reverse('settings') + '#people')
+    return redirect('team_list')
+
+
+@login_required
+@require_POST
+def resend_invitation(request, invitation_id):
+    """Resend one pending account invitation within the caller's scope."""
+    from accounts.authorization import manageable_teams
+    from accounts.import_views import _send_import_invitation
+
+    organization = request.organization or getattr(
+        getattr(request.user, 'profile', None), 'organization', None
+    )
+    if not organization:
+        raise PermissionDenied
+    with transaction.atomic():
+        invitation = get_object_or_404(
+            OrganizationInvitation.objects.select_for_update().select_related(
+                'organization', 'team', 'organization_role',
+                'reporting_manager__user',
+            ),
+            pk=invitation_id,
+            organization=organization,
+            accepted_at__isnull=True,
+        )
+        is_admin = request.user.has_perm('accounts.can_manage_organization')
+        can_manage_team = bool(
+            invitation.team_id
+            and manageable_teams(request.user, organization).filter(
+                pk=invitation.team_id
+            ).exists()
+        )
+        if not (is_admin or can_manage_team):
+            raise PermissionDenied
+        cooldown = timezone.now() - timedelta(minutes=1)
+        if invitation.last_sent_at and invitation.last_sent_at > cooldown:
+            messages.info(
+                request,
+                f'An invitation was already sent to {invitation.email} recently.',
+            )
+        else:
+            try:
+                _send_import_invitation(request, invitation)
+            except Exception as exc:
+                messages.error(request, f'Failed to resend invitation: {exc}')
+            else:
+                invitation.expires_at = timezone.now() + timedelta(days=7)
+                invitation.save(update_fields=['expires_at', 'updated_at'])
+                messages.success(request, f'Invitation resent to {invitation.email}.')
+
+    if request.POST.get('return_to') == 'settings':
         return redirect(reverse('settings') + '#people')
     return redirect('team_list')
 

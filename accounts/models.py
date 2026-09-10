@@ -170,6 +170,7 @@ class OrganizationInvitation(TimeStampedModel):
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField()
+    last_sent_at = models.DateTimeField(null=True, blank=True)
 
     objects = OrganizationManager()
 

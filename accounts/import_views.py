@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import JsonResponse
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from accounts.people_import import (
@@ -83,6 +84,8 @@ def _send_import_invitation(request, invitation, connection=None):
         from_email=organization.from_email or None,
         connection=connection,
     )
+    invitation.last_sent_at = timezone.now()
+    invitation.save(update_fields=['last_sent_at', 'updated_at'])
 
 
 @login_required

@@ -262,6 +262,44 @@ class UserInvitationTestCase(TestCase):
             invitation.pending_reporting_manager_email, 'supervisor@test.local'
         )
 
+    @patch('accounts.import_views.send_email')
+    def test_admin_can_resend_pending_invitation_and_renew_expiry(self, send_email):
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='pending@test.local',
+            invited_by=self.user,
+            expires_at=timezone.now() + timedelta(hours=1),
+            last_sent_at=timezone.now() - timedelta(minutes=5),
+        )
+        previous_expiry = invitation.expires_at
+
+        response = self.client.post(
+            reverse('resend_invitation', args=[invitation.id])
+        )
+
+        self.assertRedirects(response, reverse('team_list'))
+        invitation.refresh_from_db()
+        self.assertGreater(invitation.expires_at, previous_expiry)
+        self.assertIsNotNone(invitation.last_sent_at)
+        self.assertEqual(send_email.call_count, 1)
+        self.assertIn('https://', send_email.call_args.kwargs['html_message'])
+
+    @patch('accounts.import_views.send_email')
+    def test_recent_invitation_is_not_sent_twice(self, send_email):
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='recent@test.local',
+            invited_by=self.user,
+            last_sent_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse('resend_invitation', args=[invitation.id])
+        )
+
+        self.assertRedirects(response, reverse('team_list'))
+        send_email.assert_not_called()
+
 
 class OrganizationPeopleSettingsTestCase(TestCase):
     def setUp(self):
