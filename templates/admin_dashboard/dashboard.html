@@ -298,11 +298,11 @@ document.addEventListener('DOMContentLoaded', function() {
         </tbody></table></div>
     </div>
 </div>
+{% endif %}
 <style>
 .todo-table th,.todo-table td{vertical-align:middle}.todo-table th:nth-child(n+3),.todo-table td:nth-child(n+3){text-align:center}.todo-table td:last-child{white-space:nowrap}.todo-table tr.is-overdue{background:color-mix(in srgb,var(--danger) 8%,transparent)}.todo-table tr.is-overdue td:first-child{border-left:3px solid var(--danger)}.overdue-date{color:var(--danger)!important;font-weight:650}.assessment-chip{display:inline-flex;align-items:center;width:max-content;margin-top:.3rem;padding:.18rem .48rem;border-radius:4px;font-size:.72rem;font-weight:700;line-height:1.2}.assessment-chip.assessment-self{background:#deebff;color:#0747a6}.assessment-chip.assessment-peer{background:#eae6ff;color:#403294}.assessment-chip.assessment-manager{background:#e3fcef;color:#006644}[data-theme="dark"] .assessment-chip.assessment-self{background:#173b65;color:#b3d4ff}[data-theme="dark"] .assessment-chip.assessment-peer{background:#352c63;color:#c0b6f2}[data-theme="dark"] .assessment-chip.assessment-manager{background:#164b3b;color:#abf5d1}
 .campaign-card.assessment-self,.campaign-card.assessment-peer,.campaign-card.assessment-manager{background:var(--bg-card);color:var(--text-primary);border-left-width:4px}.campaign-card.assessment-self{border-left-color:#579dff}.campaign-card.assessment-peer{border-left-color:#9f8fef}.campaign-card.assessment-manager{border-left-color:#4bce97}.campaign-card.is-overdue{border-color:var(--danger);border-left-color:var(--danger)}
 </style>
-{% endif %}
 
 {% if organizational_cycle_cards or active_campaigns %}
 <div class="card mb-2">
