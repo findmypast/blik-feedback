@@ -947,6 +947,36 @@ class PeerNominationFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(self.cycle.tokens.exists())
 
+    def test_team_leaders_from_all_memberships_cannot_be_selected_as_peers(self):
+        second_leader_user = UserFactory(email='second-leader@example.com')
+        second_leader = UserProfileFactory(
+            user=second_leader_user, organization=self.org
+        )
+        second_team = Team.objects.create(
+            organization=self.org,
+            name='Engineering',
+            manager=second_leader,
+        )
+        self.member.teams.add(self.team, second_team)
+        team_leader_reviewees = [self.manager.reviewee, second_leader.reviewee]
+        self.client.force_login(self.member_user)
+
+        response = self.client.get(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid])
+        )
+
+        self.assertContains(response, self.peer.email)
+        for leader in team_leader_reviewees:
+            self.assertNotContains(response, leader.email)
+
+        response = self.client.post(
+            reverse('nominate_peer_reviewers', args=[self.cycle.uuid]),
+            {'reviewers': [leader.id for leader in team_leader_reviewees]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.cycle.tokens.exists())
+
     def test_campaign_manager_can_view_nominations(self):
         self.cycle.tokens.create(category='peer', reviewer_email=self.peer.email)
         self.client.force_login(self.manager_user)

@@ -2767,14 +2767,34 @@ def nominate_peer_reviewers(request, cycle_uuid):
     ).exclude(id=cycle.reviewee_id).select_related('team').prefetch_related(
         'teams'
     ).order_by('name')
-    direct_manager_candidate_ids = set()
+    excluded_manager_profile_ids = set()
+    excluded_manager_emails = set()
     direct_manager = cycle.reviewee.reporting_manager
     if direct_manager:
-        direct_manager_candidate_ids.update(candidates_qs.filter(
-            Q(profile=direct_manager)
-            | Q(email__iexact=direct_manager.user.email)
-        ).values_list('id', flat=True))
-    candidates = list(candidates_qs.exclude(id__in=direct_manager_candidate_ids))
+        excluded_manager_profile_ids.add(direct_manager.id)
+        if direct_manager.user.email:
+            excluded_manager_emails.add(direct_manager.user.email)
+
+    reviewee_team_ids = set(
+        cycle.reviewee.teams.values_list('id', flat=True)
+    )
+    if cycle.reviewee.team_id:
+        reviewee_team_ids.add(cycle.reviewee.team_id)
+    for manager_id, manager_email in Team.objects.for_organization(org).filter(
+        id__in=reviewee_team_ids,
+        manager_id__isnull=False,
+    ).values_list('manager_id', 'manager__user__email'):
+        excluded_manager_profile_ids.add(manager_id)
+        if manager_email:
+            excluded_manager_emails.add(manager_email)
+
+    excluded_manager_filter = Q(profile_id__in=excluded_manager_profile_ids)
+    for manager_email in excluded_manager_emails:
+        excluded_manager_filter |= Q(email__iexact=manager_email)
+    excluded_manager_candidate_ids = set(
+        candidates_qs.filter(excluded_manager_filter).values_list('id', flat=True)
+    )
+    candidates = list(candidates_qs.exclude(id__in=excluded_manager_candidate_ids))
     for candidate in candidates:
         candidate_teams = {team.id: team for team in candidate.teams.all()}
         if candidate.team_id:
@@ -2873,7 +2893,7 @@ def nominate_peer_reviewers(request, cycle_uuid):
         'protected_emails': protected_emails,
         'selected_candidate_ids': selected_candidate_ids,
         'protected_candidate_ids': protected_candidate_ids,
-        'direct_manager_candidate_ids': direct_manager_candidate_ids,
+        'direct_manager_candidate_ids': excluded_manager_candidate_ids,
         'preselected': preselected,
         'is_editing': bool(existing_emails),
         'minimum_reviewers': cycle.campaign.minimum_peer_reviewers,
