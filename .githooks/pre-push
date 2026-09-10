@@ -16,4 +16,4 @@ if ! .venv/bin/python -c "import factory, pytest" >/dev/null 2>&1; then
 fi
 
 echo "Running local tests before push..."
-.venv/bin/python -m pytest -q --tb=short --disable-warnings
+.venv/bin/python -m pytest --tb=short --disable-warnings
