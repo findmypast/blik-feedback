@@ -202,7 +202,7 @@ def resend_invitation(request, invitation_id):
         raise PermissionDenied
     with transaction.atomic():
         invitation = get_object_or_404(
-            OrganizationInvitation.objects.select_for_update().select_related(
+            OrganizationInvitation.objects.select_for_update(of=('self',)).select_related(
                 'organization', 'team', 'organization_role',
                 'reporting_manager__user',
             ),

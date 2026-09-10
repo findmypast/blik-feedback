@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.urls import reverse
 from django.utils import timezone
@@ -263,6 +263,7 @@ class UserInvitationTestCase(TestCase):
         )
 
     @patch('accounts.import_views.send_email')
+    @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
     def test_admin_can_resend_pending_invitation_and_renew_expiry(self, send_email):
         invitation = OrganizationInvitationFactory(
             organization=self.org,
