@@ -103,6 +103,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             first_name = reviewee_name.split()[0]
             data["question_text"] = (
                 data["question_text"]
+                .replace("<personName>", reviewee_name)
                 .replace("This person", first_name)
                 .replace("this person", first_name)
             )

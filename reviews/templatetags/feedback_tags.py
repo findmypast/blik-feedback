@@ -97,10 +97,15 @@ def count_value(lst, value):
 
 @register.filter
 def personalize(text, name):
-    """Replace 'This person' / 'this person' with the reviewee's first name."""
+    """Personalize a question for the person being reviewed.
+
+    ``<personName>`` is the explicit placeholder for new questionnaires. Keep
+    the existing ``This person`` wording working for older questionnaires.
+    """
     if not name:
         return text
     first_name = name.split()[0] if name else "This person"
+    text = text.replace("<personName>", name)
     text = text.replace("This person", first_name)
     text = text.replace("this person", first_name)
     return text
