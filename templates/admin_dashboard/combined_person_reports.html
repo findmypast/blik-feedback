@@ -1,0 +1,11 @@
+{% extends "admin_dashboard/base.html" %}
+{% load static %}
+{% block title %}{{ reviewee.name }} Reports{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/reports.css' %}">{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>{{ reviewee.name }} — All Reports</h1><p>{{ organisation_cycle.display_name }} · Read each assessment together.</p></div><a class="btn btn-secondary" href="{% url 'organisation_cycle_reports' organisation_cycle.uuid %}">Back to cycle reports</a></div>
+{% for entry in report_entries %}
+<section class="combined-report assessment-{{ entry.report.cycle.campaign.cycle_type }}"><header><div><span class="assessment-chip assessment-{{ entry.report.cycle.campaign.cycle_type }}">{{ entry.report.cycle.campaign.get_cycle_type_display }}</span><h2>{{ entry.report.cycle.questionnaire.name }}</h2></div><a class="btn btn-sm btn-secondary" href="{% url 'reports:view_report' entry.report.cycle.uuid %}">Open separately</a></header>{% include "reports/_report_content.html" with report=entry.report display_data=entry.display_data is_admin_view=True %}</section>
+{% endfor %}
+<style>.combined-report{border:1px solid var(--border);border-left:4px solid var(--border);border-radius:10px;padding:1.25rem;margin-bottom:1.25rem;background:var(--bg-card)}.combined-report.assessment-self{border-left-color:#579dff}.combined-report.assessment-peer{border-left-color:#9f8fef}.combined-report.assessment-manager{border-left-color:#4bce97}.combined-report>header{display:flex;justify-content:space-between;gap:1rem;align-items:center;margin-bottom:1rem}.combined-report h2{margin:.5rem 0 0;font-size:1.2rem}@media(max-width:650px){.combined-report>header{align-items:flex-start;flex-direction:column}}</style>
+{% endblock %}

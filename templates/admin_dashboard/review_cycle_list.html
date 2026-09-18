@@ -27,11 +27,7 @@
                 <div class="progress"><div class="progress-bar" style="width:{% widthratio group.completed_count group.total_count 100 %}%;"></div></div>
             </div>
             <div class="cycle-summary-actions">
-                {% if group.single_report %}
-                <a href="{% url 'reports:view_report' group.single_report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>
-                {% else %}
-                <a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View reports</a>
-                {% endif %}
+                <a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View cycle</a>
             </div>
         </div>
         {% endfor %}

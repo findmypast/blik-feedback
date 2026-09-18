@@ -1,0 +1,17 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}{{ organisation_cycle.display_name }} Reports{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>{{ organisation_cycle.display_name }} Reports</h1><p>Reports are grouped by person for this organisation cycle.</p></div><a class="btn btn-secondary" href="{% url 'review_cycle_list' %}">Back to cycles</a></div>
+<div class="card"><div class="card-body organisation-report-people">
+{% for team in team_groups %}
+<section class="organisation-report-team"><h2>{{ team.name }}</h2>
+{% for person in team.people %}
+<details class="organisation-report-person">
+    <summary><span><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></span><span class="report-person-summary-actions"><a class="btn btn-sm btn-primary" href="{% url 'organisation_person_combined_reports' organisation_cycle.uuid person.reviewee.id %}" onclick="event.stopPropagation();">View all reports</a><span aria-hidden="true">▾</span></span></summary>
+    {% for report in person.reports %}<div class="organisation-report-row"><span><span class="assessment-chip assessment-{{ report.cycle.campaign.cycle_type }}">{{ report.cycle.campaign.get_cycle_type_display }}</span><small>{{ report.cycle.questionnaire.name }}</small></span><span>{{ report.generated_at|date:"j F Y" }}</span><span><a class="btn btn-sm btn-secondary" href="{% url 'reports:view_report' report.cycle.uuid %}">View report</a></span></div>{% endfor %}
+</details>
+{% endfor %}</section>
+{% endfor %}
+</div></div>
+<style>.organisation-report-people{display:flex;flex-direction:column;gap:1.25rem}.organisation-report-team>h2{font-size:1rem;margin:0 0 .6rem;color:var(--text-secondary)}.organisation-report-team{display:flex;flex-direction:column;gap:.75rem}.organisation-report-person{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg-card)}.organisation-report-person summary{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:1rem;cursor:pointer;list-style:none}.organisation-report-person summary>span:first-child,.organisation-report-row>span:first-child{display:flex;flex-direction:column}.organisation-report-person small,.organisation-report-row small{color:var(--text-secondary)}.report-person-summary-actions{display:flex;align-items:center;gap:.75rem}.organisation-report-row{display:grid;grid-template-columns:minmax(220px,1fr) minmax(140px,.7fr) auto;gap:1rem;align-items:center;padding:.75rem 1rem;border-top:1px solid var(--border)}.organisation-report-row>span:last-child{display:flex;justify-content:flex-end}@media(max-width:650px){.organisation-report-person summary,.organisation-report-row{align-items:flex-start;flex-direction:column;grid-template-columns:1fr}.organisation-report-row>span:last-child{justify-content:flex-start}}</style>
+{% endblock %}

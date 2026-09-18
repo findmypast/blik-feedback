@@ -18,7 +18,7 @@
         <details class="peer-person-section">
             <summary class="peer-person-header">
                 <div><strong>{{ person.cycle.reviewee.name }}</strong><span>{{ person.cycle.reviewee.email }}</span>{% if item.campaign.target_type == 'organization' and person.team_names %}<small>Teams: {{ person.team_names|join:", " }}</small>{% endif %}</div>
-                <span class="peer-header-status">{% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.awaiting_nominations %}<span class="badge badge-secondary">Awaiting peer selection</span>{% elif person.completed_count == person.total_count %}<span class="badge badge-success">All reviews complete</span>{% elif person.completed_count %}<span class="badge badge-warning">Reviews in progress</span>{% else %}<span class="badge badge-secondary">Review invitations sent</span>{% endif %}</span>
+                <span class="peer-header-status">{% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.awaiting_nominations %}<span class="badge badge-secondary">Awaiting peer selection</span>{% elif person.completed_count == person.total_count %}<span class="badge badge-success">All reviews complete</span>{% elif person.completed_count %}<span class="badge badge-warning">Reviews in progress ({{ person.completed_count }}/{{ person.total_count }})</span>{% else %}<span class="badge badge-secondary">Review invitations sent</span>{% endif %}</span>
                 <span class="peer-header-action">{% if person.awaiting_nominations and person.cycle.status == 'active' %}<form method="post" action="{% url 'send_campaign_cycle_reminder' item.campaign.uuid person.cycle.uuid %}" onclick="event.stopPropagation();" onsubmit="event.stopPropagation();">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">Resend selection invitation</button></form>{% endif %}</span>
                 <span class="peer-person-progress">{{ person.completed_count }} / {{ person.total_count }} complete <span aria-hidden="true">▾</span></span>
             </summary>
@@ -27,7 +27,7 @@
                         {% if person.report %}<a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' person.cycle.uuid %}">See report</a><a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' person.cycle.uuid %}">Regenerate report</a>{% else %}<a class="btn btn-sm btn-primary" href="{% url 'generate_report' person.cycle.uuid %}">Generate report</a>{% endif %}
                     {% else %}
                         <a href="{% url 'nominate_peer_reviewers' person.cycle.uuid %}" class="btn btn-sm btn-secondary">Add or remove peers</a>
-                        <form method="post" action="{% url 'close_cycle' person.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">End cycle</button></form>
+                        <form method="post" action="{% url 'close_cycle' person.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">End Assessment</button></form>
                     {% endif %}
             </div>
             <div class="peer-table">
@@ -56,7 +56,7 @@
                     {% if person.report %}<a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' person.cycle.uuid %}">See report</a><a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' person.cycle.uuid %}">Regenerate report</a>{% else %}<a class="btn btn-sm btn-primary" href="{% url 'generate_report' person.cycle.uuid %}">Generate report</a>{% endif %}
                 {% else %}
                     <form method="post" action="{% url 'send_campaign_cycle_reminder' item.campaign.uuid person.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">Resend invitation</button></form>
-                    <form method="post" action="{% url 'close_cycle' person.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">End cycle</button></form>
+                    <form method="post" action="{% url 'close_cycle' person.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">End assessment</button></form>
                 {% endif %}
             </div>
         </div>

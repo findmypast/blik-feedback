@@ -323,7 +323,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span aria-hidden="true">▾</span>
             </summary>
             <div class="campaign-people">
-                {% for item in organization_item.campaigns %}{% include "admin_dashboard/_campaign_card.html" with item=item completed=False %}{% endfor %}
+                {% for person in organization_item.people %}{% include "admin_dashboard/_organization_person_card.html" with person=person %}{% endfor %}
             </div>
         </details>
         {% endfor %}

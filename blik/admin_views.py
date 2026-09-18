@@ -103,6 +103,7 @@ def _group_available_reports(reports):
                 'title': organisation_cycle.display_name,
                 'subtitle': organisation_cycle.audience_label,
                 'assessments': {},
+                'people': {},
                 'report_count': 0,
             })
         elif campaign:
@@ -142,6 +143,12 @@ def _group_available_reports(reports):
             'reports': [],
         })
         assessment['reports'].append(report)
+        if organisation_cycle:
+            person = group['people'].setdefault(cycle.reviewee_id, {
+                'reviewee': cycle.reviewee,
+                'reports': [],
+            })
+            person['reports'].append(report)
         group['report_count'] += 1
 
     normalized = []
@@ -151,6 +158,13 @@ def _group_available_reports(reports):
             group['assessments'][0]['reports'][0]
             if group['report_count'] == 1 else None
         )
+        if group['kind'] == 'organisation':
+            # A review cycle produces separate self, peer and manager reports.
+            # Keep those reports beside the person they describe, not in three
+            # distant assessment sections.
+            group['people'] = sorted(
+                group['people'].values(), key=lambda person: person['reviewee'].name.lower()
+            )
         normalized.append(group)
     return normalized
 
@@ -437,6 +451,7 @@ def dashboard(request):
         'organizational_cycle_cards': [
             {
                 **group,
+                'people': _group_organisation_campaign_people(group['campaigns']),
                 'completion_rate': (
                     group['completed_count'] / group['total_count'] * 100
                     if group['total_count'] else 0
@@ -452,6 +467,26 @@ def dashboard(request):
     }
 
     return render(request, 'admin_dashboard/dashboard.html', context)
+
+
+def _group_organisation_campaign_people(campaigns):
+    """Present an organisation cycle as one row per person and assessment."""
+    people = {}
+    for item in campaigns:
+        for assessment in item['people']:
+            cycle = assessment['cycle']
+            person = people.setdefault(cycle.reviewee_id, {
+                'reviewee': cycle.reviewee,
+                'assessments': [],
+            })
+            person['assessments'].append({
+                **assessment, 'campaign': item['campaign'], 'can_manage': item['can_manage'],
+            })
+    for person in people.values():
+        person['assessments'].sort(key=lambda assessment: {
+            'self': 0, 'peer': 1, 'manager': 2,
+        }.get(assessment['campaign'].cycle_type, 9))
+    return sorted(people.values(), key=lambda person: person['reviewee'].name.lower())
 
 
 @login_required
@@ -2139,6 +2174,7 @@ def organisation_cycle_detail(request, cycle_uuid):
         raise Http404
 
     assessment_groups = []
+    people_by_id = {}
     completed_total = 0
     response_total = 0
     for campaign in campaigns:
@@ -2155,7 +2191,7 @@ def organisation_cycle_detail(request, cycle_uuid):
             required_total = max(len(tokens), 1)
             campaign_completed += completed
             campaign_total += required_total
-            people.append({
+            person_data = {
                 'cycle': cycle,
                 'report': (
                     cycle.report
@@ -2170,6 +2206,18 @@ def organisation_cycle_detail(request, cycle_uuid):
                     else 'In progress' if completed
                     else 'Invitation pending'
                 ),
+            }
+            people.append(person_data)
+            person = people_by_id.setdefault(cycle.reviewee_id, {
+                'reviewee': cycle.reviewee,
+                'assessments': [],
+            })
+            person['assessments'].append({
+                **person_data,
+                'campaign': campaign,
+                'can_manage': _can_manage_campaign(
+                    request.user, campaign, request.organization
+                ),
             })
         completed_total += campaign_completed
         response_total += campaign_total
@@ -2183,9 +2231,15 @@ def organisation_cycle_detail(request, cycle_uuid):
             ),
         })
 
+    for person in people_by_id.values():
+        person['assessments'].sort(key=lambda assessment: {
+            'self': 0, 'peer': 1, 'manager': 2,
+        }.get(assessment['campaign'].cycle_type, 9))
+
     return render(request, 'admin_dashboard/organisation_cycle_detail.html', {
         'organisation_cycle': organisation_cycle,
         'assessment_groups': assessment_groups,
+        'people': sorted(people_by_id.values(), key=lambda person: person['reviewee'].name.lower()),
         'completed_count': completed_total,
         'total_count': response_total,
         'completion_rate': (
@@ -2210,6 +2264,80 @@ def report_list(request):
     return render(request, 'admin_dashboard/report_list.html', {
         'reports': reports,
         'report_groups': _group_available_reports(reports),
+    })
+
+
+def _organisation_cycle_reports(request, organisation_cycle):
+    return visible_reports(request.user, Report.objects.for_organization(
+        request.organization
+    ).filter(available=True, cycle__campaign__organizational_cycle=organisation_cycle),
+        request.organization).select_related(
+            'cycle__reviewee', 'cycle__reviewee__team', 'cycle__questionnaire',
+            'cycle__campaign'
+        )
+
+
+@login_required
+def organisation_cycle_reports(request, cycle_uuid):
+    from reviews.models import OrganizationalReviewCycle
+    organisation_cycle = get_object_or_404(
+        OrganizationalReviewCycle, uuid=cycle_uuid, organization=request.organization
+    )
+    teams = {}
+    for report in _organisation_cycle_reports(request, organisation_cycle).order_by(
+        'cycle__reviewee__name', 'cycle__campaign__cycle_type'
+    ):
+        team = report.cycle.reviewee.team
+        team_key = team.id if team else None
+        team_group = teams.setdefault(team_key, {
+            'name': team.name if team else 'People without a team', 'people': {},
+        })
+        team_group['people'].setdefault(report.cycle.reviewee_id, {
+            'reviewee': report.cycle.reviewee, 'reports': [],
+        })['reports'].append(report)
+    if not teams:
+        raise Http404
+    team_groups = []
+    for group in teams.values():
+        group['people'] = sorted(
+            group['people'].values(), key=lambda person: person['reviewee'].name.lower()
+        )
+        team_groups.append(group)
+    return render(request, 'admin_dashboard/organisation_cycle_reports.html', {
+        'organisation_cycle': organisation_cycle,
+        'team_groups': sorted(team_groups, key=lambda group: group['name'].lower()),
+    })
+
+
+@login_required
+def organisation_person_combined_reports(request, cycle_uuid, reviewee_id):
+    from reviews.models import OrganizationalReviewCycle
+    organisation_cycle = get_object_or_404(
+        OrganizationalReviewCycle, uuid=cycle_uuid, organization=request.organization
+    )
+    reports = list(_organisation_cycle_reports(request, organisation_cycle).filter(
+        cycle__reviewee_id=reviewee_id
+    ).order_by('cycle__campaign__cycle_type'))
+    if not reports:
+        raise Http404
+    from reports.services import apply_display_anonymization
+    report_entries = []
+    for report in reports:
+        threshold = (
+            report.cycle.campaign.minimum_peer_reviewers
+            if report.cycle.campaign_id and report.cycle.campaign.cycle_type == 'peer'
+            else report.cycle.reviewee.organization.min_responses_for_anonymity
+        )
+        report_entries.append({
+            'report': report,
+            'display_data': apply_display_anonymization(
+                report.report_data, min_threshold=threshold
+            ),
+        })
+    return render(request, 'admin_dashboard/combined_person_reports.html', {
+        'organisation_cycle': organisation_cycle,
+        'reviewee': reports[0].cycle.reviewee,
+        'report_entries': report_entries,
     })
 
 
