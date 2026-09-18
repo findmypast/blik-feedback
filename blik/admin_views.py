@@ -470,7 +470,7 @@ def dashboard(request):
 
 
 def _group_organisation_campaign_people(campaigns):
-    """Present an organisation cycle as one row per person and assessment."""
+    """Present an organisation cycle as team → person → assessment."""
     people = {}
     for item in campaigns:
         for assessment in item['people']:
@@ -486,7 +486,19 @@ def _group_organisation_campaign_people(campaigns):
         person['assessments'].sort(key=lambda assessment: {
             'self': 0, 'peer': 1, 'manager': 2,
         }.get(assessment['campaign'].cycle_type, 9))
-    return sorted(people.values(), key=lambda person: person['reviewee'].name.lower())
+    teams = {}
+    for person in people.values():
+        team = person['reviewee'].team
+        team_group = teams.setdefault(team.id if team else None, {
+            'name': team.name if team else 'People without a team',
+            'people': [],
+        })
+        team_group['people'].append(person)
+    for team_group in teams.values():
+        team_group['people'].sort(
+            key=lambda person: person['reviewee'].name.lower()
+        )
+    return sorted(teams.values(), key=lambda group: group['name'].lower())
 
 
 @login_required

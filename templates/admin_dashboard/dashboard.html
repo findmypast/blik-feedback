@@ -323,7 +323,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 <span aria-hidden="true">▾</span>
             </summary>
             <div class="campaign-people">
-                {% for person in organization_item.people %}{% include "admin_dashboard/_organization_person_card.html" with person=person %}{% endfor %}
+                {% for team in organization_item.people %}
+                <details class="organisation-dashboard-team">
+                    <summary><h3>{{ team.name }}</h3><span aria-hidden="true">▾</span></summary>
+                    {% for person in team.people %}{% include "admin_dashboard/_organization_person_card.html" with person=person %}{% endfor %}
+                </details>
+                {% endfor %}
             </div>
         </details>
         {% endfor %}
@@ -334,6 +339,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <style>
 .organizational-cycle-header{display:grid!important;grid-template-columns:minmax(260px,1fr) minmax(180px,280px) auto auto}.organizational-cycle-progress{display:flex!important;flex-direction:column;gap:.35rem}.progress-track{display:block;width:100%;height:.55rem;overflow:hidden;border-radius:999px;background:var(--bg-light);border:1px solid var(--border)}.progress-track>span{display:block;height:100%;background:var(--primary);border-radius:inherit}.organizational-cycle-actions{display:flex!important;flex-direction:row!important;gap:.5rem;flex-wrap:wrap}.organizational-cycle-header form{margin:0}.assessment-chip-row{display:flex!important;flex-direction:row!important;gap:.35rem;flex-wrap:wrap;margin:.3rem 0}.campaign-card.is-overdue{border-color:var(--danger);box-shadow:inset 3px 0 0 var(--danger)}@media(max-width:1000px){.organizational-cycle-header{grid-template-columns:1fr auto}.organizational-cycle-progress,.organizational-cycle-actions{grid-column:1/-1}}
+.organisation-dashboard-team{margin:1rem 0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--bg-card)}.organisation-dashboard-team:first-child{margin-top:.25rem}.organisation-dashboard-team:last-child{margin-bottom:0}.organisation-dashboard-team>summary{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.55rem .75rem;cursor:pointer;list-style:none;background:var(--bg-light)}.organisation-dashboard-team>summary h3{margin:0;font-size:.9rem;color:var(--text-secondary)}.organisation-dashboard-team .organisation-person-card{margin:.75rem}
 </style>
 
 {% if recent_report_groups %}
