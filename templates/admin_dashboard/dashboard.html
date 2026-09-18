@@ -14,12 +14,12 @@
                     <circle cx="12" cy="12" r="2"></circle>
                 </svg>
             </div>
-            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;">Welcome to Blik</h2>
+            <h2 style="margin: 0 0 0.5rem 0; font-size: 1.75rem;">Welcome to {{ product_name }}</h2>
             <p style="color: var(--text-secondary); margin: 0;">Your 360-degree feedback platform</p>
         </div>
 
         <div style="background: var(--bg-light); padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;">
-            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem;">How Blik helps you:</h3>
+            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem;">How {{ product_name }} helps you:</h3>
             <ul style="margin: 0; padding-left: 1.5rem; line-height: 1.8;">
                 <li>Gather comprehensive feedback from peers, managers, and direct reports</li>
                 <li>Maintain complete anonymity for honest, constructive input</li>
@@ -174,10 +174,10 @@ document.addEventListener('DOMContentLoaded', function() {
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 2rem; flex-wrap: wrap;">
             <div style="flex: 1; min-width: 250px;">
                 <h3 style="margin: 0 0 0.5rem 0; font-size: 1.125rem; color: #10b981;">
-                    ⭐ Share Your Experience with Blik
+                    ⭐ Share Your Experience with {{ product_name }}
                 </h3>
                 <p style="margin: 0; color: #64748b;">
-                    Enjoying Blik? Take 2 minutes to share your feedback and help other teams discover us.
+                    Enjoying {{ product_name }}? Take 2 minutes to share your feedback and help other teams discover us.
                 </p>
             </div>
             <div>

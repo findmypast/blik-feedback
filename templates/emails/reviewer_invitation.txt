@@ -16,4 +16,4 @@ You can save your progress and return to complete it later - just bookmark the l
 Thank you for your participation.
 
 ---
-This is an automated message from the Blik 360 Feedback System.
+This is an automated message from {{ product_name|default:"History Community 360 Feedback" }}.

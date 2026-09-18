@@ -16,8 +16,8 @@ services:
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "8125:8025"  # Web UI (using 8125 to avoid conflicts)
-      - "1125:1025"  # SMTP (using 1125 to avoid conflicts)
+      - "8125:8025" # Web UI (using 8125 to avoid conflicts)
+      - "1125:1025" # SMTP (using 1125 to avoid conflicts)
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
@@ -46,9 +46,9 @@ services:
       # Email
       EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
       EMAIL_HOST: mailpit
-      EMAIL_PORT: 1025  # Internal container port
+      EMAIL_PORT: 1025 # Internal container port
       EMAIL_USE_TLS: "False"
-      DEFAULT_FROM_EMAIL: test@blik.local
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
 
       # Security (relaxed for testing)
       SESSION_COOKIE_SECURE: "False"

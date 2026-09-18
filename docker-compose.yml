@@ -42,12 +42,12 @@ services:
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
       - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-}
-      - PRODUCT_NAME=${PRODUCT_NAME:-Blik}
+      - PRODUCT_NAME=${PRODUCT_NAME:-History Community 360 Feedback}
       - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
       - EMAIL_HOST=${EMAIL_HOST:-mailpit}
       - EMAIL_PORT=${EMAIL_PORT:-1025}
       - EMAIL_USE_TLS=${EMAIL_USE_TLS:-False}
-      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-360-feedback@findmypast.com}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-360-feedback@historycommunity.org}
     depends_on:
       db:
         condition: service_healthy

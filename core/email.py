@@ -3,16 +3,12 @@ Custom email utilities that use Organization SMTP settings
 """
 import logging
 import re
-from email.mime.image import MIMEImage
-from pathlib import Path
-
 from django.core.mail import EmailMultiAlternatives, get_connection
 from django.core.mail.backends.smtp import EmailBackend
 from django.conf import settings
 from .models import Organization
 
 logger = logging.getLogger(__name__)
-EMAIL_LOGO_CID = 'findmypast-logo'
 
 
 def absolute_site_url(path):
@@ -52,18 +48,9 @@ def add_email_footer(message, html=False):
         return f'{(message or "").rstrip()}\n\n---\n{notice}\n'
 
     brand = get_email_brand_name()
-    if brand.casefold().startswith('findmypast'):
-        identity = (
-            f'<img src="cid:{EMAIL_LOGO_CID}" width="180" '
-            f'alt="{brand}" style="display:block;width:180px;max-width:100%;'
-            'height:auto;border:0;margin:0 auto 10px;">'
-            '<div style="color:#232147;font-size:16px;font-weight:700;">'
-            '360 Feedback</div>'
-        )
-    else:
-        identity = (
-            f'<div style="color:#232147;font-size:20px;font-weight:700;">{brand}</div>'
-        )
+    identity = (
+        f'<div style="color:#232147;font-size:20px;font-weight:700;">{brand}</div>'
+    )
     header = (
         '<div role="banner" style="padding:22px 24px 18px;text-align:center;'
         'font-family:Arial,sans-serif;background:#ffffff;">'
@@ -160,16 +147,6 @@ def send_email(
 
     if html_message:
         email.attach_alternative(add_email_footer(html_message, html=True), 'text/html')
-        if get_email_brand_name().casefold().startswith('findmypast'):
-            logo_path = Path(settings.BASE_DIR) / 'static' / 'img' / 'findmypast-logo-email.png'
-            if logo_path.exists():
-                logo = MIMEImage(logo_path.read_bytes(), _subtype='png')
-                logo.add_header('Content-ID', f'<{EMAIL_LOGO_CID}>')
-                logo.add_header(
-                    'Content-Disposition', 'inline', filename='findmypast-logo.png'
-                )
-                email.attach(logo)
-
     return email.send()
 
 

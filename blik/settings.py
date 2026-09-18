@@ -300,10 +300,10 @@ if MICROSOFT_SSO_CONFIGURED:
     }
 
 # Organization settings
-ORGANIZATION_NAME = env('ORGANIZATION_NAME', default='Blik')
+ORGANIZATION_NAME = env('ORGANIZATION_NAME', default='History Community')
 
 # SEO settings
-PRODUCT_NAME = env('PRODUCT_NAME', default='Blik')
+PRODUCT_NAME = env('PRODUCT_NAME', default='History Community 360 Feedback')
 SITE_NAME = env('SITE_NAME', default=PRODUCT_NAME)
 SITE_DOMAIN = env('SITE_DOMAIN', default='localhost:8000' if DEBUG else 'blik360.com')
 SITE_PROTOCOL = env('SITE_PROTOCOL', default='http' if DEBUG else 'https')
