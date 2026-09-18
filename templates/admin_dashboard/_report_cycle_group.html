@@ -2,7 +2,12 @@
 <section class="report-cycle-group organisation-report-cycle-summary">
     <div class="report-cycle-summary-content">
         <span><strong>{{ group.title }}</strong><small>{{ group.subtitle }} · {{ group.report_count }} report{{ group.report_count|pluralize }}</small></span>
+        {% if group.single_report %}
+        <span class="report-person-summary"><strong>{{ group.single_report.cycle.reviewee.name }}</strong><small>{{ group.single_report.cycle.reviewee.email }}</small></span>
+        <span class="report-actions"><a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' group.single_report.cycle.uuid %}">View report</a><a class="btn btn-sm btn-secondary" href="{% url 'organisation_cycle_reports' group.cycle.uuid %}">View summary</a></span>
+        {% else %}
         <a class="btn btn-sm btn-primary" href="{% url 'organisation_cycle_reports' group.cycle.uuid %}">View summary</a>
+        {% endif %}
     </div>
 </section>
 {% else %}

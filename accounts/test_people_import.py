@@ -372,7 +372,7 @@ class PeopleImportViewTests(TestCase):
         })
         self.assertEqual(response.status_code, 403)
 
-    @override_settings(PRODUCT_NAME='FindMyPast 360')
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
     def test_import_invitation_uses_branded_welcome_email(self):
         data = {
             'file': csv_file(['Alex,Person,alex@example.com,Platform,']),
@@ -388,7 +388,7 @@ class PeopleImportViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         call = send_email.call_args.kwargs
-        self.assertEqual(call['subject'], 'Welcome to FindMyPast 360')
+        self.assertEqual(call['subject'], 'Welcome to History Community 360 Feedback')
         self.assertIn('our 360-feedback tool', call['html_message'])
         self.assertIn('Role:', call['html_message'])
         self.assertIn('<strong>Member</strong>', call['html_message'])

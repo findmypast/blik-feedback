@@ -31,7 +31,7 @@ from reviews.services import (
 class SendOrganizationalCycleInvitationTests(TestCase):
     @patch('reviews.services.send_email')
     def test_individual_cycle_emails_only_the_two_selected_people(self, mock_send_email):
-        org = OrganizationFactory(name='FindMyPast')
+        org = OrganizationFactory(name='History Community')
         selected = [
             RevieweeFactory(organization=org, email='one@example.com'),
             RevieweeFactory(organization=org, email='two@example.com'),
@@ -59,7 +59,7 @@ class SendOrganizationalCycleInvitationTests(TestCase):
 
     @patch('reviews.services.send_email')
     def test_sends_one_consolidated_dashboard_email_per_participant(self, mock_send_email):
-        org = OrganizationFactory(name='FindMyPast')
+        org = OrganizationFactory(name='History Community')
         participant = RevieweeFactory(
             organization=org, name='Jamie Member', email='jamie@example.com'
         )
@@ -79,7 +79,7 @@ class SendOrganizationalCycleInvitationTests(TestCase):
         self.assertEqual(mock_send_email.call_count, 1)
         call = mock_send_email.call_args.kwargs
         self.assertEqual(call['recipient_list'], [participant.email])
-        self.assertIn('FindMyPast', call['subject'])
+        self.assertIn('History Community', call['subject'])
         rendered = call['message'] + call['html_message']
         self.assertIn('Self-assessment', rendered)
         self.assertIn('Peer review', rendered)
@@ -93,7 +93,7 @@ class SendOrganizationalCycleInvitationTests(TestCase):
     def test_child_campaign_cannot_send_an_extra_email(
         self, reviewer_sender, reviewee_sender, peer_sender
     ):
-        org = OrganizationFactory(name='FindMyPast')
+        org = OrganizationFactory(name='History Community')
         creator = UserFactory()
         questionnaire = QuestionnaireFactory(organization=org)
         parent = OrganizationalReviewCycle.objects.create(
@@ -121,7 +121,7 @@ class SendOrganizationalCycleInvitationTests(TestCase):
 
     @patch('reviews.services.send_email')
     def test_email_uses_the_same_assignment_uuids_as_dashboard_tasks(self, mock_send_email):
-        org = OrganizationFactory(name='FindMyPast')
+        org = OrganizationFactory(name='History Community')
         creator = UserFactory()
         participant = RevieweeFactory(
             organization=org, name='Jamie Member', email='jamie@example.com'

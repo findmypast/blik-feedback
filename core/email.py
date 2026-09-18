@@ -39,7 +39,12 @@ def brand_email_subject(subject):
 
 def add_email_footer(message, html=False):
     """Add a branded header and unambiguous notice to application email."""
-    notice = f'This is an automated message from {get_email_brand_name()} Feedback system.'
+    brand = get_email_brand_name()
+    notice = (
+        f'This is an automated message from {brand}.'
+        if brand.casefold().endswith('feedback')
+        else f'This is an automated message from {brand} Feedback system.'
+    )
     if notice in (message or '') and (
         not html or 'role="banner"' in (message or '')
     ):
@@ -47,7 +52,6 @@ def add_email_footer(message, html=False):
     if not html:
         return f'{(message or "").rstrip()}\n\n---\n{notice}\n'
 
-    brand = get_email_brand_name()
     identity = (
         f'<div style="color:#232147;font-size:20px;font-weight:700;">{brand}</div>'
     )

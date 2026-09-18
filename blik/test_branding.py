@@ -5,13 +5,13 @@ from blik.context_processors import branding
 
 
 class BrandingTestCase(SimpleTestCase):
-    @override_settings(PRODUCT_NAME='Findmypast 360')
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
     def test_branding_context_uses_deployment_settings(self):
         context = branding(RequestFactory().get('/'))
 
-        self.assertEqual(context['product_name'], 'Findmypast 360')
+        self.assertEqual(context['product_name'], 'History Community 360 Feedback')
 
-    @override_settings(PRODUCT_NAME='Findmypast 360')
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
     def test_public_pages_render_product_name(self):
         request = RequestFactory().get('/accounts/login/')
 
@@ -21,4 +21,4 @@ class BrandingTestCase(SimpleTestCase):
             request=request,
         )
 
-        self.assertIn('<title>Login - Findmypast 360</title>', rendered)
+        self.assertIn('<title>Login - History Community 360 Feedback</title>', rendered)

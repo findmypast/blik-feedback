@@ -306,7 +306,7 @@ class OrganizationPeopleSettingsTestCase(TestCase):
     def setUp(self):
         from accounts.permissions import assign_organization_admin
 
-        self.org = OrganizationFactory(name='FindMyPast')
+        self.org = OrganizationFactory(name='History Community')
         self.admin = UserFactory(email='admin@example.com', first_name='Zoe', last_name='Admin')
         self.admin_profile = UserProfileFactory(user=self.admin, organization=self.org)
         assign_organization_admin(self.admin)
@@ -603,7 +603,7 @@ class OrganizationPeopleSettingsTestCase(TestCase):
 
 class TeamHierarchyViewTestCase(TestCase):
     def setUp(self):
-        self.org = OrganizationFactory(name='FindMyPast')
+        self.org = OrganizationFactory(name='History Community')
         self.member_user = UserFactory(
             username='member', email='member@example.com', first_name='Morgan', last_name='Member'
         )
@@ -1023,7 +1023,7 @@ class ReportGenerationTestCase(TestCase):
 
 class ProfileViewTestCase(TestCase):
     def setUp(self):
-        self.org = OrganizationFactory(name='FindMyPast')
+        self.org = OrganizationFactory(name='History Community')
         self.user = UserFactory(
             username='member', email='member@example.com', first_name='Alex'
         )
@@ -1052,7 +1052,7 @@ class ProfileViewTestCase(TestCase):
         response = self.client.get(reverse('profile'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'FindMyPast')
+        self.assertContains(response, 'History Community')
         self.assertContains(response, 'Odyssey')
         self.assertContains(response, 'Team Leader')
         self.assertContains(response, 'Reviews completed')

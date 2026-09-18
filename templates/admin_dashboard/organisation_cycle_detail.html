@@ -16,14 +16,14 @@
 </div>
 
 <div class="card">
-    <div class="card-header"><h2 class="card-title">People and assessments</h2></div>
+    <div class="card-header"><h2 class="card-title">Related Assessment Cycles</h2></div>
     <div class="card-body organisation-assessments">
         {% for person in people %}
         <section class="organisation-person-group">
             <header><div><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></div></header>
             {% for assessment in person.assessments %}
             <div class="organisation-person-row assessment-{{ assessment.campaign.cycle_type }}">
-                <span><span class="assessment-chip assessment-{{ assessment.campaign.cycle_type }}">{{ assessment.campaign.get_cycle_type_display }}</span><small>{{ assessment.campaign.questionnaire.name }}</small></span>
+                <span><span class="assessment-chip assessment-{{ assessment.campaign.cycle_type }}">{{ assessment.campaign.get_cycle_type_display|title }}</span><small>{{ assessment.campaign.questionnaire.name }}</small></span>
                 <span><span class="badge {% if assessment.cycle.status == 'completed' %}badge-success{% elif assessment.completed_count %}badge-warning{% else %}badge-secondary{% endif %}">{{ assessment.status_label }}</span></span>
                 <span class="organisation-report-actions">{% if assessment.report %}<a href="{% url 'reports:view_report' assessment.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>{% elif assessment.cycle.status == 'completed' and assessment.can_manage %}<a href="{% url 'generate_report' assessment.cycle.uuid %}" class="btn btn-sm btn-primary">Generate report</a>{% else %}<span class="text-secondary">Not ready</span>{% endif %}</span>
             </div>

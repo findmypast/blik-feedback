@@ -59,7 +59,7 @@ class GetEmailBackendTests(TestCase):
         self.assertEqual(mail.outbox[0].to, ['someone@example.com'])
         self.assertEqual(mail.outbox[0].from_email, 'org@example.com')
 
-    @override_settings(PRODUCT_NAME='Findmypast 360')
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
     def test_email_subject_and_footer_are_consistently_branded(self):
         OrganizationFactory(smtp_host='')
 
@@ -73,26 +73,21 @@ class GetEmailBackendTests(TestCase):
         email = mail.outbox[0]
         self.assertEqual(
             email.subject,
-            'Findmypast 360 Feedback Request for Alex Example',
+            'History Community 360 Feedback: 360 Feedback Request for Alex Example',
         )
         notice = (
-            'This is an automated message from Findmypast 360 Feedback system.'
+            'This is an automated message from History Community 360 Feedback.'
         )
         self.assertIn(notice, email.body)
         self.assertIn(notice, email.alternatives[0].content)
-        self.assertIn('cid:findmypast-logo', email.alternatives[0].content)
         self.assertIn('360 Feedback', email.alternatives[0].content)
-        self.assertEqual(len(email.attachments), 1)
-        self.assertEqual(email.attachments[0].get_content_type(), 'image/png')
-        self.assertEqual(
-            email.attachments[0]['Content-ID'], '<findmypast-logo>'
-        )
+        self.assertEqual(len(email.attachments), 0)
 
-    @override_settings(PRODUCT_NAME='Findmypast 360')
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
     def test_branding_helpers_do_not_duplicate_existing_branding(self):
         self.assertEqual(
-            brand_email_subject('Findmypast 360: Welcome'),
-            'Findmypast 360: Welcome',
+            brand_email_subject('History Community 360 Feedback: Welcome'),
+            'History Community 360 Feedback: Welcome',
         )
         branded = add_email_footer('Message')
         self.assertEqual(add_email_footer(branded), branded)

@@ -102,7 +102,7 @@ Optional deployment branding can change the visible product name without
 changing application components or technical identifiers:
 
 ```env
-PRODUCT_NAME=Findmypast 360
+PRODUCT_NAME=History Community 360 Feedback
 ```
 
 ### Microsoft Entra SSO (optional)
@@ -114,7 +114,7 @@ credentials through Vault or the deployment environment:
 MICROSOFT_SSO_ENABLED=True
 MICROSOFT_CLIENT_ID=<application-client-id>
 MICROSOFT_CLIENT_SECRET=<client-secret>
-MICROSOFT_TENANT_ID=<findmypast-tenant-id>
+MICROSOFT_TENANT_ID=<your-microsoft-tenant-id>
 ```
 
 Register these Web redirect URIs as applicable:
