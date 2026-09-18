@@ -2845,6 +2845,12 @@ def nominate_peer_reviewers(request, cycle_uuid):
         desired_emails = selected_emails | protected_emails
         minimum_reviewers = cycle.campaign.minimum_peer_reviewers
         if len(desired_emails) < minimum_reviewers:
+            # Keep the user's current choices checked when validation fails.
+            # Nothing has been saved yet, so the database-backed selection
+            # state would otherwise make the form appear empty/reset.
+            selected_candidate_ids = {
+                person.id for person in selected
+            }
             messages.error(
                 request,
                 f'Select at least {minimum_reviewers} peer reviewer(s). '

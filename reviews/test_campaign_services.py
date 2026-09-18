@@ -901,6 +901,7 @@ class PeerNominationFlowTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Select at least 2 peer reviewer(s)')
+        self.assertContains(response, f'value="{self.peer.id}" checked')
         self.assertFalse(self.cycle.tokens.exists())
         send.assert_not_called()
 
