@@ -230,6 +230,10 @@ X_FRAME_OPTIONS = 'DENY'
 # DO NOT redirect to HTTPS at Django level - it will create infinite loops
 SECURE_SSL_REDIRECT = False
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Traefik preserves the original public host in X-Forwarded-Host while its
+# upstream request Host may be the pod address. Use that trusted proxy header
+# for Django's ALLOWED_HOSTS validation and URL generation.
+USE_X_FORWARDED_HOST = True
 
 # HSTS (HTTP Strict Transport Security)
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0  # 1 year in production
