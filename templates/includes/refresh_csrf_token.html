@@ -1,0 +1,51 @@
+<script>
+  /*
+   * Django rotates the CSRF secret after login. Refresh tokens rendered in old
+   * tabs from the browser's current cookie before those forms are submitted.
+   */
+  (function () {
+    "use strict";
+
+    function getCookie(name) {
+      const prefix = `${name}=`;
+      const cookie = document.cookie
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(prefix));
+
+      return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
+    }
+
+    function refreshCsrfTokens(root) {
+      const token = getCookie("csrftoken");
+      if (!token) return;
+
+      root
+        .querySelectorAll('input[name="csrfmiddlewaretoken"]')
+        .forEach((input) => {
+          input.value = token;
+        });
+    }
+
+    function refreshPageTokens() {
+      refreshCsrfTokens(document);
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", refreshPageTokens);
+    } else {
+      refreshPageTokens();
+    }
+
+    window.addEventListener("focus", refreshPageTokens);
+    window.addEventListener("pageshow", refreshPageTokens);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshPageTokens();
+    });
+    document.addEventListener(
+      "submit",
+      (event) => refreshCsrfTokens(event.target),
+      true,
+    );
+  })();
+</script>

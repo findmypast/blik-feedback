@@ -22,3 +22,4 @@ class BrandingTestCase(SimpleTestCase):
         )
 
         self.assertIn('<title>Login - History Community 360 Feedback</title>', rendered)
+        self.assertIn('function refreshCsrfTokens(root)', rendered)

@@ -15,6 +15,7 @@
 
     <link rel="stylesheet" href="{% static 'css/main.css' %}" />
     <link rel="stylesheet" href="{% static 'css/public_base.css' %}" />
+    {% include "includes/refresh_csrf_token.html" %}
     <script>
       // Theme detection and initialization
       (function () {
