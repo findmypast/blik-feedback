@@ -58,7 +58,7 @@ object BuildScanTestTagWithVersion : BuildType({
 })
 
 object DeployIntegration : BuildType({
-    name = "Deploy to Integration"
+    name = "Deploy to Blik"
     description = "Tracks the downstream Blik Docker build and Integration deployment"
     type = BuildTypeSettings.Type.COMPOSITE
 
