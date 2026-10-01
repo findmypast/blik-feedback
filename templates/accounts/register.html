@@ -22,12 +22,10 @@
     {% endif %}
 
     {% if microsoft_sso_enabled %}
-        <form method="post" action="{% url 'microsoft_login' %}">
-            {% csrf_token %}
-            <button type="submit" class="btn-primary" style="width:100%;">
+        <a href="{% url 'microsoft_login' %}" class="btn-primary"
+           style="display:block;width:100%;text-align:center;">
                 Continue with Microsoft SSO
-            </button>
-        </form>
+        </a>
         <p class="form-text" style="text-align:center;margin-top:.65rem;">
             Use this option if your invited email belongs to your organisation's Microsoft account.
         </p>

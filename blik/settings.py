@@ -286,7 +286,11 @@ SOCIALACCOUNT_AUTO_SIGNUP = False
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = False
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = False
 SOCIALACCOUNT_STORE_TOKENS = False
-SOCIALACCOUNT_LOGIN_ON_GET = False
+# OAuth sign-in is navigation, rather than a state-changing application action.
+# Starting it with GET also avoids coupling Microsoft SSO to a potentially stale
+# CSRF token in a long-lived login or invitation tab. The OAuth state parameter
+# still protects the callback from login CSRF.
+SOCIALACCOUNT_LOGIN_ON_GET = True
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_PROVIDERS = {}
 if MICROSOFT_SSO_CONFIGURED:

@@ -25,6 +25,16 @@ SSO_SETTINGS = {
     'MICROSOFT_SSO_CONFIGURED': True,
     'MICROSOFT_TENANT_ID': TENANT_ID,
 }
+MICROSOFT_PROVIDER_SETTINGS = {
+    'microsoft': {
+        'APPS': [{
+            'client_id': 'test-client-id',
+            'secret': 'test-client-secret',
+            'key': '',
+            'settings': {'tenant': TENANT_ID},
+        }],
+    },
+}
 
 
 def social_login(
@@ -230,12 +240,32 @@ class MicrosoftLoginViewTests(TestCase):
     def test_login_shows_microsoft_button_when_configured(self):
         response = self.client.get(reverse('login'))
         self.assertContains(response, 'Continue with Microsoft SSO')
-        self.assertContains(response, reverse('microsoft_login'))
+        self.assertContains(
+            response, f'href="{reverse("microsoft_login")}"', html=False
+        )
+        self.assertNotContains(
+            response, f'action="{reverse("microsoft_login")}"', html=False
+        )
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_login_hides_microsoft_button_when_not_configured(self):
         response = self.client.get(reverse('login'))
         self.assertNotContains(response, 'osoft SSO')
+
+    @override_settings(
+        MICROSOFT_SSO_CONFIGURED=True,
+        SOCIALACCOUNT_LOGIN_ON_GET=True,
+        SOCIALACCOUNT_PROVIDERS=MICROSOFT_PROVIDER_SETTINGS,
+    )
+    def test_microsoft_login_get_starts_oauth_without_csrf(self):
+        response = self.client.get(reverse('microsoft_login'))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            response.url.startswith(
+                f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize'
+            )
+        )
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_password_login_still_works(self):
@@ -261,7 +291,12 @@ class MicrosoftLoginViewTests(TestCase):
         response = self.client.get(reverse('signup_from_invitation'))
 
         self.assertContains(response, 'Continue with Microsoft SSO')
-        self.assertContains(response, reverse('microsoft_login'))
+        self.assertContains(
+            response, f'href="{reverse("microsoft_login")}"', html=False
+        )
+        self.assertNotContains(
+            response, f'action="{reverse("microsoft_login")}"', html=False
+        )
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_invitation_signup_hides_microsoft_when_not_configured(self):
