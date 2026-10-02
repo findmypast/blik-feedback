@@ -29,21 +29,22 @@
   >
       Continue with Microsoft SSO
   </a>
-  <div
-    style="
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      margin: 1.25rem 0;
-      color: var(--text-secondary);
-    "
-  >
-    <span style="height: 1px; background: var(--border-color); flex: 1"></span>
-    <span>or sign in with email</span>
-    <span style="height: 1px; background: var(--border-color); flex: 1"></span>
-  </div>
   {% endif %}
 
+  {% if microsoft_sso_enabled %}
+  <div class="email-auth">
+    <button
+      type="button"
+      id="email-auth-toggle"
+      class="btn-email-auth"
+      aria-expanded="{% if email_login_expanded %}true{% else %}false{% endif %}"
+      aria-controls="email-auth-content"
+    >
+      <span>Sign in with email</span>
+      <span class="email-auth-chevron" aria-hidden="true">⌄</span>
+    </button>
+    <div id="email-auth-content" class="email-auth-content"{% if not email_login_expanded %} hidden{% endif %}>
+  {% endif %}
   <form method="post" action="">
     {% csrf_token %}
 
@@ -55,7 +56,7 @@
         id="id_login"
         class="form-control"
         required
-        autofocus
+        {% if not microsoft_sso_enabled %}autofocus{% endif %}
       />
     </div>
 
@@ -76,6 +77,10 @@
   <div class="register-link">
     <p><a href="{% url 'forgot_password' %}">Forgot your password?</a></p>
   </div>
+  {% if microsoft_sso_enabled %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if registration_enabled %}
   <div class="register-link">
@@ -85,4 +90,23 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if microsoft_sso_enabled %}
+<script>
+  (() => {
+    const toggle = document.getElementById("email-auth-toggle");
+    const content = document.getElementById("email-auth-content");
+    if (!toggle || !content) return;
+
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!expanded));
+      content.hidden = expanded;
+      if (!expanded) document.getElementById("id_login")?.focus();
+    });
+  })();
+</script>
+{% endif %}
 {% endblock %}

@@ -260,6 +260,9 @@ class MicrosoftLoginViewTests(TestCase):
     def test_login_shows_microsoft_button_when_configured(self):
         response = self.client.get(reverse('login'))
         self.assertContains(response, 'Continue with Microsoft SSO')
+        self.assertContains(response, 'id="email-auth-toggle"', html=False)
+        self.assertContains(response, 'aria-expanded="false"', html=False)
+        self.assertContains(response, 'id="email-auth-content" class="email-auth-content" hidden', html=False)
         self.assertContains(
             response, f'href="{reverse("microsoft_login")}"', html=False
         )
@@ -302,6 +305,20 @@ class MicrosoftLoginViewTests(TestCase):
         self.assertRedirects(response, reverse('admin_dashboard'))
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    def test_failed_password_login_expands_email_form(self):
+        response = self.client.post(
+            reverse('login'),
+            {'login': 'unknown@example.com', 'password': 'invalid-password'},
+        )
+
+        self.assertContains(response, 'aria-expanded="true"', html=False)
+        self.assertContains(
+            response,
+            'id="email-auth-content" class="email-auth-content">',
+            html=False,
+        )
+
+    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
     def test_invitation_signup_offers_microsoft_sso(self):
         invitation = OrganizationInvitationFactory(
             organization=OrganizationFactory(),
@@ -320,6 +337,44 @@ class MicrosoftLoginViewTests(TestCase):
         )
         self.assertNotContains(
             response, f'action="{reverse("microsoft_login")}"', html=False
+        )
+
+    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    def test_corporate_invitation_redirects_to_microsoft_sso(self):
+        invitation = OrganizationInvitationFactory(
+            organization=OrganizationFactory(),
+            email='person@findmypast.com',
+        )
+        session = self.client.session
+        session['invitation_token'] = invitation.token
+        session['invitation_email'] = invitation.email
+        session.save()
+
+        response = self.client.get(reverse('signup_from_invitation'))
+
+        self.assertRedirects(
+            response,
+            reverse('microsoft_login'),
+            fetch_redirect_response=False,
+        )
+
+    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    def test_dcthomson_invitation_redirects_to_microsoft_sso(self):
+        invitation = OrganizationInvitationFactory(
+            organization=OrganizationFactory(),
+            email='person@dcthomson.co.uk',
+        )
+        session = self.client.session
+        session['invitation_token'] = invitation.token
+        session['invitation_email'] = invitation.email
+        session.save()
+
+        response = self.client.get(reverse('signup_from_invitation'))
+
+        self.assertRedirects(
+            response,
+            reverse('microsoft_login'),
+            fetch_redirect_response=False,
         )
 
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)

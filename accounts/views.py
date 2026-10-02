@@ -47,6 +47,7 @@ def login_view(request):
         'microsoft_sso_enabled': settings.MICROSOFT_SSO_CONFIGURED,
         'sso_access_denied': request.GET.get('sso_error') == 'access_denied',
         'sso_sign_in_failed': request.GET.get('sso_error') == 'sign_in_failed',
+        'email_login_expanded': request.method == 'POST',
     })
 
 
@@ -74,9 +75,10 @@ def signup_view(request):
     Creates account and links to organization from invitation.
     """
     def signup_context(invitation):
+        invitation_email = invitation.email or ''
         return {
             'organization': invitation.organization,
-            'invitation_email': invitation.email,
+            'invitation_email': invitation_email,
             'microsoft_sso_enabled': settings.MICROSOFT_SSO_CONFIGURED,
         }
 
@@ -95,6 +97,12 @@ def signup_view(request):
     except OrganizationInvitation.DoesNotExist:
         messages.error(request, 'Invalid invitation.')
         return redirect('login')
+
+    if settings.MICROSOFT_SSO_CONFIGURED and any(
+        domain in invitation.email.casefold()
+        for domain in ('findmypast', 'dcthomson')
+    ):
+        return redirect('microsoft_login')
 
     if request.method == 'POST':
         email = request.POST.get('email', '').strip().lower()
