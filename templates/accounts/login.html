@@ -16,6 +16,11 @@
     Microsoft sign-in could not be completed. Your account may not be authorised
     for this organisation. Contact your {{ product_name }} administrator.
   </div>
+  {% elif sso_sign_in_failed %}
+  <div class="alert alert-error">
+    Microsoft sign-in was interrupted. Please try again. If the problem continues,
+    contact your {{ product_name }} administrator.
+  </div>
   {% endif %} {% if microsoft_sso_enabled %}
   <a
     href="{% url 'microsoft_login' %}"

@@ -2,13 +2,14 @@
 
 from allauth.socialaccount.providers.oauth2.views import OAuth2CallbackView, OAuth2LoginView
 from django.urls import path
+from django.views.decorators.cache import never_cache
 
 from accounts.social_adapter import BlikMicrosoftOAuth2Adapter
 
 urlpatterns = [
     path(
         'microsoft/login/',
-        OAuth2LoginView.adapter_view(BlikMicrosoftOAuth2Adapter),
+        never_cache(OAuth2LoginView.adapter_view(BlikMicrosoftOAuth2Adapter)),
         name='microsoft_login',
     ),
     path(

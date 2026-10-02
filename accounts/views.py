@@ -46,6 +46,7 @@ def login_view(request):
     return render(request, 'accounts/login.html', {
         'microsoft_sso_enabled': settings.MICROSOFT_SSO_CONFIGURED,
         'sso_access_denied': request.GET.get('sso_error') == 'access_denied',
+        'sso_sign_in_failed': request.GET.get('sso_error') == 'sign_in_failed',
     })
 
 

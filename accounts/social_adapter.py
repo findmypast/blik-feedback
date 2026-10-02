@@ -1,5 +1,6 @@
 """Microsoft SSO policy and safe provisioning for Blik accounts."""
 
+import logging
 from urllib.parse import urlencode
 
 import jwt
@@ -19,10 +20,18 @@ from accounts.name_utils import normalize_name_part
 from accounts.permissions import assign_organization_member
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+SSO_RETRY_SESSION_KEY = 'microsoft_sso_retry_attempted'
 
 
 def _access_denied_response():
     query = urlencode({'sso_error': 'access_denied'})
+    return HttpResponseRedirect(f'{reverse("login")}?{query}')
+
+
+def _sign_in_failed_response():
+    query = urlencode({'sso_error': 'sign_in_failed'})
     return HttpResponseRedirect(f'{reverse("login")}?{query}')
 
 
@@ -66,9 +75,28 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
     def on_authentication_error(
         self, request, provider, error=None, exception=None, extra_context=None
     ):
-        raise ImmediateHttpResponse(_access_denied_response())
+        logger.warning(
+            'Microsoft SSO callback failed (error=%r, exception=%r)',
+            error,
+            exception,
+        )
+
+        # A callback can occasionally fail because its state cookie was stale or
+        # Microsoft/Graph returned a transient error. Start one clean OAuth flow
+        # automatically instead of making the user click the button repeatedly.
+        # Explicit cancellation is never retried.
+        cancelled = str(error).lower().endswith('cancelled')
+        already_retried = request.session.pop(SSO_RETRY_SESSION_KEY, False)
+        if not cancelled and not already_retried:
+            request.session[SSO_RETRY_SESSION_KEY] = True
+            raise ImmediateHttpResponse(HttpResponseRedirect(reverse('microsoft_login')))
+
+        raise ImmediateHttpResponse(_sign_in_failed_response())
 
     def pre_social_login(self, request, sociallogin):
+        session = getattr(request, 'session', None)
+        if session is not None:
+            session.pop(SSO_RETRY_SESSION_KEY, None)
         if sociallogin.account.provider != 'microsoft':
             raise ImmediateHttpResponse(_access_denied_response())
         tenant = str(sociallogin.account.extra_data.get('tid', '')).casefold()

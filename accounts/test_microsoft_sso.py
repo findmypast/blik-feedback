@@ -16,6 +16,7 @@ from accounts.permissions import ORG_ADMIN_GROUP, ORG_MEMBER_GROUP
 from accounts.social_adapter import (
     BlikMicrosoftOAuth2Adapter,
     BlikSocialAccountAdapter,
+    SSO_RETRY_SESSION_KEY,
 )
 from core.factories import OrganizationFactory, UserFactory
 
@@ -77,6 +78,25 @@ class MicrosoftSocialAdapterTests(TestCase):
             self.adapter.pre_social_login(self.request, login)
         self.assertEqual(caught.exception.response.status_code, 302)
         self.assertIn('sso_error=access_denied', caught.exception.response.url)
+
+    def test_callback_error_retries_once_before_showing_failure(self):
+        request = self.client.get('/').wsgi_request
+
+        with self.assertRaises(ImmediateHttpResponse) as first_error:
+            self.adapter.on_authentication_error(
+                request, 'microsoft', exception=OAuth2Error('temporary failure')
+            )
+
+        self.assertEqual(first_error.exception.response.url, reverse('microsoft_login'))
+        self.assertTrue(request.session[SSO_RETRY_SESSION_KEY])
+
+        with self.assertRaises(ImmediateHttpResponse) as second_error:
+            self.adapter.on_authentication_error(
+                request, 'microsoft', exception=OAuth2Error('temporary failure')
+            )
+
+        self.assertIn('sso_error=sign_in_failed', second_error.exception.response.url)
+        self.assertNotIn(SSO_RETRY_SESSION_KEY, request.session)
 
     def test_existing_active_user_is_linked_without_changing_access(self):
         user = UserFactory(email='member@example.com')
@@ -261,6 +281,10 @@ class MicrosoftLoginViewTests(TestCase):
         response = self.client.get(reverse('microsoft_login'))
 
         self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.headers['Cache-Control'],
+            'max-age=0, no-cache, no-store, must-revalidate, private',
+        )
         self.assertTrue(
             response.url.startswith(
                 f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize'
