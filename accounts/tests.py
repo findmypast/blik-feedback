@@ -51,6 +51,10 @@ class DashboardTestCase(TestCase):
         """Test accessing the dashboard"""
         response = self.client.get(reverse('admin_dashboard'))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Getting Started Guide')
+        self.assertContains(response, 'People, teams, and access')
+        self.assertContains(response, 'Choose the right cycle')
+        self.assertContains(response, 'id="getting-started-guide-button"', html=False)
 
     def test_dashboard_shows_reviewees(self):
         """Test that dashboard shows reviewees"""
