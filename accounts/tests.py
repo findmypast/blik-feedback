@@ -345,6 +345,27 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             response.content.index(b'Zoe Admin'),
         )
 
+    def test_settings_invitation_can_create_a_new_team(self):
+        page = self.client.get(reverse('settings'))
+        self.assertContains(page, 'value="__new__"', html=False)
+        self.assertContains(page, '+ Create a new team')
+
+        with patch('accounts.invitation_views.send_email'):
+            response = self.client.post(reverse('send_invitation'), {
+                'return_to': 'settings',
+                'email': 'new-person@example.com',
+                'team': '__new__',
+                'team_name': 'Research',
+                'reporting_manager_choice': 'team_leader',
+            })
+
+        self.assertRedirects(response, reverse('settings') + '#people')
+        team = Team.objects.get(organization=self.org, name='Research')
+        self.assertEqual(team.manager, self.admin_profile)
+        invitation = OrganizationInvitation.objects.get(email='new-person@example.com')
+        self.assertEqual(invitation.team, team)
+        self.assertEqual(invitation.reporting_manager, self.admin_profile)
+
     def test_admin_sees_role_creation_on_organization_tab(self):
         response = self.client.get(reverse('settings'))
 
