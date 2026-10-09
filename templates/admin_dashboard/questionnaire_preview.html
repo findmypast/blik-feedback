@@ -1,103 +1,173 @@
 {% extends "admin_dashboard/base.html" %}
+{% load feedback_tags %}
 
 {% block title %}Preview: {{ questionnaire.name }}{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-        <div>
-            <h1 style="font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary);">
-                {{ questionnaire.name }}
-                {% if questionnaire.is_default %}
-                <span class="badge badge-success">Default</span>
-                {% endif %}
-            </h1>
-            {% if questionnaire.description %}
-            <p style="color: var(--text-secondary);">{{ questionnaire.description }}</p>
-            {% endif %}
-        </div>
-        <a href="{% url 'questionnaire_list' %}" class="btn btn-secondary">Back to List</a>
+<div class="feedback-container" style="min-height:auto;padding-top:0;">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+    <div>
+      <span class="badge badge-info">Preview mode</span>
+      <p style="color:var(--text-secondary);margin:.5rem 0 0;">Try the questionnaire as a respondent. Answers entered here are not saved.</p>
     </div>
-</div>
+    <a href="{% url 'questionnaire_edit' questionnaire.id %}" class="btn btn-secondary">Back to editor</a>
+  </div>
 
-<div style="max-width: 800px;">
+  <div class="feedback-header">
+    <h1>Example respondent</h1>
+    <div class="category-badge assessment-peer">Preview</div>
+    <div class="reviewee-name">{{ questionnaire.name }}</div>
+    {% if questionnaire.description %}<p style="color:var(--text-secondary);">{{ questionnaire.description }}</p>{% endif %}
+  </div>
+
+  {% if sections %}
+  <div class="progress-container">
+    <div class="progress-bar"><div class="progress-fill"></div></div>
+    <div class="progress-text">Step 1 of {{ sections|length }}</div>
+  </div>
+
+  <div id="preview-complete" class="card" style="display:none;text-align:center;margin-bottom:1.5rem;">
+    <div class="card-body">
+      <h2 style="margin-bottom:.5rem;">Preview complete</h2>
+      <p style="color:var(--text-secondary);margin-bottom:1.5rem;">No responses were saved.</p>
+      <button type="button" id="restart-btn" class="btn btn-secondary">Preview again</button>
+      <a href="{% url 'questionnaire_edit' questionnaire.id %}" class="btn btn-primary">Back to editor</a>
+    </div>
+  </div>
+
+  <form id="questionnaire-preview-form" novalidate>
     {% for section in sections %}
-    <div class="card" style="margin-bottom: 2rem;">
-        <div class="card-header">
-            <h2 class="card-title">{{ section.title }}</h2>
-        </div>
-        <div class="card-body">
-            {% if section.questions.all %}
-            <div style="display: flex; flex-direction: column; gap: 1.5rem;">
-                {% for question in section.questions.all %}
-                <div style="padding: 1rem; background: var(--bg-light); border-radius: 6px;">
-                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.75rem;">
-                        <div style="font-weight: 500; color: var(--text-primary);">
-                            {{ forloop.counter }}. {{ question.question_text }}
-                            {% if question.required %}
-                            <span style="color: var(--danger);">*</span>
-                            {% endif %}
-                        </div>
-                        <span class="badge badge-info">{{ question.get_question_type_display }}</span>
-                    </div>
+    <div class="section" data-section="{{ forloop.counter0 }}">
+      <div class="section-header">
+        <h2 class="section-title">{{ section.title }}</h2>
+        {% if section.description %}<p class="section-description">{{ section.description }}</p>{% endif %}
+      </div>
 
-                    {% if question.question_type == 'rating' %}
-                    <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                        Rating scale:
-                        {% if question.config.scale_type == 'likert_5' %}
-                        1 (Strongly Disagree) to 5 (Strongly Agree)
-                        {% elif question.config.scale_type == 'performance_5' %}
-                        1 (Needs Improvement) to 5 (Exceptional)
-                        {% elif question.config.scale_type == 'frequency_5' %}
-                        1 (Never) to 5 (Always)
-                        {% else %}
-                        1 to {{ question.config.max_value|default:5 }}
-                        {% endif %}
-                    </div>
-                    {% elif question.question_type == 'likert' %}
-                    <div style="margin-top: 0.5rem;">
-                        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Likert scale options:</div>
-                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                            {% for item in question.config.scale %}
-                            <div style="padding: 0.5rem 0.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; font-size: 0.875rem; color: var(--text-primary);">
-                                {{ item }}
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    {% elif question.question_type == 'multiple_choice' %}
-                    <div style="margin-top: 0.5rem;">
-                        <div style="font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Options:</div>
-                        <ul style="margin-left: 1.5rem;">
-                            {% for choice in question.config.choices %}
-                            <li>{{ choice }}</li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                    {% elif question.question_type == 'text' %}
-                    <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                        Open-ended text response
-                    </div>
-                    {% endif %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <p style="color: var(--text-secondary); text-align: center; padding: 2rem 0;">No questions in this section</p>
-            {% endif %}
+      {% for question in section.questions.all %}
+      <div class="question">
+        <div class="question-text">
+          {{ question.question_text|personalize:"Example respondent" }}
+          {% if question.required %}<span class="required">*</span>{% endif %}
         </div>
+
+        {% if question.question_type == 'rating' %}
+        <div class="rating-group">
+          {% for value in "12345" %}
+          <div class="rating-option">
+            <input type="radio" name="question_{{ question.id }}" value="{{ value }}" id="q{{ question.id }}_{{ value }}">
+            <label for="q{{ question.id }}_{{ value }}" class="rating-label">
+              <span class="rating-value">{{ value }}</span>
+              {% if question.config.labels|get_item:value %}<span class="rating-description">{{ question.config.labels|get_item:value }}</span>{% endif %}
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif question.question_type == 'likert' %}
+        <div class="likert-group">
+          {% for item in question.config.scale %}
+          <div class="likert-option">
+            <input type="radio" name="question_{{ question.id }}" value="{{ item }}" id="q{{ question.id }}_{{ forloop.counter }}">
+            <label for="q{{ question.id }}_{{ forloop.counter }}" class="likert-label">{{ item }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif question.question_type == 'text' %}
+        <textarea name="question_{{ question.id }}" class="text-input" placeholder="Share your thoughts..."></textarea>
+        {% elif question.question_type == 'single_choice' %}
+        <select name="question_{{ question.id }}" class="text-input">
+          <option value="">Select an option</option>
+          {% for choice in question.config.choices %}<option value="{{ choice }}">{{ choice }}</option>{% endfor %}
+        </select>
+        {% elif question.question_type == 'multiple_choice' %}
+        <div class="multiple-choice-group">
+          {% for choice in question.config.choices %}
+          <div class="multiple-choice-option">
+            <input type="checkbox" name="question_{{ question.id }}" value="{{ choice }}" id="q{{ question.id }}_{{ forloop.counter }}" class="multiple-choice-checkbox">
+            <label for="q{{ question.id }}_{{ forloop.counter }}" class="multiple-choice-label">{{ choice }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        {% elif question.question_type == 'scale' %}
+        <div class="scale-group">
+          <div class="scale-labels">
+            {% if question.config.min_label %}<span class="scale-label-min">{{ question.config.min_label }}</span>{% endif %}
+            <span class="scale-value-display" id="scale_value_{{ question.id }}">{{ question.config.min }}</span>
+            {% if question.config.max_label %}<span class="scale-label-max">{{ question.config.max_label }}</span>{% endif %}
+          </div>
+          <input type="range" name="question_{{ question.id }}" id="scale_input_{{ question.id }}" class="scale-slider"
+                 min="{{ question.config.min }}" max="{{ question.config.max }}" step="{{ question.config.step }}"
+                 value="{{ question.config.min }}" oninput="document.getElementById('scale_value_{{ question.id }}').textContent=this.value">
+          <div class="scale-range-labels"><span>{{ question.config.min }}</span><span>{{ question.config.max }}</span></div>
+        </div>
+        {% endif %}
+      </div>
+      {% empty %}
+      <p style="color:var(--text-secondary);text-align:center;">No questions in this section yet.</p>
+      {% endfor %}
     </div>
     {% endfor %}
 
-    {% if not sections %}
-    <div class="card">
-        <div class="card-body">
-            <div class="empty-state">
-                <h3 style="margin-bottom: 0.5rem;">No sections yet</h3>
-                <p>This questionnaire doesn't have any sections or questions yet.</p>
-            </div>
-        </div>
+    <div class="form-actions">
+      <button type="button" id="prev-btn" class="btn btn-secondary" style="display:none;">Previous</button>
+      <button type="button" id="next-btn" class="btn btn-primary">Next</button>
+      <button type="button" id="finish-btn" class="btn btn-primary" style="display:none;">Finish preview</button>
     </div>
-    {% endif %}
+  </form>
+  {% else %}
+  <div class="card"><div class="card-body"><div class="empty-state">
+    <h3 style="margin-bottom:.5rem;">Nothing to preview yet</h3>
+    <p style="margin-bottom:1.5rem;">Add a section and some questions, then return to preview the respondent experience.</p>
+    <a href="{% url 'questionnaire_edit' questionnaire.id %}" class="btn btn-primary">Back to editor</a>
+  </div></div></div>
+  {% endif %}
 </div>
+
+{% if sections %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('questionnaire-preview-form');
+  const sections = Array.from(form.querySelectorAll('.section'));
+  const previous = document.getElementById('prev-btn');
+  const next = document.getElementById('next-btn');
+  const finish = document.getElementById('finish-btn');
+  const complete = document.getElementById('preview-complete');
+  const progress = document.querySelector('.progress-fill');
+  const progressText = document.querySelector('.progress-text');
+  const progressContainer = document.querySelector('.progress-container');
+  let step = 0;
+
+  function showStep(index) {
+    step = index;
+    sections.forEach((section, i) => section.classList.toggle('active', i === step));
+    previous.style.display = step === 0 ? 'none' : 'inline-block';
+    next.style.display = step === sections.length - 1 ? 'none' : 'inline-block';
+    finish.style.display = step === sections.length - 1 ? 'inline-block' : 'none';
+    progress.style.width = ((step + 1) / sections.length * 100) + '%';
+    progressText.textContent = `Step ${step + 1} of ${sections.length}`;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  previous.addEventListener('click', () => showStep(step - 1));
+  next.addEventListener('click', () => showStep(step + 1));
+  finish.addEventListener('click', function () {
+    form.style.display = 'none';
+    complete.style.display = 'block';
+    progressContainer.style.display = 'none';
+    window.scrollTo({top: 0, behavior: 'smooth'});
+  });
+  document.getElementById('restart-btn').addEventListener('click', function () {
+    form.reset();
+    form.querySelectorAll('.scale-slider').forEach(function (slider) {
+      document.getElementById('scale_value_' + slider.id.replace('scale_input_', '')).textContent = slider.value;
+    });
+    complete.style.display = 'none';
+    form.style.display = 'block';
+    progressContainer.style.display = 'block';
+    showStep(0);
+  });
+  form.addEventListener('submit', event => event.preventDefault());
+  showStep(0);
+});
+</script>
+{% endif %}
 {% endblock %}

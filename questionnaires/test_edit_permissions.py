@@ -5,7 +5,7 @@ from accounts.factories import UserProfileFactory
 from accounts.models import Team, TeamLeadGrant
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
-from questionnaires.models import Questionnaire
+from questionnaires.models import Questionnaire, QuestionSection, Question
 
 
 class QuestionnaireEditPermissionTests(TestCase):
@@ -99,3 +99,27 @@ class QuestionnaireEditPermissionTests(TestCase):
         self.assertNotContains(
             response, reverse('questionnaire_edit', args=[self.questionnaire.id])
         )
+
+    def test_preview_is_interactive_and_does_not_accept_submissions(self):
+        section = QuestionSection.objects.create(
+            questionnaire=self.questionnaire, title='Communication', order=0
+        )
+        Question.objects.create(
+            section=section,
+            question_text='How clearly does <personName> communicate?',
+            question_type='rating',
+            required=True,
+            order=0,
+            config={},
+        )
+        self.client.force_login(self.other)
+        url = reverse('questionnaire_preview', args=[self.questionnaire.id])
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Preview mode')
+        self.assertContains(response, 'How clearly does Example respondent communicate?')
+        self.assertContains(response, 'Finish preview')
+        self.assertNotContains(response, 'Submit Feedback')
+        self.assertEqual(self.client.post(url).status_code, 405)

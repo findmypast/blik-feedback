@@ -12,7 +12,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db import transaction
 from django.db.models import Count, Q, Max
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from datetime import timedelta
@@ -1382,6 +1382,7 @@ def questionnaire_list(request):
 
 
 @login_required
+@require_GET
 def questionnaire_preview(request, questionnaire_id):
     """Preview a questionnaire"""
     questionnaire = get_object_or_404(
