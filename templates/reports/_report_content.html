@@ -130,8 +130,17 @@
 </div>
 {% endif %}
 
-{% if report.report_data.charts.section_scores %}
-<div class="report-section">
+{% with has_overview=report.report_data.charts|has_section_chart_data has_comparison=report.report_data.charts|has_gap_chart_data has_sections=report.report_data.section_summary has_details=display_data.by_section %}
+{% if has_overview or has_comparison or has_sections %}
+<div class="report-chart-switcher" data-report-chart-switcher>
+    <div class="report-chart-cards" role="tablist" aria-label="Report sections">
+        {% if has_overview %}<button type="button" class="report-chart-card is-active" role="tab" aria-selected="true" data-chart-target="performance-overview-panel"><strong>Performance Overview</strong><span>Scores across competency areas</span></button>{% endif %}
+        {% if has_comparison %}<button type="button" class="report-chart-card{% if not has_overview %} is-active{% endif %}" role="tab" aria-selected="{% if has_overview %}false{% else %}true{% endif %}" data-chart-target="self-comparison-panel"><strong>Self vs Others</strong><span>Compare perception gaps</span></button>{% endif %}
+        {% if has_sections %}<button type="button" class="report-chart-card{% if not has_overview and not has_comparison %} is-active{% endif %}" role="tab" aria-selected="{% if has_overview or has_comparison %}false{% else %}true{% endif %}" data-chart-target="section-performance-panel"><strong>Section Performance</strong><span>Breakdown by competency area</span></button>{% endif %}
+    </div>
+
+{% if has_overview %}
+<div id="performance-overview-panel" class="report-section report-chart-panel is-active" role="tabpanel">
     <h2>Performance Overview</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         Visual comparison of {% if is_admin_view %}performance{% else %}your performance{% endif %} across all competency areas
@@ -141,8 +150,10 @@
         <canvas id="sectionRadarChart" style="max-height: 500px;"></canvas>
     </div>
 </div>
+{% endif %}
 
-<div class="report-section">
+{% if has_comparison %}
+<div id="self-comparison-panel" class="report-section report-chart-panel{% if not has_overview %} is-active{% endif %}" role="tabpanel">
     <h2>Self vs Others Comparison</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         How {% if is_admin_view %}self-assessment compares{% else %}your self-assessment compares{% endif %} to others' feedback (sorted by gap size)
@@ -154,7 +165,8 @@
 </div>
 {% endif %}
 
-<div id="section-level-performance" class="report-section">
+{% if has_sections %}
+<div id="section-performance-panel" class="report-section report-chart-panel{% if not has_overview and not has_comparison %} is-active{% endif %}" role="tabpanel">
     <h2>Section-Level Performance</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         Performance breakdown by competency area
@@ -241,17 +253,12 @@
         {% endfor %}
     </div>
 </div>
-
-{% if not is_admin_view %}
-<div class="notice">
-    <p>
-        <strong>Privacy Notice:</strong> All responses are anonymous and aggregated. Individual reviewers cannot be identified. Results are only shown when there are at least {{ cycle.organization.min_responses_for_anonymity }} response{{ cycle.organization.min_responses_for_anonymity|pluralize }} per category to protect anonymity.
-    </p>
+{% endif %}
 </div>
 {% endif %}
 
+{% if has_details %}
 <h2 id="detailed-feedback" style="font-size: 1.75rem; font-weight: 600; margin: 2rem 0 1rem; color: var(--text-primary);">Detailed Feedback</h2>
-
 {% for section_id, section_data in display_data.by_section.items %}
 <div class="section-report">
     <h2 class="section-title">{{ section_data.title }}</h2>
@@ -261,6 +268,16 @@
     {% endfor %}
 </div>
 {% endfor %}
+{% endif %}
+{% endwith %}
+
+{% if not is_admin_view %}
+<div class="notice">
+    <p>
+        <strong>Privacy Notice:</strong> All responses are anonymous and aggregated. Individual reviewers cannot be identified. Results are only shown when there are at least {{ cycle.organization.min_responses_for_anonymity }} response{{ cycle.organization.min_responses_for_anonymity|pluralize }} per category to protect anonymity.
+    </p>
+</div>
+{% endif %}
 
 {% if not is_admin_view %}
 <div class="report-section" style="text-align: center;">

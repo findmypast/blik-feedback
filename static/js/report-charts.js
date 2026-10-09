@@ -320,6 +320,46 @@
     };
 
     /**
+     * Turn report charts into selectable cards and render each canvas lazily.
+     * Lazy rendering prevents Chart.js from measuring a hidden panel at zero width.
+     */
+    window.initializeReportChartSwitcher = function(chartData) {
+        document.querySelectorAll('[data-report-chart-switcher]').forEach(switcher => {
+            const buttons = Array.from(switcher.querySelectorAll('[data-chart-target]'));
+            const panels = Array.from(switcher.querySelectorAll('.report-chart-panel'));
+            const rendered = new Set();
+
+            function renderPanel(panel) {
+                if (!panel || rendered.has(panel.id)) return;
+                if (panel.querySelector('#sectionRadarChart')) {
+                    window.renderSectionRadarChart('sectionRadarChart', chartData);
+                }
+                if (panel.querySelector('#gapChart')) {
+                    window.renderGapChart('gapChart', chartData);
+                }
+                rendered.add(panel.id);
+            }
+
+            function selectPanel(targetId) {
+                buttons.forEach(button => {
+                    const selected = button.dataset.chartTarget === targetId;
+                    button.classList.toggle('is-active', selected);
+                    button.setAttribute('aria-selected', selected ? 'true' : 'false');
+                });
+                panels.forEach(panel => panel.classList.toggle('is-active', panel.id === targetId));
+                renderPanel(document.getElementById(targetId));
+            }
+
+            buttons.forEach(button => {
+                button.addEventListener('click', () => selectPanel(button.dataset.chartTarget));
+            });
+
+            const initial = buttons.find(button => button.classList.contains('is-active')) || buttons[0];
+            if (initial) selectPanel(initial.dataset.chartTarget);
+        });
+    };
+
+    /**
      * Render category breakdown chart for a section
      */
     window.renderCategoryBreakdownChart = function(canvasId, sectionName, sectionData) {

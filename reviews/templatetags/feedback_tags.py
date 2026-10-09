@@ -131,3 +131,37 @@ def sort_categories(categories):
             result.append((cat, score))
 
     return result
+
+
+@register.filter
+def has_section_chart_data(chart_data):
+    """Return whether at least one section has a plottable assessment score."""
+    if not isinstance(chart_data, dict):
+        return False
+    sections = chart_data.get('section_scores')
+    if not isinstance(sections, dict):
+        return False
+    categories = {'self', 'peer', 'manager', 'direct_report'}
+    plottable_sections = sum(
+        isinstance(scores, dict)
+        and any(scores.get(category) is not None for category in categories)
+        for scores in sections.values()
+    )
+    # Radar charts need multiple axes to communicate a meaningful comparison.
+    return plottable_sections >= 2
+
+
+@register.filter
+def has_gap_chart_data(chart_data):
+    """Return whether a section can compare a self score with others."""
+    if not isinstance(chart_data, dict):
+        return False
+    sections = chart_data.get('section_scores')
+    if not isinstance(sections, dict):
+        return False
+    return any(
+        isinstance(scores, dict)
+        and scores.get('self') is not None
+        and scores.get('others_avg') is not None
+        for scores in sections.values()
+    )

@@ -937,6 +937,59 @@ body.report-page {
 }
 
 /* Responsive adjustments */
+.report-chart-switcher {
+    margin: 2rem 0;
+}
+
+.report-chart-cards {
+    display: flex;
+    gap: 1.5rem;
+    overflow-x: auto;
+    margin-bottom: 1.25rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.report-chart-card {
+    appearance: none;
+    flex: 0 0 auto;
+    padding: .75rem .25rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s ease, color .2s ease;
+}
+
+.report-chart-card:hover {
+    color: var(--text-primary);
+}
+
+.report-chart-card.is-active {
+    border-bottom-color: var(--primary);
+    color: var(--primary);
+}
+
+.report-chart-card strong,
+.report-chart-card span {
+    display: block;
+}
+
+.report-chart-card span {
+    margin-top: .25rem;
+    color: var(--text-secondary);
+    font-size: .75rem;
+}
+
+.report-chart-panel {
+    display: none;
+}
+
+.report-chart-panel.is-active {
+    display: block;
+}
+
 @media (max-width: 768px) {
     .development-tabs {
         overflow-x: auto;

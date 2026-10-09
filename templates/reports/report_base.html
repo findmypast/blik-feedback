@@ -163,15 +163,7 @@
             const chartDataElement = document.getElementById('chart-data');
             const chartData = JSON.parse(chartDataElement.textContent);
 
-            // Render section radar chart
-            if (document.getElementById('sectionRadarChart')) {
-                renderSectionRadarChart('sectionRadarChart', chartData);
-            }
-
-            // Render gap chart
-            if (document.getElementById('gapChart')) {
-                renderGapChart('gapChart', chartData);
-            }
+            initializeReportChartSwitcher(chartData);
             {% endif %}
 
             // Tab switching for development path

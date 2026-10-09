@@ -1,5 +1,5 @@
 {% extends "admin_dashboard/base.html" %}
-{% load static %}
+{% load static feedback_tags %}
 
 {% block title %}Sample Report — {{ questionnaire.name }}{% endblock %}
 
@@ -52,7 +52,17 @@
 {# Dreyfus diamond + agency levels + quadrant — reuses the real report partial #}
 {% include "reports/_dreyfus_profile.html" with insights=insights %}
 
-<div class="report-section">
+{% with has_overview=chart_data|has_section_chart_data has_comparison=chart_data|has_gap_chart_data %}
+{% if has_overview or has_comparison or sections_data %}
+<div class="report-chart-switcher" data-report-chart-switcher>
+    <div class="report-chart-cards" role="tablist" aria-label="Sample report sections">
+        {% if has_overview %}<button type="button" class="report-chart-card is-active" role="tab" aria-selected="true" data-chart-target="performance-overview-panel"><strong>Performance Overview</strong><span>Scores across competency areas</span></button>{% endif %}
+        {% if has_comparison %}<button type="button" class="report-chart-card{% if not has_overview %} is-active{% endif %}" role="tab" aria-selected="{% if has_overview %}false{% else %}true{% endif %}" data-chart-target="self-comparison-panel"><strong>Self vs Others</strong><span>Compare perception gaps</span></button>{% endif %}
+        {% if sections_data %}<button type="button" class="report-chart-card{% if not has_overview and not has_comparison %} is-active{% endif %}" role="tab" aria-selected="{% if has_overview or has_comparison %}false{% else %}true{% endif %}" data-chart-target="section-performance-panel"><strong>Section Performance</strong><span>Breakdown by competency area</span></button>{% endif %}
+    </div>
+
+{% if has_overview %}
+<div id="performance-overview-panel" class="report-section report-chart-panel is-active" role="tabpanel">
     <h2>Performance Overview</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         Visual comparison across all competency areas
@@ -61,8 +71,10 @@
         <canvas id="sectionRadarChart" style="max-height: 500px;"></canvas>
     </div>
 </div>
+{% endif %}
 
-<div class="report-section">
+{% if has_comparison %}
+<div id="self-comparison-panel" class="report-section report-chart-panel{% if not has_overview %} is-active{% endif %}" role="tabpanel">
     <h2>Self vs Others Comparison</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         How the reviewee's self-assessment would compare to others' feedback (sorted by gap size)
@@ -71,8 +83,10 @@
         <canvas id="gapChart" style="max-height: 400px;"></canvas>
     </div>
 </div>
+{% endif %}
 
-<div id="section-level-performance" class="report-section">
+{% if sections_data %}
+<div id="section-performance-panel" class="report-section report-chart-panel{% if not has_overview and not has_comparison %} is-active{% endif %}" role="tabpanel">
     <h2>Section-Level Performance</h2>
     <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
         Performance breakdown by competency area
@@ -105,6 +119,10 @@
         {% endfor %}
     </div>
 </div>
+{% endif %}
+</div>
+{% endif %}
+{% endwith %}
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -112,12 +130,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!chartDataElement) return;
     const chartData = JSON.parse(chartDataElement.textContent);
 
-    if (document.getElementById('sectionRadarChart') && typeof renderSectionRadarChart === 'function') {
-        renderSectionRadarChart('sectionRadarChart', chartData);
-    }
-    if (document.getElementById('gapChart') && typeof renderGapChart === 'function') {
-        renderGapChart('gapChart', chartData);
-    }
+    initializeReportChartSwitcher(chartData);
 });
 </script>
 {% endblock %}

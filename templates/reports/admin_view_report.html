@@ -28,6 +28,6 @@
 <script src="{% static 'js/chart.min.js' %}"></script>
 <script src="{% static 'js/report-charts.js' %}"></script>
 <script>
-document.addEventListener('DOMContentLoaded',()=>{const element=document.getElementById('chart-data');if(!element)return;const data=JSON.parse(element.textContent);if(document.getElementById('sectionRadarChart'))renderSectionRadarChart('sectionRadarChart',data);if(document.getElementById('gapChart'))renderGapChart('gapChart',data);});
+document.addEventListener('DOMContentLoaded',()=>{const element=document.getElementById('chart-data');if(!element)return;initializeReportChartSwitcher(JSON.parse(element.textContent));});
 </script>
 {% endblock %}
