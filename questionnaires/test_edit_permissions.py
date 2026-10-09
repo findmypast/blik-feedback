@@ -119,7 +119,7 @@ class QuestionnaireEditPermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Preview mode')
-        self.assertContains(response, 'How clearly does Example respondent communicate?')
+        self.assertContains(response, 'How clearly does Bob communicate?')
         self.assertContains(response, 'Finish preview')
         self.assertNotContains(response, 'Submit Feedback')
         self.assertEqual(self.client.post(url).status_code, 405)

@@ -14,7 +14,7 @@
   </div>
 
   <div class="feedback-header">
-    <h1>Example respondent</h1>
+    <h1>Bob</h1>
     <div class="category-badge assessment-peer">Preview</div>
     <div class="reviewee-name">{{ questionnaire.name }}</div>
     {% if questionnaire.description %}<p style="color:var(--text-secondary);">{{ questionnaire.description }}</p>{% endif %}
@@ -46,7 +46,7 @@
       {% for question in section.questions.all %}
       <div class="question">
         <div class="question-text">
-          {{ question.question_text|personalize:"Example respondent" }}
+          {{ question.question_text|personalize:"Bob" }}
           {% if question.required %}<span class="required">*</span>{% endif %}
         </div>
 
