@@ -123,3 +123,29 @@ class QuestionnaireEditPermissionTests(TestCase):
         self.assertContains(response, 'Finish preview')
         self.assertNotContains(response, 'Submit Feedback')
         self.assertEqual(self.client.post(url).status_code, 405)
+
+    def test_section_subtext_is_optional_and_blank_whitespace_is_removed(self):
+        self.client.force_login(self.owner)
+
+        editor = self.client.get(
+            reverse('questionnaire_edit', args=[self.questionnaire.id])
+        )
+        self.assertContains(editor, '+ Add subtext', count=2)
+
+        response = self.client.post(
+            reverse('questionnaire_edit', args=[self.questionnaire.id]),
+            {
+                'action': 'add_section',
+                'section_title': 'Communication',
+                'section_description': '   ',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        section = self.questionnaire.sections.get(title='Communication')
+        self.assertEqual(section.description, '')
+
+        preview = self.client.get(
+            reverse('questionnaire_preview', args=[self.questionnaire.id])
+        )
+        self.assertNotContains(preview, '<p class="section-description">', html=False)

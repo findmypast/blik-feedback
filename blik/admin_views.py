@@ -1599,7 +1599,7 @@ def questionnaire_edit(request, questionnaire_id):
 
         elif action == 'add_section':
             section_title = request.POST.get('section_title')
-            section_description = request.POST.get('section_description', '')
+            section_description = request.POST.get('section_description', '').strip()
 
             if section_title:
                 max_order = questionnaire.sections.aggregate(Max('order'))['order__max']
@@ -1618,7 +1618,7 @@ def questionnaire_edit(request, questionnaire_id):
         elif action == 'edit_section':
             section_id = request.POST.get('section_id')
             section_title = request.POST.get('section_title')
-            section_description = request.POST.get('section_description', '')
+            section_description = request.POST.get('section_description', '').strip()
 
             if section_id and section_title:
                 try:

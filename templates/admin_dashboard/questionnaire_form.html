@@ -116,14 +116,18 @@
                     >
                 </div>
 
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="edit_section_description" class="form-label">Description (Optional)</label>
+                <button type="button" id="edit_add_subtext_button" class="btn btn-sm btn-secondary" onclick="showSectionSubtext('edit_section_subtext', 'edit_add_subtext_button')">+ Add subtext</button>
+                <div id="edit_section_subtext" class="form-group" style="display: none; margin-bottom: 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <label for="edit_section_description" class="form-label">Subtext</label>
+                        <button type="button" style="background: none; border: 0; color: var(--danger); cursor: pointer;" onclick="removeSectionSubtext('edit_section_subtext', 'edit_add_subtext_button', 'edit_section_description')">Remove</button>
+                    </div>
                     <textarea
                         id="edit_section_description"
                         name="section_description"
                         class="form-control"
                         rows="3"
-                        placeholder="Brief description of what this section covers"
+                        placeholder="Add helpful context for the questions in this section"
                     ></textarea>
                 </div>
 
@@ -904,14 +908,18 @@ Strongly Agree</textarea>
                     >
                 </div>
 
-                <div class="form-group">
-                    <label for="section_description" class="form-label">Section Description (Optional)</label>
+                <button type="button" id="add_subtext_button" class="btn btn-sm btn-secondary" style="margin-bottom: 1.5rem;" onclick="showSectionSubtext('section_subtext', 'add_subtext_button')">+ Add subtext</button>
+                <div id="section_subtext" class="form-group" style="display: none;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+                        <label for="section_description" class="form-label">Subtext</label>
+                        <button type="button" style="background: none; border: 0; color: var(--danger); cursor: pointer;" onclick="removeSectionSubtext('section_subtext', 'add_subtext_button', 'section_description')">Remove</button>
+                    </div>
                     <textarea
                         id="section_description"
                         name="section_description"
                         class="form-control"
                         rows="2"
-                        placeholder="Questions about leadership style, decision-making, and team management"
+                        placeholder="Add helpful context for the questions in this section"
                     ></textarea>
                 </div>
 
@@ -1002,7 +1010,23 @@ function openEditSectionModal(sectionId, sectionTitle, sectionDescription) {
     document.getElementById('edit_section_id').value = sectionId;
     document.getElementById('edit_section_title').value = sectionTitle;
     document.getElementById('edit_section_description').value = sectionDescription || '';
+    if (sectionDescription) {
+        showSectionSubtext('edit_section_subtext', 'edit_add_subtext_button');
+    } else {
+        removeSectionSubtext('edit_section_subtext', 'edit_add_subtext_button', 'edit_section_description');
+    }
     document.getElementById('edit_section_modal').style.display = 'flex';
+}
+
+function showSectionSubtext(containerId, buttonId) {
+    document.getElementById(containerId).style.display = 'block';
+    document.getElementById(buttonId).style.display = 'none';
+}
+
+function removeSectionSubtext(containerId, buttonId, inputId) {
+    document.getElementById(inputId).value = '';
+    document.getElementById(containerId).style.display = 'none';
+    document.getElementById(buttonId).style.display = 'inline-flex';
 }
 
 function closeEditSectionModal() {
