@@ -23,3 +23,12 @@ class BrandingTestCase(SimpleTestCase):
 
         self.assertIn('<title>Login - History Community 360 Feedback</title>', rendered)
         self.assertIn('function refreshCsrfTokens(root)', rendered)
+
+    @override_settings(PRODUCT_NAME='History Community 360 Feedback')
+    def test_setup_admin_page_renders(self):
+        request = RequestFactory().get('/setup/admin/')
+
+        rendered = render_to_string('setup/admin.html', request=request)
+
+        self.assertIn('Create Admin Account - History Community 360 Feedback', rendered)
+        self.assertIn('Create your administrator account', rendered)
