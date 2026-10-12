@@ -444,12 +444,55 @@ def send_campaign_invitations(campaign):
     return stats
 
 
-def send_organizational_cycle_invitations(organizational_cycle):
+def send_organizational_cycle_invitations(organizational_cycle, phase=None):
     """Send one consolidated dashboard email to each active participant."""
-    from accounts.models import Reviewee
+    from datetime import timedelta
+
+    from accounts.models import OrganizationInvitation, Reviewee
+    from django.contrib.auth.models import User
 
     stats = {'sent': 0, 'errors': []}
     dashboard_url = f"{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}/dashboard/"
+    campaign_scope = organizational_cycle.campaigns.all()
+    if phase is not None:
+        campaign_scope = campaign_scope.filter(phase=phase)
+    assessment_copy = {
+        'self': {
+            'title': 'Self-assessment',
+            'icon': '🪞',
+            'description': 'Reflect on your achievements and development.',
+        },
+        'peer': {
+            'title': 'Peer review',
+            'icon': '🤝',
+            'description': 'Select peer reviewers or complete the peer reviews assigned to you.',
+        },
+        'manager': {
+            'title': 'Manager assessment',
+            'icon': '🌱',
+            'description': 'Share constructive feedback about a manager you work with.',
+        },
+    }
+    assessment_sections = [
+        assessment_copy[cycle_type]
+        for cycle_type in dict.fromkeys(
+            campaign_scope.order_by('created_at').values_list('cycle_type', flat=True)
+        )
+        if cycle_type in assessment_copy
+    ]
+    if phase is None and not assessment_sections:
+        # Compatibility for cycles created before child campaigns were stored.
+        assessment_sections = [
+            assessment_copy[cycle_type]
+            for cycle_type, questionnaire_id in (
+                ('self', organizational_cycle.self_questionnaire_id),
+                ('peer', organizational_cycle.peer_questionnaire_id),
+                ('manager', organizational_cycle.manager_questionnaire_id),
+            )
+            if questionnaire_id
+        ]
+    due_date = phase.due_date if phase is not None else organizational_cycle.due_date
+
     participants = organizational_cycle.selected_reviewees.filter(is_active=True)
     if not participants.exists():
         # Compatibility for organisation cycles created before audience
@@ -461,10 +504,34 @@ def send_organizational_cycle_invitations(organizational_cycle):
     connection = get_email_backend()
     connection.open()
     for participant in participants:
+        participant_dashboard_url = dashboard_url
+        account_setup_required = False
+        pending_invitation = OrganizationInvitation.objects.filter(
+            organization=organizational_cycle.organization,
+            email__iexact=participant.email,
+            accepted_at__isnull=True,
+        ).first()
+        if pending_invitation:
+            # A cycle launch is also a fresh reason for this person to join.
+            # Keep the account-creation link usable even if their original
+            # people invitation has since expired.
+            if not pending_invitation.is_valid():
+                pending_invitation.expires_at = timezone.now() + timedelta(days=7)
+                pending_invitation.save(update_fields=['expires_at', 'updated_at'])
+            participant_dashboard_url = (
+                f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
+                f'{reverse("accept_invitation", kwargs={"token": pending_invitation.token})}'
+            )
+            account_setup_required = not User.objects.filter(
+                email__iexact=participant.email
+            ).exists()
+
         participant_cycles = ReviewCycle.objects.filter(
             campaign__organizational_cycle=organizational_cycle,
             status='active',
         )
+        if phase is not None:
+            participant_cycles = participant_cycles.filter(campaign__phase=phase)
         review_tasks = []
 
         # Peer campaigns create a nomination task for the reviewee before any
@@ -480,6 +547,7 @@ def send_organizational_cycle_invitations(organizational_cycle):
                 'label': 'Select peer reviewers',
                 'team': cycle.campaign.team.name if cycle.campaign.team_id else '',
                 'url': (
+                    participant_dashboard_url if pending_invitation else
                     f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
                     f'{reverse("nominate_peer_reviewers", args=[cycle.uuid])}'
                 ),
@@ -494,6 +562,8 @@ def send_organizational_cycle_invitations(organizational_cycle):
             reviewer_email__iexact=participant.email,
             completed_at__isnull=True,
         ).select_related('cycle__reviewee', 'cycle__campaign__team', 'assigned_team')
+        if phase is not None:
+            assigned_tokens = assigned_tokens.filter(cycle__campaign__phase=phase)
         for token in assigned_tokens:
             if token.category == 'self':
                 label = 'Complete your self-assessment'
@@ -506,21 +576,30 @@ def send_organizational_cycle_invitations(organizational_cycle):
                 'label': label,
                 'team': token.assignment_team_label,
                 'url': (
+                    participant_dashboard_url if pending_invitation else
                     f'{settings.SITE_PROTOCOL}://{settings.SITE_DOMAIN}'
                     f'{reverse("reviews:feedback_form", args=[token.token])}'
                 ),
             })
 
+        if phase is not None and not review_tasks:
+            continue
         context = {
             'participant': participant,
             'organizational_cycle': organizational_cycle,
             'organization': organizational_cycle.organization,
-            'dashboard_url': dashboard_url,
+            'dashboard_url': participant_dashboard_url,
+            'account_setup_required': account_setup_required,
             'review_tasks': review_tasks,
+            'phase': phase,
+            'due_date': due_date,
+            'assessment_sections': assessment_sections,
         }
         try:
             send_email(
                 subject=(
+                    f'{phase.name} has started — {organizational_cycle.display_name}'
+                    if phase is not None else
                     f'It’s time for a review cycle for '
                     f'{organizational_cycle.organization.name}'
                 ),

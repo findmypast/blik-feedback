@@ -5,15 +5,18 @@ locmem backend because `core.email.send_email` builds an SMTP backend from
 the Organization row and bypasses the test mail outbox.
 """
 from unittest.mock import patch
+from datetime import timedelta
 
 from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
-from accounts.factories import RevieweeFactory
+from accounts.factories import OrganizationInvitationFactory, RevieweeFactory
 from core.factories import OrganizationFactory, UserFactory
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
 from reviews.models import (
     OrganizationalReviewCycle,
+    OrganizationReviewPhase,
     ReviewCampaign,
     ReviewCycle,
     ReviewerToken,
@@ -29,6 +32,43 @@ from reviews.services import (
 
 @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
 class SendOrganizationalCycleInvitationTests(TestCase):
+    @patch('reviews.services.send_email')
+    def test_pending_invitee_uses_account_creation_link_for_cycle_tasks(
+        self, mock_send_email
+    ):
+        org = OrganizationFactory(name='History Community')
+        participant = RevieweeFactory(
+            organization=org, name='New Member', email='new@example.com'
+        )
+        invitation = OrganizationInvitationFactory(
+            organization=org,
+            email=participant.email,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=UserFactory(),
+            self_questionnaire=questionnaire,
+        )
+        parent.selected_reviewees.add(participant)
+
+        stats = send_organizational_cycle_invitations(parent)
+
+        self.assertEqual(stats['sent'], 1)
+        invitation.refresh_from_db()
+        self.assertTrue(invitation.is_valid())
+        invitation_url = (
+            f'https://public.example.com/accounts/invite/{invitation.token}/'
+        )
+        rendered = (
+            mock_send_email.call_args.kwargs['message']
+            + mock_send_email.call_args.kwargs['html_message']
+        )
+        self.assertIn(invitation_url, rendered)
+        self.assertIn('Create account and view assessments', rendered)
+        self.assertNotIn('https://public.example.com/dashboard/', rendered)
+
     @patch('reviews.services.send_email')
     def test_individual_cycle_emails_only_the_two_selected_people(self, mock_send_email):
         org = OrganizationFactory(name='History Community')
@@ -189,6 +229,73 @@ class SendOrganizationalCycleInvitationTests(TestCase):
         )
         self_token.refresh_from_db()
         self.assertIsNotNone(self_token.invitation_sent_at)
+
+    @patch('reviews.services.send_email')
+    def test_phase_email_only_describes_assessments_in_that_phase(self, mock_send_email):
+        org = OrganizationFactory(name='History Community')
+        creator = UserFactory()
+        participant = RevieweeFactory(
+            organization=org, name='Jamie Member', email='jamie@example.com'
+        )
+        questionnaire = QuestionnaireFactory(organization=org)
+        parent = OrganizationalReviewCycle.objects.create(
+            organization=org,
+            created_by=creator,
+            name='Growth review',
+            self_questionnaire=questionnaire,
+            peer_questionnaire=questionnaire,
+        )
+        parent.selected_reviewees.add(participant)
+        peer_phase = OrganizationReviewPhase.objects.create(
+            organizational_cycle=parent,
+            name='Colleague feedback',
+            position=1,
+            due_date=timezone.localdate() + timedelta(days=10),
+            status='active',
+        )
+        self_phase = OrganizationReviewPhase.objects.create(
+            organizational_cycle=parent,
+            name='Reflection',
+            position=2,
+            status='draft',
+        )
+        peer_campaign = ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='peer',
+            status='active',
+            organizational_cycle=parent,
+            phase=peer_phase,
+        )
+        ReviewCampaign.objects.create(
+            organization=org,
+            created_by=creator,
+            questionnaire=questionnaire,
+            target_type='organization',
+            cycle_type='self',
+            status='draft',
+            organizational_cycle=parent,
+            phase=self_phase,
+        )
+        ReviewCycle.objects.create(
+            campaign=peer_campaign,
+            reviewee=participant,
+            questionnaire=questionnaire,
+            created_by=creator,
+            cycle_type='peer',
+        )
+
+        stats = send_organizational_cycle_invitations(parent, peer_phase)
+
+        self.assertEqual(stats['sent'], 1)
+        call = mock_send_email.call_args.kwargs
+        self.assertEqual(call['subject'], 'Colleague feedback has started — Growth review')
+        rendered = call['message'] + call['html_message']
+        self.assertIn('Peer review', rendered)
+        self.assertNotIn('Self-assessment', rendered)
+        self.assertIn(peer_phase.due_date.strftime('%-d %B %Y'), rendered)
 
 
 class SendReviewerInvitationsTests(TestCase):

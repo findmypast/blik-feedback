@@ -1,23 +1,21 @@
 Hi {{ participant.name }},
 
-It’s review time at {{ organization.name }}! ✨
-
-Your feedback helps celebrate great work, support development, and make our teams stronger. As part of this cycle, please complete:
-
-🪞 Self-assessment
-Take a moment to reflect on your achievements and development.
-
-🤝 Peer review
-Select peer reviewers separately for each team you belong to, and complete any peer reviews assigned to you.
-
-{% if organizational_cycle.manager_questionnaire_id %}🌱 Manager assessment
-Share constructive feedback for the manager of each team you belong to.
+{% if phase %}{{ phase.name }} has started as part of {{ organizational_cycle.display_name }} at {{ organization.name }}.
+{% else %}It’s review time at {{ organization.name }}! ✨
 {% endif %}
 
-Everything you need is waiting on your dashboard, and your progress will be saved as you go:
+Your feedback helps celebrate great work, support development, and make our teams stronger. This launch includes:
+
+{% for assessment in assessment_sections %}{{ assessment.icon }} {{ assessment.title }}
+{{ assessment.description }}
+{% endfor %}
+
+{% if account_setup_required %}Create your account to see your assessments. After signup, you will be taken straight to your dashboard:
+{% else %}Everything you need is waiting on your dashboard, and your progress will be saved as you go:
+{% endif %}
 {{ dashboard_url }}
 
-{% if organizational_cycle.due_date %}Due date: {{ organizational_cycle.due_date|date:"j F Y" }}
+{% if due_date %}Due date: {{ due_date|date:"j F Y" }}
 {% endif %}
 {% if review_tasks %}Your review tasks (the same assignments shown in your dashboard To Do list):
 {% for task in review_tasks %}- {{ task.label }}{% if task.team %} — {{ task.team }}{% endif %}
