@@ -103,7 +103,7 @@
                 </div>
 
                 <div style="display: flex; gap: 1rem;">
-                    <button type="submit" class="btn btn-primary">Send {{ pending_tokens.count }} Reminder(s)</button>
+                    <button type="submit" class="btn btn-reminder">Send {{ pending_tokens.count }} Reminder(s)</button>
                     <a href="{% url 'review_cycle_detail' cycle.uuid %}" class="btn btn-secondary">Cancel</a>
                 </div>
             </form>

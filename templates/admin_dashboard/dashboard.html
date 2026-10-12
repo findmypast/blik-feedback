@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <a class="btn btn-sm btn-secondary" href="{% url 'organisation_phase_detail' organization_item.cycle.uuid phase.id %}">View phase</a>
                         {% if phase.status != 'completed' %}<a class="btn btn-sm btn-secondary" href="{% url 'edit_organisation_phase' organization_item.cycle.uuid phase.id %}">Edit phase</a>{% endif %}
                         {% if phase.status == 'draft' %}<form method="post" action="{% url 'begin_organisation_phase' organization_item.cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Begin phase</button></form>{% endif %}
-                        {% if phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organization_item.cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organization_item.cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">End phase</button></form>{% endif %}
+                        {% if phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organization_item.cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-reminder" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organization_item.cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">End phase</button></form>{% endif %}
                     </div>{% endif %}
                 </div>
                 {% endfor %}{% else %}

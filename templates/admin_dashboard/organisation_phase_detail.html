@@ -10,7 +10,7 @@
     <div class="phase-page-actions">
         {% if is_organization_admin and phase.status != 'completed' %}<a class="btn btn-secondary" href="{% url 'edit_organisation_phase' organisation_cycle.uuid phase.id %}">Edit phase</a>{% endif %}
         {% if is_organization_admin and phase.status == 'draft' %}<form method="post" action="{% url 'begin_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Begin phase</button></form>{% endif %}
-        {% if is_organization_admin and phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">End phase</button></form>{% endif %}
+        {% if is_organization_admin and phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-reminder" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">End phase</button></form>{% endif %}
     </div>
 </div>
 

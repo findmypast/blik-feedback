@@ -564,6 +564,18 @@ body.setup-page {
   border-color: var(--primary);
 }
 
+.btn-reminder {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+}
+
+.btn-reminder:hover {
+  background: #15803d;
+  border-color: #15803d;
+  color: #fff;
+}
+
 .btn-danger {
   background: var(--danger);
   color: white;

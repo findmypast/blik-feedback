@@ -329,7 +329,7 @@
                                     <div style="display: flex; gap: 0.5rem;">
                                         <form method="post" action="{% url 'send_individual_reminder' cycle.uuid token.id %}" style="display: inline; margin: 0;">
                                             {% csrf_token %}
-                                            <button type="submit" class="btn btn-sm btn-warning" style="white-space: nowrap;">
+                                            <button type="submit" class="btn btn-sm btn-reminder" style="white-space: nowrap;">
                                                 Send Reminder
                                             </button>
                                         </form>
@@ -345,7 +345,7 @@
                                     {% elif token.invitation_sent_at and not token.is_completed and token.claimed_at %}
                                     <form method="post" action="{% url 'send_individual_reminder' cycle.uuid token.id %}" style="display: inline; margin: 0;">
                                         {% csrf_token %}
-                                        <button type="submit" class="btn btn-sm btn-warning" style="white-space: nowrap;">
+                                        <button type="submit" class="btn btn-sm btn-reminder" style="white-space: nowrap;">
                                             Send Reminder
                                         </button>
                                     </form>
@@ -465,7 +465,7 @@ document.addEventListener('DOMContentLoaded', function() {
             {% endif %}
 
             {% if total_tokens|add:"-"|add:completed_tokens > 0 %}
-            <a href="{% url 'send_reminder_form' cycle.uuid %}" class="btn btn-warning" style="color: white;">
+            <a href="{% url 'send_reminder_form' cycle.uuid %}" class="btn btn-reminder" style="color: white;">
                 Send Reminders ({{ total_tokens|add:"-"|add:completed_tokens }})
             </a>
             {% endif %}
