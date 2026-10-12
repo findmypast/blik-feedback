@@ -8,7 +8,8 @@ from django.utils import timezone
 from accounts.authorization import descendant_team_ids
 from accounts.models import Reviewee
 from .models import (
-    OrganizationalReviewCycle, ReviewCampaign, ReviewCycle, ReviewerToken,
+    OrganizationalReviewCycle, OrganizationReviewPhase, ReviewCampaign,
+    ReviewCycle, ReviewerToken,
 )
 
 
@@ -39,7 +40,7 @@ def questionnaire_supports(questionnaire, cycle_type):
 def launch_organizational_cycle(
     *, organization, created_by, questionnaires, minimum_peer_reviewers,
     start_date=None, due_date=None, name='', audience_type='entire',
-    teams=None, participants=None,
+    teams=None, participants=None, phase_definitions=None,
 ):
     """Launch one shared self campaign plus applicable campaigns per team."""
     for cycle_type, questionnaire in questionnaires.items():
@@ -83,38 +84,63 @@ def launch_organizational_cycle(
         organization=organization,
         created_by=created_by,
         name=name,
-        self_questionnaire=questionnaires['self'],
-        peer_questionnaire=questionnaires['peer'],
+        self_questionnaire=questionnaires.get('self'),
+        peer_questionnaire=questionnaires.get('peer'),
         manager_questionnaire=questionnaires.get('manager'),
         minimum_peer_reviewers=minimum_peer_reviewers,
         start_date=start_date,
         due_date=due_date,
         audience_type=audience_type,
+        status='draft' if phase_definitions else 'active',
     )
     parent.teams.set(selected_teams)
     parent.selected_reviewees.set(participant_ids)
-    self_campaign = ReviewCampaign.objects.create(
-        organization=organization,
-        created_by=created_by,
-        name=name,
-        questionnaire=questionnaires['self'],
-        target_type='organization',
-        cycle_type='self',
-        minimum_peer_reviewers=1,
-        start_date=start_date,
-        due_date=due_date,
-        organizational_cycle=parent,
-    )
-    for participant in Reviewee.objects.filter(id__in=participant_ids):
-        cycle = _create_cycle(self_campaign, participant)
-        if participant.email:
-            ReviewerToken.objects.create(
-                cycle=cycle,
-                category='self',
-                reviewer_email=participant.email,
-            )
-    self_campaign.status = 'active'
-    self_campaign.save(update_fields=['status', 'updated_at'])
+    phase_by_type = {}
+    for position, definition in enumerate(phase_definitions or [], 1):
+        phase = OrganizationReviewPhase.objects.create(
+            organizational_cycle=parent, name=definition['name'],
+            position=position, due_date=definition['due_date'],
+        )
+        assessment_types = definition.get('assessment_types') or [
+            definition['assessment_type']
+        ]
+        for assessment_type in assessment_types:
+            phase_by_type[assessment_type] = phase
+
+    def campaign_schedule(assessment_type):
+        phase = phase_by_type.get(assessment_type)
+        return {
+            'phase': phase,
+            'start_date': None if phase else start_date,
+            'due_date': phase.due_date if phase else due_date,
+        }
+
+    def activate_unphased(campaign):
+        if not campaign.phase_id:
+            campaign.status = 'active'
+            campaign.save(update_fields=['status', 'updated_at'])
+
+    if questionnaires.get('self'):
+        self_campaign = ReviewCampaign.objects.create(
+            organization=organization,
+            created_by=created_by,
+            name=name,
+            questionnaire=questionnaires['self'],
+            target_type='organization',
+            cycle_type='self',
+            minimum_peer_reviewers=1,
+            organizational_cycle=parent,
+            **campaign_schedule('self'),
+        )
+        for participant in Reviewee.objects.filter(id__in=participant_ids):
+            cycle = _create_cycle(self_campaign, participant)
+            if participant.email:
+                ReviewerToken.objects.create(
+                    cycle=cycle,
+                    category='self',
+                    reviewer_email=participant.email,
+                )
+        activate_unphased(self_campaign)
 
     assigned_participant_ids = set()
     assigned_manager_reviews = set()
@@ -127,23 +153,22 @@ def launch_organizational_cycle(
         )
         if not team_participants:
             continue
-        peer_campaign = ReviewCampaign.objects.create(
-            organization=organization,
-            created_by=created_by,
-            name=name,
-            questionnaire=questionnaires['peer'],
-            target_type='team',
-            team=team,
-            cycle_type='peer',
-            minimum_peer_reviewers=minimum_peer_reviewers,
-            start_date=start_date,
-            due_date=due_date,
-            organizational_cycle=parent,
-        )
-        for participant in team_participants:
-            _create_cycle(peer_campaign, participant)
-        peer_campaign.status = 'active'
-        peer_campaign.save(update_fields=['status', 'updated_at'])
+        if questionnaires.get('peer'):
+            peer_campaign = ReviewCampaign.objects.create(
+                organization=organization,
+                created_by=created_by,
+                name=name,
+                questionnaire=questionnaires['peer'],
+                target_type='team',
+                team=team,
+                cycle_type='peer',
+                minimum_peer_reviewers=minimum_peer_reviewers,
+                organizational_cycle=parent,
+                **campaign_schedule('peer'),
+            )
+            for participant in team_participants:
+                _create_cycle(peer_campaign, participant)
+            activate_unphased(peer_campaign)
 
         if audience_type == 'individuals' or not questionnaires.get('manager'):
             continue
@@ -165,7 +190,7 @@ def launch_organizational_cycle(
                 organization=organization, created_by=created_by, name=name,
                 questionnaire=questionnaires['manager'], target_type='team', team=team,
                 cycle_type='manager', minimum_peer_reviewers=1,
-                start_date=start_date, due_date=due_date, organizational_cycle=parent,
+                organizational_cycle=parent, **campaign_schedule('manager'),
             )
             cycle = _create_cycle(manager_campaign, manager_reviewee)
             ReviewerToken.objects.bulk_create([
@@ -173,11 +198,14 @@ def launch_organizational_cycle(
                               reviewer_email=participant.email, assigned_team=team)
                 for participant in reviewers
             ])
-            manager_campaign.status = 'active'
-            manager_campaign.save(update_fields=['status', 'updated_at'])
+            activate_unphased(manager_campaign)
 
     unassigned_participant_ids = participant_ids - assigned_participant_ids
-    if audience_type == 'entire' and unassigned_participant_ids:
+    if (
+        questionnaires.get('peer')
+        and audience_type == 'entire'
+        and unassigned_participant_ids
+    ):
         peer_campaign = ReviewCampaign.objects.create(
             organization=organization,
             created_by=created_by,
@@ -186,16 +214,14 @@ def launch_organizational_cycle(
             target_type='organization',
             cycle_type='peer',
             minimum_peer_reviewers=minimum_peer_reviewers,
-            start_date=start_date,
-            due_date=due_date,
             organizational_cycle=parent,
+            **campaign_schedule('peer'),
         )
         for participant in Reviewee.objects.filter(
             id__in=unassigned_participant_ids
         ):
             _create_cycle(peer_campaign, participant)
-        peer_campaign.status = 'active'
-        peer_campaign.save(update_fields=['status', 'updated_at'])
+        activate_unphased(peer_campaign)
     return parent
 
 
@@ -326,7 +352,7 @@ def _create_cycle(campaign, reviewee):
         reviewee=reviewee,
         questionnaire=campaign.questionnaire,
         created_by=campaign.created_by,
-        status='active',
+        status='draft' if campaign.phase_id else 'active',
         cycle_type=campaign.cycle_type,
         start_date=campaign.start_date,
         due_date=campaign.due_date,

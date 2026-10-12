@@ -3,14 +3,14 @@
 {% block title %}Create Review Cycle{% endblock %}
 
 {% block content %}
-<div class="page-header">
+<div class="page-header campaign-page-header">
     <div>
         <h1>Create Review Cycle</h1>
         <p>Choose who will take part, what they will complete, and when it is due.</p>
     </div>
 </div>
 
-<form method="post" id="campaignForm" style="max-width: 760px;">
+<form method="post" id="campaignForm" class="campaign-form">
     {% csrf_token %}
     <input type="hidden" name="campaign_flow" value="1">
 
@@ -128,16 +128,40 @@
                         </div>
                     </details>
                 </div>
-                <p class="help-text">Each selected person receives one self-assessment. Peer and manager assessments are created separately for each applicable team. People without a team do not receive a manager assessment.</p>
-                <div class="form-group"><label class="form-label" for="self_questionnaire">Self-assessment questionnaire *</label><select class="form-control" id="self_questionnaire" name="self_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_self_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
-                <div class="form-group"><label class="form-label" for="peer_questionnaire">Peer-review questionnaire *</label><select class="form-control" id="peer_questionnaire" name="peer_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_peer_review %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
-                <div class="form-group" id="organisationManagerQuestionnaire"><label class="form-label" for="manager_questionnaire">Manager-assessment questionnaire *</label><select class="form-control" id="manager_questionnaire" name="manager_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_manager_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
-                <div class="form-group"><label class="form-label" for="organization_minimum_peer_reviewers">Minimum peer reviewers *</label><input type="number" class="form-control" id="organization_minimum_peer_reviewers" name="minimum_peer_reviewers" value="3" min="1" max="50" disabled><small>This minimum is required for nominations and for peer-report anonymity.</small></div>
+                <div class="form-group phased-rollout-option">
+                    <label class="checkbox-row"><input type="checkbox" id="phasedRollout" name="phased_rollout" value="1"> <strong>Use a phased rollout</strong></label>
+                    <small>Add and configure each assessment separately, then begin its phase from the dashboard.</small>
+                </div>
+                <div id="unphasedOrganizationAssessments">
+                    <p class="help-text">Each selected person receives one self-assessment. Peer and manager assessments are created separately for each applicable team. People without a team do not receive a manager assessment.</p>
+                    <div class="form-group"><label class="form-label" for="self_questionnaire">Self-assessment questionnaire *</label><select class="form-control" id="self_questionnaire" name="self_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_self_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                    <div class="form-group"><label class="form-label" for="peer_questionnaire">Peer-review questionnaire *</label><select class="form-control" id="peer_questionnaire" name="peer_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_peer_review %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                    <div class="form-group" id="organisationManagerQuestionnaire"><label class="form-label" for="manager_questionnaire">Manager-assessment questionnaire *</label><select class="form-control" id="manager_questionnaire" name="manager_questionnaire"><option value="">Select a questionnaire…</option>{% for q in questionnaires %}{% if q.allow_manager_assessment %}<option value="{{ q.id }}">{{ q.name }}</option>{% endif %}{% endfor %}</select></div>
+                    <div class="form-group"><label class="form-label" for="organization_minimum_peer_reviewers">Minimum peer reviewers *</label><input type="number" class="form-control" id="organization_minimum_peer_reviewers" name="minimum_peer_reviewers" value="3" min="1" max="50" disabled><small>This minimum is required for nominations and for peer-report anonymity.</small></div>
+                </div>
+                <div id="phaseBuilder" style="display:none;">
+                    <div class="phase-builder-heading"><div><strong>Rollout phases</strong><small>Add the assessments you want to send. Each type can be used once.</small></div><button class="btn btn-sm btn-secondary" type="button" id="addPhase">Add phase</button></div>
+                    <input type="hidden" name="phase_count" id="phaseCount" value="0">
+                    <div id="phaseList"></div>
+                    <p class="phase-empty" id="phaseEmpty">No phases added yet.</p>
+                </div>
+                <template id="phaseCardTemplate"><section class="phase-card">
+                    <div class="phase-card-head"><strong>Assessment phase</strong><button type="button" class="btn btn-sm btn-secondary remove-phase">Remove</button></div>
+                    <div class="phase-grid phase-grid-secondary">
+                        <div><label class="form-label">Phase name <small>(optional)</small></label><input class="form-control" data-phase-name maxlength="255" placeholder="For example, Initial self-assessment"></div>
+                        <div><label class="form-label">Due date *</label><input type="date" class="form-control" data-phase-due required></div>
+                    </div>
+                    <div class="phase-assessments-heading"><strong>Assessments</strong><button type="button" class="btn btn-sm btn-secondary add-assessment">Add assessment</button></div>
+                    <input type="hidden" data-assessment-count value="0"><div class="phase-assessment-list"></div>
+                </section></template>
+                <template id="phaseAssessmentTemplate"><div class="phase-assessment-row">
+                    <div class="phase-assessment-fields"><div><label class="form-label">Assessment type *</label><select class="form-control" data-assessment-type required><option value="">Select an assessment type…</option><option value="self">Self-assessment</option><option value="peer">Peer review</option><option value="manager">Manager assessment</option></select></div><div><label class="form-label">Questionnaire *</label><select class="form-control" data-assessment-questionnaire required><option value="">Select an assessment type first…</option>{% for q in questionnaires %}<option value="{{ q.id }}" data-self="{{ q.allow_self_assessment|yesno:'1,0' }}" data-peer="{{ q.allow_peer_review|yesno:'1,0' }}" data-manager="{{ q.allow_manager_assessment|yesno:'1,0' }}">{{ q.name }}</option>{% endfor %}</select></div><div class="assessment-peer-minimum" hidden><label class="form-label">Minimum peer reviewers *</label><input type="number" class="form-control" data-assessment-minimum value="3" min="1" max="50"><small>For nominations and anonymity.</small></div><button type="button" class="btn btn-sm btn-secondary remove-assessment">Remove</button></div>
+                </div></template>
             </div>
         </div>
     </div>
 
-    <div class="card" style="margin-bottom: 1.5rem;">
+    <div class="card" id="scheduleCard" style="margin-bottom: 1.5rem;">
         <div class="card-header"><h2 class="card-title">3. Schedule</h2></div>
         <div class="card-body schedule-grid">
             <div class="schedule-field">
@@ -170,10 +194,64 @@
 </form>
 
 <style>
-.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.organisation-audience-options{display:flex;gap:1.25rem;flex-wrap:wrap}.organisation-audience-options label{display:flex;align-items:center;gap:.4rem}.team-checklist{position:relative;border:1px solid var(--border);border-radius:6px;background:var(--bg-card)}.team-checklist summary{padding:.75rem 1rem;cursor:pointer;list-style:none}.team-checklist-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.15rem .5rem;max-height:240px;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--border);padding:.6rem}.team-checklist-options label{display:flex;align-items:center;gap:.55rem;min-width:0;padding:.5rem;border-radius:5px}.team-checklist-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.team-checklist-options label:hover{background:var(--bg-light)}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.schedule-field{padding:1rem;border:1px solid var(--border);border-radius:9px;background:var(--bg-light)}.schedule-field:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 14%,transparent)}.schedule-field .form-label{display:flex;align-items:center;gap:.25rem;font-weight:700}.schedule-field-required .form-label span{color:var(--danger)}.schedule-field small{display:block;margin-top:.55rem;color:var(--text-secondary)}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem;background:var(--bg-card)}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:720px){.team-checklist-options{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:480px){.team-checklist-options{grid-template-columns:1fr}}
+.campaign-page-header,.campaign-form{width:min(1180px,100%);margin-left:auto;margin-right:auto}.campaign-form{padding-bottom:2rem}
+.selection-card{display:flex;align-items:center;gap:.75rem;flex:1;padding:1rem;border:1px solid var(--border);border-radius:8px;cursor:pointer}.selection-card span{display:flex;flex-direction:column}.selection-card small,#typeHelp{color:var(--text-secondary)}.checkbox-row{display:flex;align-items:center;gap:.5rem;margin-top:.75rem}.organisation-audience-options{display:flex;gap:1.25rem;flex-wrap:wrap}.organisation-audience-options label{display:flex;align-items:center;gap:.4rem}.team-checklist{position:relative;border:1px solid var(--border);border-radius:6px;background:var(--bg-card)}.team-checklist summary{padding:.75rem 1rem;cursor:pointer;list-style:none}.team-checklist-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.15rem .5rem;max-height:240px;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid var(--border);padding:.6rem}.team-checklist-options label{display:flex;align-items:center;gap:.55rem;min-width:0;padding:.5rem;border-radius:5px}.team-checklist-options label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.team-checklist-options label:hover{background:var(--bg-light)}.phased-rollout-option{padding:1rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-light)}.phase-builder-heading,.phase-assessments-heading{display:flex;justify-content:space-between;align-items:center;margin:1rem 0}.phase-builder-heading>div{display:flex;flex-direction:column}.phase-card{padding:1rem;margin-bottom:.75rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-light)}.phase-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}.phase-grid{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}.phase-grid-secondary{grid-template-columns:1fr 180px}.phase-assessment-row{padding:.85rem;margin-top:.6rem;border:1px solid var(--border);border-radius:7px;background:var(--bg-card)}.phase-assessment-fields{display:grid;grid-template-columns:minmax(180px,1fr) minmax(220px,1.15fr) minmax(180px,.65fr) auto;gap:.65rem;align-items:start}.phase-assessment-fields>div{min-width:0}.phase-assessment-fields>.remove-assessment{align-self:start;margin-top:1.65rem}.assessment-peer-minimum small{display:block;margin-top:.35rem;color:var(--text-secondary);white-space:nowrap}.phase-empty{padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:8px;color:var(--text-secondary)}[data-theme="dark"] .phase-card input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(59%) sepia(92%) saturate(2237%) hue-rotate(189deg) brightness(103%) contrast(101%);opacity:1;cursor:pointer}.schedule-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}.schedule-field{padding:1rem;border:1px solid var(--border);border-radius:9px;background:var(--bg-light)}.schedule-field:focus-within{border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 14%,transparent)}.schedule-field .form-label{display:flex;align-items:center;gap:.25rem;font-weight:700}.schedule-field-required .form-label span{color:var(--danger)}.schedule-field small{display:block;margin-top:.55rem;color:var(--text-secondary)}.date-picker-field{position:relative}.date-picker-field .form-control{padding-right:3rem;background:var(--bg-card)}.calendar-button{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);width:2.25rem;height:2.25rem;display:flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:var(--primary);color:#fff;cursor:pointer}.calendar-button:hover{filter:brightness(.92)}.calendar-button:focus-visible{outline:3px solid rgba(79,70,229,.25);outline-offset:2px}.calendar-button svg{width:1.2rem;height:1.2rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}@media(max-width:860px){.team-checklist-options{grid-template-columns:repeat(2,minmax(0,1fr));}.phase-assessment-fields{grid-template-columns:1fr 1fr}.assessment-peer-minimum small{white-space:normal}}@media(max-width:720px){.phase-grid,.phase-grid-secondary,.phase-assessment-fields{grid-template-columns:1fr}.phase-assessment-fields>.remove-assessment{margin-top:0}}@media(max-width:480px){.team-checklist-options{grid-template-columns:1fr}}
 </style>
 <script>
 const typeHelp = {peer:'Members will nominate colleagues to review them.',self:'Each selected member will complete their own assessment.',manager:'Team members will anonymously assess their manager.'};
+const organizationHasTeams = {{ has_organisation_teams|yesno:'true,false' }};
+function renumberPhases(){
+  const cards=[...document.querySelectorAll('.phase-card')];
+  cards.forEach((card,index)=>{
+    const number=index+1;
+    card.querySelector('[data-phase-name]').name=`phase_${number}_name`;
+    card.querySelector('[data-phase-due]').name=`phase_${number}_due_date`;
+    const assessments=[...card.querySelectorAll('.phase-assessment-row')];
+    card.querySelector('[data-assessment-count]').name=`phase_${number}_assessment_count`;
+    card.querySelector('[data-assessment-count]').value=assessments.length;
+    assessments.forEach((row,assessmentIndex)=>{
+      const item=assessmentIndex+1;
+      row.querySelector('[data-assessment-type]').name=`phase_${number}_assessment_${item}_type`;
+      row.querySelector('[data-assessment-questionnaire]').name=`phase_${number}_assessment_${item}_questionnaire`;
+      row.querySelector('[data-assessment-minimum]').name=`phase_${number}_assessment_${item}_minimum_peer_reviewers`;
+    });
+  });
+  document.getElementById('phaseCount').value=cards.length;
+  document.getElementById('phaseEmpty').hidden=cards.length>0;
+}
+function updateAssessmentRow(row){
+  const type=row.querySelector('[data-assessment-type]').value;
+  const questionnaire=row.querySelector('[data-assessment-questionnaire]');
+  [...questionnaire.options].forEach(option=>{
+    if(!option.value)return;
+    option.hidden=!type||option.dataset[type]!=='1';
+    option.disabled=option.hidden;
+  });
+  if(questionnaire.selectedOptions[0]?.disabled)questionnaire.value='';
+  questionnaire.options[0].textContent=type?'Select a questionnaire…':'Select an assessment type first…';
+  const peerMinimum=row.querySelector('.assessment-peer-minimum');
+  peerMinimum.hidden=type!=='peer';
+  row.querySelector('[data-assessment-minimum]').required=type==='peer';
+}
+function addAssessment(card){
+  const row=document.getElementById('phaseAssessmentTemplate').content.firstElementChild.cloneNode(true);
+  if(!organizationHasTeams)row.querySelector('[data-assessment-type] option[value="manager"]').remove();
+  row.querySelector('.remove-assessment').addEventListener('click',()=>{row.remove();renumberPhases();});
+  row.querySelector('[data-assessment-type]').addEventListener('change',()=>updateAssessmentRow(row));
+  card.querySelector('.phase-assessment-list').appendChild(row);
+  updateAssessmentRow(row);
+  renumberPhases();
+}
+function addPhase(){
+  if(document.querySelectorAll('.phase-card').length>=10)return;
+  const card=document.getElementById('phaseCardTemplate').content.firstElementChild.cloneNode(true);
+  card.querySelector('.remove-phase').addEventListener('click',()=>{card.remove();renumberPhases();});
+  card.querySelector('.add-assessment').addEventListener('click',()=>addAssessment(card));
+  card.querySelector('[data-phase-due]').min='{{ today|date:"Y-m-d" }}';
+  document.getElementById('phaseList').appendChild(card);
+  addAssessment(card);
+  renumberPhases();
+}
 function updateCampaignForm(){
   const target=document.querySelector('input[name="target_type"]:checked').value;
   const type=document.getElementById('cycle_type').value;
@@ -212,15 +290,37 @@ function updateCampaignForm(){
   document.getElementById('organisationTeams').style.display=organizational&&audience==='teams'?'block':'none';
   document.getElementById('organization_individuals').required=organizational&&audience==='individuals';
   const managerQuestionnaire=document.getElementById('manager_questionnaire');
-  const showManagerQuestionnaire=organizational&&audience!=='individuals';
+  const showManagerQuestionnaire=organizational&&audience!=='individuals'&&organizationHasTeams;
   document.getElementById('organisationManagerQuestionnaire').style.display=showManagerQuestionnaire?'block':'none';
   managerQuestionnaire.required=showManagerQuestionnaire;
-  managerQuestionnaire.disabled=organizational&&audience==='individuals';
+  managerQuestionnaire.disabled=organizational&&!showManagerQuestionnaire;
+  const phased=organizational&&document.getElementById('phasedRollout').checked;
+  document.getElementById('phaseBuilder').style.display=phased?'block':'none';
+  document.getElementById('unphasedOrganizationAssessments').style.display=phased?'none':'block';
+  ['self_questionnaire','peer_questionnaire'].forEach(id=>{
+    document.getElementById(id).required=organizational&&!phased;
+    document.getElementById(id).disabled=phased;
+  });
+  managerQuestionnaire.required=showManagerQuestionnaire&&!phased;
+  managerQuestionnaire.disabled=phased||(organizational&&!showManagerQuestionnaire);
+  document.getElementById('organization_minimum_peer_reviewers').disabled=!organizational||phased;
+  document.getElementById('scheduleCard').style.display=phased?'none':'block';
+  document.getElementById('due_date').required=!phased;
+  document.getElementById('due_date').disabled=phased;
+  document.getElementById('start_date').disabled=phased;
+  const managerApplies=audience!=='individuals'&&organizationHasTeams;
+  document.querySelectorAll('[data-assessment-type]').forEach(select=>{
+    const managerOption=select.querySelector('option[value="manager"]');
+    if(managerOption){managerOption.hidden=!managerApplies;managerOption.disabled=!managerApplies;}
+    if(!managerApplies&&select.value==='manager'){select.value='';updateAssessmentRow(select.closest('.phase-assessment-row'));}
+  });
 }
 document.querySelectorAll('input[name="target_type"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
 document.getElementById('multipleIndividuals').addEventListener('change',updateCampaignForm);
 document.getElementById('cycle_type').addEventListener('change',updateCampaignForm);
 document.querySelectorAll('input[name="organization_audience"]').forEach(el=>el.addEventListener('change',updateCampaignForm));
+document.getElementById('phasedRollout').addEventListener('change',updateCampaignForm);
+document.getElementById('addPhase').addEventListener('click',()=>addPhase());
 document.querySelectorAll('input[name="organization_teams"]').forEach(el=>el.addEventListener('change',()=>{
   const count=document.querySelectorAll('input[name="organization_teams"]:checked').length;
   document.getElementById('organisationTeamSummary').textContent=count?`${count} team${count===1?'':'s'} selected`:'Select one or more teams';

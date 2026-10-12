@@ -1,0 +1,45 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}{{ phase.name }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="phase-parent"><a href="{% url 'organisation_cycle_detail' organisation_cycle.uuid %}">{{ organisation_cycle.display_name }}</a></p>
+        <h1>{{ phase.name }} <span class="badge {% if phase.status == 'active' %}badge-success{% elif phase.status == 'completed' %}badge-secondary{% else %}badge-warning{% endif %}">{{ phase.get_status_display }}</span></h1>
+        <p>Due {{ phase.due_date|date:"j F Y"|default:"date not set" }}</p>
+    </div>
+    <div class="phase-page-actions">
+        {% if is_organization_admin and phase.status != 'completed' %}<a class="btn btn-secondary" href="{% url 'edit_organisation_phase' organisation_cycle.uuid phase.id %}">Edit phase</a>{% endif %}
+        {% if is_organization_admin and phase.status == 'draft' %}<form method="post" action="{% url 'begin_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Begin phase</button></form>{% endif %}
+        {% if is_organization_admin and phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-secondary" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">End phase</button></form>{% endif %}
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header"><div><h2 class="card-title">Phase progress</h2><small>{{ completed_count }} / {{ total_count }} responses complete</small></div></div>
+    <div class="card-body"><div class="progress"><div class="progress-bar" style="width:{{ completion_rate }}%;"></div></div></div>
+</div>
+
+{% for team in teams %}
+<div class="card mb-2">
+    <div class="card-header"><h2 class="card-title">{{ team.name }}</h2></div>
+    <div class="card-body phase-people">
+        {% for person in team.people %}
+        <section class="phase-person">
+            <header><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></header>
+            {% for assessment in person.assessments %}
+            <div class="phase-assessment assessment-{{ assessment.campaign.cycle_type }}">
+                <span><strong>{{ assessment.campaign.get_cycle_type_display|title }}</strong><small>{{ assessment.campaign.questionnaire.name }}</small></span>
+                <span class="badge {% if assessment.status_label == 'Complete' %}badge-success{% elif assessment.completed_count %}badge-warning{% else %}badge-secondary{% endif %}">{{ assessment.status_label }}</span>
+                <span>{{ assessment.completed_count }} / {{ assessment.total_count|default:1 }} responses</span>
+            </div>
+            {% endfor %}
+        </section>
+        {% endfor %}
+    </div>
+</div>
+{% empty %}<div class="card"><div class="card-body"><p class="empty-row">No participants are visible in your scope for this phase.</p></div></div>{% endfor %}
+
+<style>
+.phase-parent{margin:0 0 .25rem}.phase-parent a{color:var(--primary);font-weight:650}.phase-page-actions{display:flex;gap:.5rem;flex-wrap:wrap}.phase-page-actions form{margin:0}.card-header small,.phase-person small{color:var(--text-secondary)}.phase-people{display:flex;flex-direction:column;gap:.75rem}.phase-person{border:1px solid var(--border);border-radius:8px;overflow:hidden}.phase-person>header{display:flex;flex-direction:column;padding:.8rem;background:var(--bg-light)}.phase-assessment{display:grid;grid-template-columns:minmax(180px,1fr) auto minmax(120px,auto);align-items:center;gap:1rem;padding:.75rem;border-top:1px solid var(--border);border-left:4px solid}.phase-assessment>span:first-child{display:flex;flex-direction:column}.assessment-self{border-left-color:#579dff}.assessment-peer{border-left-color:#9f8fef}.assessment-manager{border-left-color:#4bce97}@media(max-width:760px){.phase-assessment{grid-template-columns:1fr}.phase-page-actions{width:100%}}
+</style>
+{% endblock %}

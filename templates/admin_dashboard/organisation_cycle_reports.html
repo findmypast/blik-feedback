@@ -8,7 +8,7 @@
 {% for person in team.people %}
 <details class="organisation-report-person">
     <summary><span><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></span><span class="report-person-summary-actions"><a class="btn btn-sm btn-primary" href="{% url 'organisation_person_combined_reports' organisation_cycle.uuid person.reviewee.id %}" onclick="event.stopPropagation();">View all reports</a><span aria-hidden="true">▾</span></span></summary>
-    {% for report in person.reports %}<div class="organisation-report-row"><span><span class="assessment-chip assessment-{{ report.cycle.campaign.cycle_type }}">{{ report.cycle.campaign.get_cycle_type_display }}</span><small>{{ report.cycle.questionnaire.name }}</small></span><span>{{ report.generated_at|date:"j F Y" }}</span><span><a class="btn btn-sm btn-secondary" href="{% url 'reports:view_report' report.cycle.uuid %}">View report</a></span></div>{% endfor %}
+    {% for report in person.reports %}<div class="organisation-report-row"><span><span class="assessment-chip assessment-{{ report.cycle.campaign.cycle_type }}">{{ report.cycle.campaign.get_cycle_type_display }}</span><small>{{ report.cycle.questionnaire.name }}{% if report.cycle.campaign.phase %} · {{ report.cycle.campaign.phase.name }}{% endif %}</small></span><span>{{ report.generated_at|date:"j F Y" }}</span><span><a class="btn btn-sm btn-secondary" href="{% url 'reports:view_report' report.cycle.uuid %}">View report</a></span></div>{% endfor %}
 </details>
 {% endfor %}</section>
 {% endfor %}

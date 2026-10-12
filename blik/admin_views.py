@@ -12,7 +12,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db import transaction
 from django.db.models import Count, Q, Max
 from django.utils import timezone
-from django.views.decorators.http import require_GET, require_POST
+from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.urls import reverse
 from django.http import HttpResponseRedirect
 from datetime import timedelta
@@ -29,7 +29,10 @@ from accounts.authorization import (
     visible_invitations, visible_profiles, visible_reports, led_teams,
     manageable_teams,
 )
-from reviews.models import ReviewCampaign, ReviewCycle, ReviewerToken
+from reviews.models import (
+    OrganizationalReviewCycle, OrganizationReviewPhase, ReviewCampaign,
+    ReviewCycle, ReviewerToken,
+)
 from reviews.services import (
     assign_tokens_to_emails, send_reviewer_invitations,
     send_reviewee_notifications,
@@ -162,8 +165,20 @@ def _group_available_reports(reports):
             # A review cycle produces separate self, peer and manager reports.
             # Keep those reports beside the person they describe, not in three
             # distant assessment sections.
-            group['people'] = sorted(
+            people = sorted(
                 group['people'].values(), key=lambda person: person['reviewee'].name.lower()
+            )
+            teams = {}
+            for person in people:
+                person['report_count'] = len(person['reports'])
+                team = person['reviewee'].team
+                team_group = teams.setdefault(team.id if team else None, {
+                    'name': team.name if team else 'People without a team',
+                    'people': [],
+                })
+                team_group['people'].append(person)
+            group['team_groups'] = sorted(
+                teams.values(), key=lambda team_group: team_group['name'].lower()
             )
         normalized.append(group)
     return normalized
@@ -197,7 +212,7 @@ def dashboard(request):
         Report.objects.for_organization(org).filter(available=True),
         org,
     ).select_related(
-        'cycle__reviewee', 'cycle__questionnaire', 'cycle__campaign',
+        'cycle__reviewee', 'cycle__reviewee__team', 'cycle__questionnaire', 'cycle__campaign',
         'cycle__campaign__team', 'cycle__campaign__organizational_cycle',
     ).order_by('-generated_at')[:24]
     recent_report_groups = _group_available_reports(recent_reports)[:6]
@@ -363,6 +378,35 @@ def dashboard(request):
         else:
             active_campaigns.append(card)
 
+    # A phased cycle can legitimately have no active campaigns yet. Keep it
+    # visible to its creator and organisation administrators so phase one (or
+    # the next draft phase) can be launched directly from the dashboard.
+    manageable_phased_cycles = OrganizationalReviewCycle.objects.filter(
+        organization=org,
+        status__in=['draft', 'active'],
+        phases__isnull=False,
+    )
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        manageable_phased_cycles = manageable_phased_cycles.filter(
+            created_by=request.user
+        )
+    for phased_cycle in manageable_phased_cycles.prefetch_related(
+        'phases__campaigns'
+    ).distinct():
+        organizational_cycle_cards.setdefault(
+            phased_cycle.id,
+            {
+                'cycle': phased_cycle,
+                'campaigns': [],
+                'completed_count': 0,
+                'total_count': 0,
+                'is_organization_admin': request.user.has_perm(
+                    'accounts.can_manage_organization'
+                ),
+                'is_team_leader': led_teams(request.user, org).exists(),
+            },
+        )
+
     pending_peer_nominations = cycles_qs.filter(
         status='active',
         campaign__cycle_type='peer',
@@ -452,6 +496,22 @@ def dashboard(request):
             {
                 **group,
                 'people': _group_organisation_campaign_people(group['campaigns']),
+                'phases': group['cycle'].phases.prefetch_related('campaigns').all(),
+                'phase_cards': [
+                    {
+                        'phase': phase,
+                        'people': _group_organisation_campaign_people([
+                            item for item in group['campaigns']
+                            if item['campaign'].phase_id == phase.id
+                        ]),
+                    }
+                    for phase in group['cycle'].phases.prefetch_related(
+                        'campaigns'
+                    ).all()
+                ],
+                'can_manage_cycle': request.user.has_perm(
+                    'accounts.can_manage_organization'
+                ),
                 'completion_rate': (
                     group['completed_count'] / group['total_count'] * 100
                     if group['total_count'] else 0
@@ -2068,6 +2128,7 @@ def review_cycle_list(request):
                 'total_count': len(tokens),
                 'status_label': (
                     'Complete' if cycle.status == 'completed'
+                    else 'Not started' if cycle.status == 'draft'
                     else 'Awaiting peer selection'
                     if campaign.cycle_type == 'peer' and not tokens
                     else 'In progress' if completed_count
@@ -2179,7 +2240,7 @@ def organisation_cycle_detail(request, cycle_uuid):
     )
     campaigns = (
         organisation_cycle.campaigns.filter(cycles__in=permitted_cycles)
-        .select_related('team', 'questionnaire')
+        .select_related('team', 'questionnaire', 'phase')
         .distinct()
         .order_by('cycle_type', 'team__name', 'created_at')
     )
@@ -2248,17 +2309,481 @@ def organisation_cycle_detail(request, cycle_uuid):
         person['assessments'].sort(key=lambda assessment: {
             'self': 0, 'peer': 1, 'manager': 2,
         }.get(assessment['campaign'].cycle_type, 9))
+        person['report_count'] = sum(
+            bool(assessment['report']) for assessment in person['assessments']
+        )
 
+    teams = {}
+    for person in people_by_id.values():
+        team = person['reviewee'].team
+        group = teams.setdefault(team.id if team else None, {
+            'name': team.name if team else 'People without a team',
+            'people': [],
+        })
+        group['people'].append(person)
+    team_groups = []
+    for group in teams.values():
+        group['people'].sort(key=lambda person: person['reviewee'].name.lower())
+        team_groups.append(group)
+
+    phases = organisation_cycle.phases.prefetch_related('campaigns').all()
+    can_manage_cycle = bool(
+        request.user.has_perm('accounts.can_manage_organization')
+    )
+    can_delete_cycle = bool(
+        can_manage_cycle
+        and organisation_cycle.status == 'draft'
+        and phases.exists()
+        and not phases.exclude(status='draft').exists()
+    )
     return render(request, 'admin_dashboard/organisation_cycle_detail.html', {
         'organisation_cycle': organisation_cycle,
         'assessment_groups': assessment_groups,
-        'people': sorted(people_by_id.values(), key=lambda person: person['reviewee'].name.lower()),
+        'team_groups': sorted(team_groups, key=lambda group: group['name'].lower()),
         'completed_count': completed_total,
         'total_count': response_total,
         'completion_rate': (
             completed_total / response_total * 100 if response_total else 0
         ),
+        'phases': phases,
+        'can_manage_cycle': can_manage_cycle,
+        'can_delete_cycle': can_delete_cycle,
+        'can_edit_rollout': can_manage_cycle and organisation_cycle.status == 'draft',
     })
+
+
+@login_required
+@require_POST
+def delete_draft_organisation_cycle(request, cycle_uuid):
+    """Delete a phased organisation cycle only before any phase has started."""
+    cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+    )
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+    phases = cycle.phases.all()
+    if (
+        cycle.status != 'draft'
+        or not phases.exists()
+        or phases.exclude(status='draft').exists()
+    ):
+        messages.error(
+            request,
+            'This cycle cannot be deleted because one or more phases have started.',
+        )
+        return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+    if request.POST.get('confirm_delete') != '1':
+        return render(request, 'admin_dashboard/confirm_delete_organisation_cycle.html', {
+            'organisation_cycle': cycle,
+            'phase_count': phases.count(),
+        })
+
+    cycle_name = cycle.display_name
+    cycle.delete()
+    messages.success(request, f'Deleted {cycle_name}.')
+    return redirect('admin_dashboard')
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def edit_organisation_rollout(request, cycle_uuid):
+    """Restructure an organisation rollout before any phase has started."""
+    cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+    )
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+    phases = list(cycle.phases.prefetch_related('campaigns').all())
+    if cycle.status != 'draft' or any(phase.status != 'draft' for phase in phases):
+        messages.error(
+            request,
+            'The rollout structure cannot be changed after a phase has started. '
+            'You can still change deadlines from the cycle page.',
+        )
+        return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+
+    from reviews.campaign_services import (
+        launch_organizational_cycle, questionnaire_supports,
+    )
+    applicable_types = ['self', 'peer']
+    if cycle.audience_type != 'individuals' and cycle.teams.exists():
+        applicable_types.append('manager')
+    questionnaires = Questionnaire.objects.for_organization(
+        request.organization
+    ).filter(is_active=True).order_by('-is_default', 'name')
+
+    if request.method == 'POST':
+        try:
+            phase_count = int(request.POST.get('phase_count', '0'))
+        except (TypeError, ValueError):
+            phase_count = 0
+        submitted = []
+        errors = []
+        if not 1 <= phase_count <= 10:
+            errors.append('Add between 1 and 10 phases.')
+        for position in range(1, phase_count + 1):
+            name = request.POST.get(f'phase_{position}_name', '').strip()
+            try:
+                due_date = date.fromisoformat(
+                    request.POST.get(f'phase_{position}_due_date', '')
+                )
+            except ValueError:
+                due_date = None
+            try:
+                assessment_count = int(request.POST.get(
+                    f'phase_{position}_assessment_count', '0'
+                ))
+            except (TypeError, ValueError):
+                assessment_count = 0
+            assessments = []
+            for assessment_position in range(1, assessment_count + 1):
+                prefix = f'phase_{position}_assessment_{assessment_position}'
+                assessment_type = request.POST.get(f'{prefix}_type', '')
+                questionnaire = questionnaires.filter(
+                    id=request.POST.get(f'{prefix}_questionnaire')
+                ).first()
+                try:
+                    minimum = int(request.POST.get(
+                        f'{prefix}_minimum_peer_reviewers', '3'
+                    ))
+                except (TypeError, ValueError):
+                    minimum = 0
+                if assessment_type not in applicable_types:
+                    errors.append(f'Phase {position} contains an invalid assessment type.')
+                elif not questionnaire or not questionnaire_supports(
+                    questionnaire, assessment_type
+                ):
+                    errors.append(f'Select a valid questionnaire for phase {position}.')
+                elif assessment_type == 'peer' and not 1 <= minimum <= 50:
+                    errors.append('Minimum peer reviewers must be between 1 and 50.')
+                assessments.append({
+                    'type': assessment_type,
+                    'questionnaire': questionnaire,
+                    'questionnaire_id': questionnaire.id if questionnaire else '',
+                    'minimum_peer_reviewers': minimum,
+                })
+            if not name:
+                errors.append(f'Enter a name for phase {position}.')
+            if not due_date or due_date < timezone.localdate():
+                errors.append(f'Choose a current or future deadline for phase {position}.')
+            if not 1 <= assessment_count <= 3:
+                errors.append(f'Select at least one assessment for phase {position}.')
+            submitted.append({
+                'name': name,
+                'due_date': due_date,
+                'assessments': assessments,
+            })
+
+        assigned_types = [
+            assessment['type']
+            for item in submitted
+            for assessment in item['assessments']
+        ]
+        if len(assigned_types) != len(set(assigned_types)):
+            errors.append('Each assessment type can only be added once.')
+
+        if not errors:
+            with transaction.atomic():
+                selected_questionnaires = {
+                    assessment['type']: assessment['questionnaire']
+                    for item in submitted for assessment in item['assessments']
+                }
+                peer_minimum = next((
+                    assessment['minimum_peer_reviewers']
+                    for item in submitted for assessment in item['assessments']
+                    if assessment['type'] == 'peer'
+                ), 1)
+                definitions = [{
+                    'name': item['name'],
+                    'due_date': item['due_date'],
+                    'assessment_types': [
+                        assessment['type'] for assessment in item['assessments']
+                    ],
+                } for item in submitted]
+                replacement = launch_organizational_cycle(
+                    organization=cycle.organization,
+                    created_by=cycle.created_by or request.user,
+                    questionnaires=selected_questionnaires,
+                    minimum_peer_reviewers=peer_minimum,
+                    name=cycle.name,
+                    audience_type=cycle.audience_type,
+                    teams=list(cycle.teams.all()),
+                    participants=list(cycle.selected_reviewees.all()),
+                    phase_definitions=definitions,
+                )
+                cycle.campaigns.all().delete()
+                cycle.phases.all().delete()
+                replacement.phases.update(organizational_cycle=cycle)
+                replacement.campaigns.update(organizational_cycle=cycle)
+                cycle.self_questionnaire = selected_questionnaires.get('self')
+                cycle.peer_questionnaire = selected_questionnaires.get('peer')
+                cycle.manager_questionnaire = selected_questionnaires.get('manager')
+                cycle.minimum_peer_reviewers = peer_minimum
+                cycle.save(update_fields=[
+                    'self_questionnaire', 'peer_questionnaire',
+                    'manager_questionnaire', 'minimum_peer_reviewers', 'updated_at',
+                ])
+                replacement.delete()
+            messages.success(request, 'The phased rollout was updated.')
+            return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+        for error in errors:
+            messages.error(request, error)
+        phase_rows = submitted
+    else:
+        phase_rows = [{
+            'name': phase.name,
+            'due_date': phase.due_date,
+            'assessments': [{
+                'type': campaign.cycle_type,
+                'questionnaire_id': campaign.questionnaire_id,
+                'minimum_peer_reviewers': campaign.minimum_peer_reviewers,
+            } for campaign in {
+                campaign.cycle_type: campaign
+                for campaign in phase.campaigns.select_related('questionnaire').all()
+            }.values()],
+        } for phase in phases]
+
+    return render(request, 'admin_dashboard/organisation_rollout_edit.html', {
+        'organisation_cycle': cycle,
+        'phase_rows': phase_rows,
+        'applicable_types': applicable_types,
+        'questionnaires': questionnaires,
+    })
+
+
+@login_required
+def organisation_phase_detail(request, cycle_uuid, phase_id):
+    """Show response progress for one phase within the caller's scope."""
+    is_organization_admin = request.user.has_perm(
+        'accounts.can_manage_organization'
+    )
+    if not is_organization_admin and not led_teams(
+        request.user, request.organization
+    ).exists():
+        raise PermissionDenied
+    cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+    )
+    phase = get_object_or_404(
+        OrganizationReviewPhase,
+        id=phase_id,
+        organizational_cycle=cycle,
+    )
+    permitted = visible_cycles(
+        request.user,
+        ReviewCycle.objects.filter(campaign__phase=phase).select_related(
+            'reviewee', 'reviewee__team', 'campaign', 'campaign__questionnaire'
+        ).prefetch_related('tokens'),
+    )
+    people = {}
+    completed_total = 0
+    response_total = 0
+    for assessment in permitted.order_by('reviewee__name', 'campaign__cycle_type'):
+        tokens = list(assessment.tokens.all())
+        completed = sum(token.is_completed for token in tokens)
+        total = max(len(tokens), 1)
+        completed_total += completed
+        response_total += total
+        person = people.setdefault(assessment.reviewee_id, {
+            'reviewee': assessment.reviewee,
+            'assessments': [],
+        })
+        person['assessments'].append({
+            'cycle': assessment,
+            'campaign': assessment.campaign,
+            'completed_count': completed,
+            'total_count': len(tokens),
+            'status_label': (
+                'Complete' if assessment.status == 'completed'
+                else 'Awaiting peer selection'
+                if assessment.campaign.cycle_type == 'peer' and not tokens
+                else 'In progress' if completed
+                else 'Not responded'
+            ),
+        })
+    teams = {}
+    for person in people.values():
+        team = person['reviewee'].team
+        group = teams.setdefault(team.id if team else None, {
+            'name': team.name if team else 'People without a team',
+            'people': [],
+        })
+        group['people'].append(person)
+    for group in teams.values():
+        group['people'].sort(key=lambda item: item['reviewee'].name.lower())
+    if not teams and not is_organization_admin:
+        raise Http404
+    return render(request, 'admin_dashboard/organisation_phase_detail.html', {
+        'organisation_cycle': cycle,
+        'phase': phase,
+        'teams': sorted(teams.values(), key=lambda item: item['name'].lower()),
+        'completed_count': completed_total,
+        'total_count': response_total,
+        'completion_rate': (
+            completed_total / response_total * 100 if response_total else 0
+        ),
+        'is_organization_admin': is_organization_admin,
+    })
+
+
+@login_required
+@require_http_methods(['GET', 'POST'])
+def edit_organisation_phase(request, cycle_uuid, phase_id):
+    """Edit phase metadata; organisation administrators only."""
+    cycle, phase = _manageable_organisation_phase(request, cycle_uuid, phase_id)
+    if phase.status == 'draft':
+        return redirect('edit_organisation_rollout', cycle_uuid=cycle.uuid)
+    if request.method == 'POST':
+        name = request.POST.get('name', '').strip()
+        try:
+            due_date = date.fromisoformat(request.POST.get('due_date', ''))
+        except ValueError:
+            due_date = None
+        if not name:
+            messages.error(request, 'Enter a phase name.')
+        elif not due_date or due_date < timezone.localdate():
+            messages.error(request, 'Choose today or a future due date.')
+        else:
+            phase.name = name
+            phase.due_date = due_date
+            phase.save(update_fields=['name', 'due_date', 'updated_at'])
+            phase.campaigns.update(due_date=due_date)
+            ReviewCycle.objects.filter(campaign__phase=phase).update(
+                due_date=due_date
+            )
+            messages.success(request, f'{phase.name} was updated.')
+            return redirect(
+                'organisation_phase_detail',
+                cycle_uuid=cycle.uuid,
+                phase_id=phase.id,
+            )
+    return render(request, 'admin_dashboard/organisation_phase_edit.html', {
+        'organisation_cycle': cycle,
+        'phase': phase,
+        'phase_assessments': list({
+            campaign.cycle_type: campaign
+            for campaign in phase.campaigns.select_related('questionnaire').all()
+        }.values()),
+    })
+
+
+def _manageable_organisation_phase(request, cycle_uuid, phase_id):
+    cycle = get_object_or_404(
+        OrganizationalReviewCycle, uuid=cycle_uuid, organization=request.organization
+    )
+    if not request.user.has_perm('accounts.can_manage_organization'):
+        raise PermissionDenied
+    return cycle, get_object_or_404(
+        OrganizationReviewPhase, id=phase_id, organizational_cycle=cycle
+    )
+
+
+@login_required
+@require_POST
+def begin_organisation_phase(request, cycle_uuid, phase_id):
+    cycle, phase = _manageable_organisation_phase(request, cycle_uuid, phase_id)
+    now = timezone.now()
+    with transaction.atomic():
+        phase = phase.__class__.objects.select_for_update().get(pk=phase.pk)
+        if phase.status != 'draft':
+            messages.info(request, f'{phase.name} has already been started.')
+            return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+        phase.status = 'active'
+        phase.started_at = now
+        phase.save(update_fields=['status', 'started_at', 'updated_at'])
+        phase.campaigns.update(status='active', start_date=timezone.localdate())
+        ReviewCycle.objects.filter(campaign__phase=phase).update(
+            status='active', start_date=timezone.localdate(), due_date=phase.due_date
+        )
+        if cycle.status == 'draft':
+            cycle.status = 'active'
+            cycle.start_date = timezone.localdate()
+            cycle.save(update_fields=['status', 'start_date', 'updated_at'])
+        transaction.on_commit(
+            lambda cycle_id=cycle.id, phase_id=phase.id: __import__(
+                'reviews.services', fromlist=['send_organizational_cycle_invitations']
+            ).send_organizational_cycle_invitations(
+                cycle.__class__.objects.get(id=cycle_id),
+                phase.__class__.objects.get(id=phase_id),
+            )
+        )
+    messages.success(request, f'{phase.name} started. Invitations are being sent.')
+    return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+
+
+@login_required
+@require_POST
+def update_organisation_phase_due_date(request, cycle_uuid, phase_id):
+    cycle, phase = _manageable_organisation_phase(request, cycle_uuid, phase_id)
+    try:
+        due_date = date.fromisoformat(request.POST.get('due_date', ''))
+    except ValueError:
+        due_date = None
+    if not due_date or due_date < timezone.localdate():
+        messages.error(request, 'Choose today or a future due date.')
+    else:
+        phase.due_date = due_date
+        phase.save(update_fields=['due_date', 'updated_at'])
+        phase.campaigns.update(due_date=due_date)
+        ReviewCycle.objects.filter(campaign__phase=phase).update(due_date=due_date)
+        messages.success(request, f'{phase.name} is now due {due_date:%-d %B %Y}.')
+    return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+
+
+@login_required
+@require_POST
+def remind_organisation_phase(request, cycle_uuid, phase_id):
+    cycle, phase = _manageable_organisation_phase(request, cycle_uuid, phase_id)
+    if phase.status != 'active':
+        messages.error(request, 'Only an active phase can send reminders.')
+        return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+    from reviews.services import send_peer_nomination_invitation, send_reminder_emails
+
+    sent = 0
+    errors = []
+    for assessment in ReviewCycle.objects.filter(
+        campaign__phase=phase, status='active'
+    ).select_related('campaign', 'reviewee'):
+        if assessment.campaign.cycle_type == 'peer' and not assessment.tokens.exists():
+            result = send_peer_nomination_invitation(assessment)
+        else:
+            result = send_reminder_emails(assessment)
+        sent += result['sent']
+        errors.extend(result['errors'])
+    if sent:
+        messages.success(request, f'Sent {sent} reminder email(s) for {phase.name}.')
+    elif errors:
+        messages.error(request, '; '.join(errors))
+    else:
+        messages.info(request, 'There are no incomplete participants to remind.')
+    return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+
+
+@login_required
+@require_POST
+def end_organisation_phase(request, cycle_uuid, phase_id):
+    cycle, phase = _manageable_organisation_phase(request, cycle_uuid, phase_id)
+    if phase.status != 'active':
+        messages.info(request, f'{phase.name} is not active.')
+        return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+    phase.status = 'completed'
+    phase.ended_at = timezone.now()
+    phase.save(update_fields=['status', 'ended_at', 'updated_at'])
+    phase.campaigns.update(status='completed')
+    ReviewCycle.objects.filter(campaign__phase=phase, status='active').update(
+        status='completed'
+    )
+    if not cycle.phases.exclude(status='completed').exists():
+        cycle.status = 'completed'
+        cycle.save(update_fields=['status', 'updated_at'])
+    messages.success(request, f'{phase.name} ended.')
+    return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
 
 
 @login_required
@@ -2286,7 +2811,7 @@ def _organisation_cycle_reports(request, organisation_cycle):
     ).filter(available=True, cycle__campaign__organizational_cycle=organisation_cycle),
         request.organization).select_related(
             'cycle__reviewee', 'cycle__reviewee__team', 'cycle__questionnaire',
-            'cycle__campaign'
+            'cycle__campaign', 'cycle__campaign__phase'
         )
 
 
@@ -2330,7 +2855,9 @@ def organisation_person_combined_reports(request, cycle_uuid, reviewee_id):
     )
     reports = list(_organisation_cycle_reports(request, organisation_cycle).filter(
         cycle__reviewee_id=reviewee_id
-    ).order_by('cycle__campaign__cycle_type'))
+    ).select_related('cycle__campaign__phase').order_by(
+        'cycle__campaign__phase__position', 'cycle__campaign__cycle_type'
+    ))
     if not reports:
         raise Http404
     from reports.services import apply_display_anonymization
@@ -2590,13 +3117,18 @@ def _render_campaign_form(request):
     questionnaires = Questionnaire.objects.for_organization(org).filter(
         is_active=True
     ).order_by('-is_default', 'name')
+    has_organisation_teams = organisation_teams.exists()
+    can_manage_organisation = request.user.has_perm(
+        'accounts.can_manage_organization'
+    )
     return render(request, 'admin_dashboard/review_campaign_form.html', {
         'teams': teams,
         'organisation_teams': organisation_teams,
-        'can_create_organisation_cycle': organisation_teams.exists(),
-        'can_target_entire_organisation': request.user.has_perm(
-            'accounts.can_manage_organization'
+        'can_create_organisation_cycle': (
+            has_organisation_teams or can_manage_organisation
         ),
+        'has_organisation_teams': has_organisation_teams,
+        'can_target_entire_organisation': can_manage_organisation,
         'reviewees': reviewees,
         'questionnaires': questionnaires,
         'today': timezone.localdate(),
@@ -2674,7 +3206,11 @@ def _create_review_campaign(request):
 
     if target_type == 'organization':
         allowed_organisation_teams = _organisation_cycle_teams(request.user, org)
-        if not allowed_organisation_teams.exists():
+        has_organisation_teams = allowed_organisation_teams.exists()
+        if (
+            not has_organisation_teams
+            and not request.user.has_perm('accounts.can_manage_organization')
+        ):
             raise PermissionDenied
         audience_type = request.POST.get('organization_audience', 'entire')
         if (
@@ -2730,23 +3266,95 @@ def _create_review_campaign(request):
         elif audience_type != 'entire':
             messages.error(request, 'Select a valid organisation audience.')
             return redirect('review_cycle_create')
-        questionnaires = {}
-        assessment_types = (
+        applicable_assessment_types = (
             ('self', 'peer')
-            if audience_type == 'individuals' else ('self', 'peer', 'manager')
+            if audience_type == 'individuals' or not has_organisation_teams
+            else ('self', 'peer', 'manager')
         )
-        for assessment_type in assessment_types:
-            questionnaire = get_object_or_404(
-                Questionnaire.objects.for_organization(org).filter(is_active=True),
-                id=request.POST.get(f'{assessment_type}_questionnaire'),
-            )
-            if not questionnaire_supports(questionnaire, assessment_type):
-                messages.error(
-                    request,
-                    f'{questionnaire.name} is not available for {assessment_type} assessments.',
-                )
+        questionnaires = {}
+        phase_definitions = None
+        if request.POST.get('phased_rollout') == '1':
+            try:
+                phase_count = int(request.POST.get('phase_count', 0))
+            except (TypeError, ValueError):
+                phase_count = 0
+            if not 1 <= phase_count <= 10:
+                messages.error(request, 'Add between one and ten rollout phases.')
                 return redirect('review_cycle_create')
-            questionnaires[assessment_type] = questionnaire
+            phase_definitions = []
+            assigned_types = []
+            for index in range(1, phase_count + 1):
+                name = request.POST.get(f'phase_{index}_name', '').strip()
+                try:
+                    phase_due_date = date.fromisoformat(
+                        request.POST.get(f'phase_{index}_due_date', '')
+                    )
+                except ValueError:
+                    phase_due_date = None
+                try:
+                    assessment_count = int(request.POST.get(
+                        f'phase_{index}_assessment_count', 0
+                    ))
+                except (TypeError, ValueError):
+                    assessment_count = 0
+                if len(name) > 255 or not phase_due_date or not 1 <= assessment_count <= 3:
+                    messages.error(
+                        request, f'Phase {index} needs a due date and at least one assessment.'
+                    )
+                    return redirect('review_cycle_create')
+                if phase_due_date < timezone.localdate():
+                    messages.error(request, f'Phase {index} due date cannot be in the past.')
+                    return redirect('review_cycle_create')
+                phase_types = []
+                for assessment_index in range(1, assessment_count + 1):
+                    prefix = f'phase_{index}_assessment_{assessment_index}'
+                    assessment_type = request.POST.get(f'{prefix}_type', '')
+                    if assessment_type not in applicable_assessment_types:
+                        messages.error(request, f'Phase {index} contains an invalid assessment.')
+                        return redirect('review_cycle_create')
+                    if assessment_type in assigned_types:
+                        messages.error(request, 'Each assessment type can only be added once.')
+                        return redirect('review_cycle_create')
+                    questionnaire = get_object_or_404(
+                        Questionnaire.objects.for_organization(org).filter(is_active=True),
+                        id=request.POST.get(f'{prefix}_questionnaire'),
+                    )
+                    if not questionnaire_supports(questionnaire, assessment_type):
+                        messages.error(request, f'{questionnaire.name} is not available for {assessment_type} assessments.')
+                        return redirect('review_cycle_create')
+                    if assessment_type == 'peer':
+                        try:
+                            minimum_peer_reviewers = int(request.POST.get(
+                                f'{prefix}_minimum_peer_reviewers', 3
+                            ))
+                        except (TypeError, ValueError):
+                            minimum_peer_reviewers = 0
+                        if not 1 <= minimum_peer_reviewers <= 50:
+                            messages.error(request, 'Minimum peer reviewers must be between 1 and 50.')
+                            return redirect('review_cycle_create')
+                    assigned_types.append(assessment_type)
+                    phase_types.append(assessment_type)
+                    questionnaires[assessment_type] = questionnaire
+                phase_definitions.append({
+                    'name': name or ' & '.join(
+                        dict(ReviewCampaign.TYPE_CHOICES)[item] for item in phase_types
+                    ),
+                    'due_date': phase_due_date,
+                    'assessment_types': phase_types,
+                })
+        else:
+            for assessment_type in applicable_assessment_types:
+                questionnaire = get_object_or_404(
+                    Questionnaire.objects.for_organization(org).filter(is_active=True),
+                    id=request.POST.get(f'{assessment_type}_questionnaire'),
+                )
+                if not questionnaire_supports(questionnaire, assessment_type):
+                    messages.error(
+                        request,
+                        f'{questionnaire.name} is not available for {assessment_type} assessments.',
+                    )
+                    return redirect('review_cycle_create')
+                questionnaires[assessment_type] = questionnaire
         try:
             organizational_cycle = launch_organizational_cycle(
                 organization=org,
@@ -2759,10 +3367,20 @@ def _create_review_campaign(request):
                 minimum_peer_reviewers=minimum_peer_reviewers,
                 start_date=start_date,
                 due_date=due_date,
+                phase_definitions=phase_definitions,
             )
         except ValidationError as exc:
             messages.error(request, '; '.join(exc.messages))
             return redirect('review_cycle_create')
+        if phase_definitions:
+            messages.success(
+                request,
+                'Phased organisation cycle created. Begin Phase 1 when you are ready.',
+            )
+            return redirect(
+                'organisation_cycle_detail', cycle_uuid=organizational_cycle.uuid
+            )
+
         from reviews.services import send_organizational_cycle_invitations
 
         def send_organizational_invitation(parent_id=organizational_cycle.id):

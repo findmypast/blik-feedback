@@ -4,11 +4,32 @@
 <div class="page-header">
     <div>
         <h1>{{ organisation_cycle.display_name }} <span class="badge {% if organisation_cycle.status == 'completed' %}badge-success{% elif organisation_cycle.is_overdue %}badge-danger{% else %}badge-warning{% endif %}">{% if organisation_cycle.is_overdue %}Overdue{% else %}{{ organisation_cycle.get_status_display }}{% endif %}</span></h1>
-        <div class="assessment-chip-row"><span class="assessment-chip assessment-self">Self</span><span class="assessment-chip assessment-peer">Peer review</span>{% if organisation_cycle.manager_questionnaire_id %}<span class="assessment-chip assessment-manager">Manager</span>{% endif %}</div>
-        <p class="{% if organisation_cycle.is_overdue %}overdue-date{% endif %}">{{ organisation_cycle.audience_label }} · Due {{ organisation_cycle.due_date|date:"j F Y"|default:"date not set" }}</p>
+        <div class="assessment-chip-row">{% if organisation_cycle.self_questionnaire_id %}<span class="assessment-chip assessment-self">Self</span>{% endif %}{% if organisation_cycle.peer_questionnaire_id %}<span class="assessment-chip assessment-peer">Peer review</span>{% endif %}{% if organisation_cycle.manager_questionnaire_id %}<span class="assessment-chip assessment-manager">Manager</span>{% endif %}</div>
+        <p class="{% if organisation_cycle.is_overdue %}overdue-date{% endif %}">{{ organisation_cycle.audience_label }}{% if organisation_cycle.due_date %} · Due {{ organisation_cycle.due_date|date:"j F Y" }}{% endif %}</p>
     </div>
-    <a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to cycles</a>
+    <div style="display:flex;gap:.5rem;align-items:center;"><a href="{% url 'review_cycle_list' %}" class="btn btn-secondary">Back to cycles</a>{% if can_delete_cycle %}<form method="post" action="{% url 'delete_draft_organisation_cycle' organisation_cycle.uuid %}" style="margin:0;">{% csrf_token %}<button class="btn btn-danger" type="submit">Delete cycle</button></form>{% endif %}</div>
 </div>
+
+{% if phases %}
+<div class="card mb-2">
+    <div class="card-header"><div><h2 class="card-title">Phased rollout</h2><small>Start phases when the organisation is ready. More than one phase may be active.</small></div>{% if can_edit_rollout %}<a class="btn btn-sm btn-secondary" href="{% url 'edit_organisation_rollout' organisation_cycle.uuid %}">Edit rollout</a>{% endif %}</div>
+    <div class="card-body phase-timeline">
+        {% for phase in phases %}
+        <section class="phase-row phase-{{ phase.status }}">
+            <div class="phase-position">{{ phase.position }}</div>
+            <div class="phase-summary"><strong>{{ phase.name }}</strong><small>{% for campaign in phase.campaigns.all %}{% ifchanged campaign.cycle_type %}{{ campaign.get_cycle_type_display|title }}{% if not forloop.last %} · {% endif %}{% endifchanged %}{% endfor %}</small></div>
+            <span class="badge {% if phase.status == 'completed' %}badge-success{% elif phase.status == 'active' %}badge-warning{% else %}badge-secondary{% endif %}">{{ phase.get_status_display }}</span>
+            <div class="phase-due"><small>Due</small><strong>{{ phase.due_date|date:"j M Y" }}</strong></div>
+            {% if can_manage_cycle %}<div class="phase-actions">
+                {% if phase.status == 'draft' %}<form method="post" action="{% url 'begin_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">Begin phase {{ phase.position }}</button></form>{% endif %}
+                {% if phase.status == 'active' %}<form method="post" action="{% url 'remind_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-secondary" type="submit">Send reminders</button></form><form method="post" action="{% url 'end_organisation_phase' organisation_cycle.uuid phase.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary" type="submit">End phase</button></form>{% endif %}
+                {% if phase.status != 'completed' %}<form class="phase-date-form" method="post" action="{% url 'update_organisation_phase_due_date' organisation_cycle.uuid phase.id %}">{% csrf_token %}<input class="form-control" type="date" name="due_date" value="{{ phase.due_date|date:'Y-m-d' }}" min="{% now 'Y-m-d' %}" aria-label="New due date for {{ phase.name }}"><button class="btn btn-sm btn-secondary" type="submit">Change due date</button></form>{% endif %}
+            </div>{% endif %}
+        </section>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 <div class="card mb-2">
     <div class="card-header"><div><h2 class="card-title">Organisation Cycle Summary</h2><small>{{ completed_count }} / {{ total_count }} reviews complete</small></div></div>
@@ -16,23 +37,28 @@
 </div>
 
 <div class="card">
-    <div class="card-header"><h2 class="card-title">Related Assessment Cycles</h2></div>
-    <div class="card-body organisation-assessments">
-        {% for person in people %}
-        <section class="organisation-person-group">
-            <header><div><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></div></header>
-            {% for assessment in person.assessments %}
-            <div class="organisation-person-row assessment-{{ assessment.campaign.cycle_type }}">
-                <span><span class="assessment-chip assessment-{{ assessment.campaign.cycle_type }}">{{ assessment.campaign.get_cycle_type_display|title }}</span><small>{{ assessment.campaign.questionnaire.name }}</small></span>
-                <span><span class="badge {% if assessment.cycle.status == 'completed' %}badge-success{% elif assessment.completed_count %}badge-warning{% else %}badge-secondary{% endif %}">{{ assessment.status_label }}</span></span>
-                <span class="organisation-report-actions">{% if assessment.report %}<a href="{% url 'reports:view_report' assessment.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>{% elif assessment.cycle.status == 'completed' and assessment.can_manage %}<a href="{% url 'generate_report' assessment.cycle.uuid %}" class="btn btn-sm btn-primary">Generate report</a>{% else %}<span class="text-secondary">Not ready</span>{% endif %}</span>
-            </div>
+    <div class="card-header"><div><h2 class="card-title">Teams and assessments</h2><small>Assessments stay grouped by person across every rollout phase.</small></div></div>
+    <div class="card-body organisation-teams">
+        {% for team in team_groups %}
+        <section class="organisation-team-group">
+            <h3>{{ team.name }}</h3>
+            {% for person in team.people %}
+            <details class="organisation-person-group">
+                <summary><span><strong>{{ person.reviewee.name }}</strong><small>{{ person.reviewee.email }}</small></span><span class="person-summary-actions">{% if person.report_count %}<a class="btn btn-sm btn-primary" href="{% url 'organisation_person_combined_reports' organisation_cycle.uuid person.reviewee.id %}" onclick="event.stopPropagation();">View all reports</a>{% endif %}<span aria-hidden="true">▾</span></span></summary>
+                {% for assessment in person.assessments %}
+                <div class="organisation-person-row assessment-{{ assessment.campaign.cycle_type }}">
+                    <span><span class="assessment-chip assessment-{{ assessment.campaign.cycle_type }}">{{ assessment.campaign.get_cycle_type_display|title }}</span><small>{{ assessment.campaign.questionnaire.name }}{% if assessment.campaign.phase %} · {{ assessment.campaign.phase.name }}{% endif %}</small></span>
+                    <span><span class="badge {% if assessment.cycle.status == 'completed' %}badge-success{% elif assessment.completed_count %}badge-warning{% else %}badge-secondary{% endif %}">{{ assessment.status_label }}</span></span>
+                    <span class="organisation-report-actions">{% if assessment.report %}<a href="{% url 'reports:view_report' assessment.cycle.uuid %}" class="btn btn-sm btn-secondary">View report</a>{% elif assessment.cycle.status == 'completed' and assessment.can_manage %}<a href="{% url 'generate_report' assessment.cycle.uuid %}" class="btn btn-sm btn-primary">Generate report</a>{% else %}<span class="text-secondary">Not ready</span>{% endif %}</span>
+                </div>
+                {% endfor %}
+            </details>
             {% endfor %}
         </section>
         {% empty %}<p class="empty-row">No participants are visible in your scope.</p>{% endfor %}
     </div>
 </div>
 <style>
-.card-header small,.organisation-person-group small{color:var(--text-secondary)}.organisation-assessments{display:flex;flex-direction:column;gap:.75rem}.organisation-person-group{border:1px solid var(--border);border-radius:8px;overflow:hidden}.organisation-person-group>header{padding:.9rem;background:var(--bg-light)}.organisation-person-group>header>div,.organisation-person-row>span:first-child{display:flex;flex-direction:column}.organisation-person-row{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(130px,.8fr) minmax(150px,auto);gap:1rem;align-items:center;padding:.75rem;border-top:1px solid var(--border);border-left:4px solid}.organisation-person-row.assessment-self{border-left-color:#579dff}.organisation-person-row.assessment-peer{border-left-color:#9f8fef}.organisation-person-row.assessment-manager{border-left-color:#4bce97}.organisation-report-actions{display:flex;justify-content:flex-end;gap:.4rem;flex-wrap:wrap}.empty-row{padding:.75rem;color:var(--text-secondary)}.assessment-chip{display:inline-flex;width:max-content;margin-top:.1rem;padding:.18rem .48rem;border-radius:4px;font-size:.72rem;font-weight:700;line-height:1.2}.assessment-chip.assessment-self{background:#deebff;color:#0747a6}.assessment-chip.assessment-peer{background:#eae6ff;color:#403294}.assessment-chip.assessment-manager{background:#e3fcef;color:#006644}[data-theme="dark"] .assessment-chip.assessment-self{background:#173b65;color:#b3d4ff}[data-theme="dark"] .assessment-chip.assessment-peer{background:#352c63;color:#c0b6f2}[data-theme="dark"] .assessment-chip.assessment-manager{background:#164b3b;color:#abf5d1}@media(max-width:950px){.organisation-person-row{grid-template-columns:1fr}.organisation-report-actions{justify-content:flex-start}}
+.card-header small,.organisation-person-group small{color:var(--text-secondary)}.phase-timeline{display:flex;flex-direction:column;gap:.75rem}.phase-row{display:grid;grid-template-columns:2.2rem minmax(150px,1fr) auto auto minmax(260px,auto);gap:.75rem;align-items:center;padding:.85rem;border:1px solid var(--border);border-radius:8px}.phase-position{display:grid;place-items:center;width:2rem;height:2rem;border-radius:50%;background:var(--bg-light);font-weight:700}.phase-active{border-left:4px solid var(--primary)}.phase-completed{opacity:.8}.phase-summary,.phase-due{display:flex;flex-direction:column}.phase-summary small,.phase-due small{color:var(--text-secondary)}.phase-actions{display:flex;justify-content:flex-end;align-items:center;gap:.4rem;flex-wrap:wrap}.phase-actions form{margin:0}.phase-date-form{display:flex;gap:.35rem}.phase-date-form .form-control{width:145px;padding:.35rem}.organisation-teams,.organisation-team-group{display:flex;flex-direction:column;gap:.75rem}.organisation-team-group+ .organisation-team-group{margin-top:.75rem}.organisation-team-group>h3{margin:0;color:var(--text-secondary);font-size:1rem}.organisation-person-group{border:1px solid var(--border);border-radius:8px;overflow:hidden}.organisation-person-group>summary{display:flex;justify-content:space-between;align-items:center;gap:1rem;padding:.9rem;background:var(--bg-light);cursor:pointer;list-style:none}.organisation-person-group>summary>span:first-child,.organisation-person-row>span:first-child{display:flex;flex-direction:column}.person-summary-actions{display:flex;align-items:center;gap:.75rem}.organisation-person-row{display:grid;grid-template-columns:minmax(190px,1.2fr) minmax(130px,.8fr) minmax(150px,auto);gap:1rem;align-items:center;padding:.75rem;border-top:1px solid var(--border);border-left:4px solid}.organisation-person-row.assessment-self{border-left-color:#579dff}.organisation-person-row.assessment-peer{border-left-color:#9f8fef}.organisation-person-row.assessment-manager{border-left-color:#4bce97}.organisation-report-actions{display:flex;justify-content:flex-end;gap:.4rem;flex-wrap:wrap}.empty-row{padding:.75rem;color:var(--text-secondary)}.assessment-chip{display:inline-flex;width:max-content;margin-top:.1rem;padding:.18rem .48rem;border-radius:4px;font-size:.72rem;font-weight:700;line-height:1.2}.assessment-chip.assessment-self{background:#deebff;color:#0747a6}.assessment-chip.assessment-peer{background:#eae6ff;color:#403294}.assessment-chip.assessment-manager{background:#e3fcef;color:#006644}[data-theme="dark"] .assessment-chip.assessment-self{background:#173b65;color:#b3d4ff}[data-theme="dark"] .assessment-chip.assessment-peer{background:#352c63;color:#c0b6f2}[data-theme="dark"] .assessment-chip.assessment-manager{background:#164b3b;color:#abf5d1}@media(max-width:1100px){.phase-row{grid-template-columns:2.2rem 1fr auto}.phase-actions{grid-column:2/-1;justify-content:flex-start}}@media(max-width:950px){.organisation-person-row{grid-template-columns:1fr}.organisation-report-actions{justify-content:flex-start}}@media(max-width:600px){.organisation-person-group>summary{align-items:flex-start;flex-direction:column}.person-summary-actions{width:100%;justify-content:space-between}}
 </style>
 {% endblock %}

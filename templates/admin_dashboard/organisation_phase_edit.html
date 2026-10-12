@@ -1,0 +1,18 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}Edit {{ phase.name }}{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>Edit phase</h1><p>{{ organisation_cycle.display_name }}</p></div><a class="btn btn-secondary" href="{% url 'organisation_phase_detail' organisation_cycle.uuid phase.id %}">Cancel</a></div>
+<div class="card phase-edit-card"><div class="card-body">
+    <form method="post">{% csrf_token %}
+        <div class="form-group"><label for="phase-name">Phase name</label><input class="form-control" id="phase-name" name="name" value="{{ phase.name }}" required></div>
+        <div class="form-group"><label for="phase-due-date">Due date</label><input class="form-control" id="phase-due-date" type="date" name="due_date" value="{{ phase.due_date|date:'Y-m-d' }}" min="{% now 'Y-m-d' %}" required></div>
+        <div class="phase-lock-warning" role="alert"><strong>This phase has already begun.</strong><span>Its assessments can no longer be changed because invitations and participant assignments may already exist. You can still update the phase name and deadline.</span></div>
+        <fieldset class="locked-assessments" disabled><legend>Assessments</legend>
+            {% for campaign in phase_assessments %}<div class="locked-assessment-row"><div><label>Assessment type</label><input class="form-control" value="{{ campaign.get_cycle_type_display|title }}" disabled></div><div><label>Questionnaire</label><input class="form-control" value="{{ campaign.questionnaire.name }}" disabled></div>{% if campaign.cycle_type == 'peer' %}<div><label>Minimum peers</label><input class="form-control" value="{{ campaign.minimum_peer_reviewers }}" disabled></div>{% endif %}<button class="btn btn-sm btn-secondary" type="button" disabled>Remove</button></div>{% endfor %}
+            <button class="btn btn-sm btn-secondary" type="button" disabled>Add assessment</button>
+        </fieldset>
+        <button class="btn btn-primary" type="submit">Save phase</button>
+    </form>
+</div></div>
+<style>.phase-edit-card{max-width:900px;margin-inline:auto}.phase-edit-card .form-group{margin-bottom:1.25rem}.phase-lock-warning{display:flex;flex-direction:column;gap:.25rem;margin-bottom:1.25rem;padding:1rem;border:1px solid var(--warning);border-radius:8px;background:color-mix(in srgb,var(--warning) 12%,var(--bg-card))}.locked-assessments{margin:0 0 1.25rem;padding:1rem;border:1px solid var(--border);border-radius:8px;opacity:.65}.locked-assessments legend{padding:0 .35rem;font-weight:700}.locked-assessment-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.2fr) 130px auto;gap:.65rem;align-items:end;margin-bottom:.75rem}.locked-assessment-row label{display:block;margin-bottom:.35rem;font-weight:600}@media(max-width:720px){.locked-assessment-row{grid-template-columns:1fr}}</style>
+{% endblock %}

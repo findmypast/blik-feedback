@@ -1,0 +1,71 @@
+{% extends "admin_dashboard/base.html" %}
+{% block title %}Edit phased rollout{% endblock %}
+{% block content %}
+<div class="page-header rollout-page-header">
+    <div><h1>Edit phased rollout</h1><p>{{ organisation_cycle.display_name }}</p></div>
+    <a class="btn btn-secondary" href="{% url 'organisation_cycle_detail' organisation_cycle.uuid %}">Cancel</a>
+</div>
+
+<form method="post" id="rolloutForm" class="rollout-form">
+    {% csrf_token %}
+    <div class="rollout-heading">
+        <div><h2>Rollout phases</h2><p class="text-secondary">Every assessment must belong to one phase. Drag-free ordering follows the list below.</p></div>
+        <button class="btn btn-secondary" type="button" id="addPhase">Add phase</button>
+    </div>
+    <input type="hidden" name="phase_count" id="phaseCount" value="{{ phase_rows|length }}">
+    <div id="phaseList">
+        {% for row in phase_rows %}
+        <section class="rollout-phase">
+            <div class="rollout-phase-head"><strong>Phase <span data-phase-number>{{ forloop.counter }}</span></strong><button class="btn btn-sm btn-secondary remove-phase" type="button">Remove phase</button></div>
+            <div class="rollout-fields">
+                <div><label class="form-label">Phase name *</label><input class="form-control" data-phase-name value="{{ row.name }}" maxlength="255" required></div>
+                <div><label class="form-label">Deadline *</label><input class="form-control" data-phase-due type="date" value="{{ row.due_date|date:'Y-m-d' }}" min="{% now 'Y-m-d' %}" required></div>
+            </div>
+            <div class="assessment-heading"><strong>Assessments *</strong><button class="btn btn-sm btn-secondary add-assessment" type="button">Add assessment</button></div>
+            <input type="hidden" data-assessment-count value="{{ row.assessments|length }}"><div class="assessment-list">{% for assessment in row.assessments %}<div class="assessment-row"><div><label class="form-label">Assessment type *</label><select class="form-control" data-assessment-type required><option value="">Select type…</option>{% if 'self' in applicable_types %}<option value="self" {% if assessment.type == 'self' %}selected{% endif %}>Self-assessment</option>{% endif %}{% if 'peer' in applicable_types %}<option value="peer" {% if assessment.type == 'peer' %}selected{% endif %}>Peer review</option>{% endif %}{% if 'manager' in applicable_types %}<option value="manager" {% if assessment.type == 'manager' %}selected{% endif %}>Manager assessment</option>{% endif %}</select></div><div><label class="form-label">Questionnaire *</label><select class="form-control" data-questionnaire required><option value="">Select a questionnaire…</option>{% for q in questionnaires %}<option value="{{ q.id }}" data-self="{{ q.allow_self_assessment|yesno:'1,0' }}" data-peer="{{ q.allow_peer_review|yesno:'1,0' }}" data-manager="{{ q.allow_manager_assessment|yesno:'1,0' }}" {% if q.id == assessment.questionnaire_id %}selected{% endif %}>{{ q.name }}</option>{% endfor %}</select></div><div class="peer-minimum" {% if assessment.type != 'peer' %}hidden{% endif %}><label class="form-label">Minimum peers *</label><input class="form-control" type="number" data-minimum value="{{ assessment.minimum_peer_reviewers|default:3 }}" min="1" max="50"></div><button class="btn btn-sm btn-secondary remove-assessment" type="button">Remove</button></div>{% endfor %}</div>
+        </section>
+        {% endfor %}
+    </div>
+    <p class="phase-empty" id="phaseEmpty" {% if phase_rows %}hidden{% endif %}>Add at least one phase to continue.</p>
+    <div class="rollout-actions"><button class="btn btn-primary" type="submit">Save rollout</button><a class="btn btn-secondary" href="{% url 'organisation_cycle_detail' organisation_cycle.uuid %}">Cancel</a></div>
+</form>
+
+<template id="phaseTemplate"><section class="rollout-phase">
+    <div class="rollout-phase-head"><strong>Phase <span data-phase-number></span></strong><button class="btn btn-sm btn-secondary remove-phase" type="button">Remove phase</button></div>
+    <div class="rollout-fields"><div><label class="form-label">Phase name *</label><input class="form-control" data-phase-name maxlength="255" required></div><div><label class="form-label">Deadline *</label><input class="form-control" data-phase-due type="date" min="{% now 'Y-m-d' %}" required></div></div>
+    <div class="assessment-heading"><strong>Assessments *</strong><button class="btn btn-sm btn-secondary add-assessment" type="button">Add assessment</button></div><input type="hidden" data-assessment-count value="0"><div class="assessment-list"></div>
+</section></template>
+<template id="assessmentTemplate"><div class="assessment-row"><div><label class="form-label">Assessment type *</label><select class="form-control" data-assessment-type required><option value="">Select type…</option>{% if 'self' in applicable_types %}<option value="self">Self-assessment</option>{% endif %}{% if 'peer' in applicable_types %}<option value="peer">Peer review</option>{% endif %}{% if 'manager' in applicable_types %}<option value="manager">Manager assessment</option>{% endif %}</select></div><div><label class="form-label">Questionnaire *</label><select class="form-control" data-questionnaire required><option value="">Select a type first…</option>{% for q in questionnaires %}<option value="{{ q.id }}" data-self="{{ q.allow_self_assessment|yesno:'1,0' }}" data-peer="{{ q.allow_peer_review|yesno:'1,0' }}" data-manager="{{ q.allow_manager_assessment|yesno:'1,0' }}">{{ q.name }}</option>{% endfor %}</select></div><div class="peer-minimum" hidden><label class="form-label">Minimum peers *</label><input class="form-control" type="number" data-minimum value="3" min="1" max="50"></div><button class="btn btn-sm btn-secondary remove-assessment" type="button">Remove</button></div></template>
+
+<style>
+.rollout-page-header,.rollout-form{width:min(1000px,100%);margin-inline:auto}.rollout-heading,.rollout-phase-head,.rollout-actions,.assessment-heading{display:flex;align-items:center;justify-content:space-between;gap:1rem}.rollout-heading{margin-bottom:1rem}.rollout-heading h2,.rollout-heading p{margin:0}.rollout-phase{padding:1rem;margin-bottom:.85rem;border:1px solid var(--border);border-radius:8px;background:var(--bg-card)}.rollout-phase-head{margin-bottom:1rem}.rollout-fields{display:grid;grid-template-columns:1fr 190px;gap:.75rem}.assessment-heading{margin:1rem 0 .6rem}.assessment-list{display:flex;flex-direction:column;gap:.6rem}.assessment-row{display:grid;grid-template-columns:minmax(170px,.8fr) minmax(220px,1.2fr) 140px auto;gap:.6rem;align-items:end;padding:.75rem;border:1px solid var(--border);border-radius:7px;background:var(--bg-light)}.phase-empty{padding:1rem;text-align:center;border:1px dashed var(--border);border-radius:8px;color:var(--text-secondary)}.rollout-actions{justify-content:flex-start;margin-top:1.25rem}@media(max-width:800px){.assessment-row{grid-template-columns:1fr 1fr}}@media(max-width:640px){.rollout-fields,.assessment-row{grid-template-columns:1fr}.rollout-heading{align-items:flex-start}}
+</style>
+<script>
+function renumberPhases(){
+  const phases=[...document.querySelectorAll('.rollout-phase')];
+  phases.forEach((phase,index)=>{
+    const number=index+1;
+    phase.querySelector('[data-phase-number]').textContent=number;
+    phase.querySelector('[data-phase-name]').name=`phase_${number}_name`;
+    phase.querySelector('[data-phase-due]').name=`phase_${number}_due_date`;
+    const assessments=[...phase.querySelectorAll('.assessment-row')];
+    phase.querySelector('[data-assessment-count]').name=`phase_${number}_assessment_count`;
+    phase.querySelector('[data-assessment-count]').value=assessments.length;
+    assessments.forEach((row,index)=>{const prefix=`phase_${number}_assessment_${index+1}`;row.querySelector('[data-assessment-type]').name=`${prefix}_type`;row.querySelector('[data-questionnaire]').name=`${prefix}_questionnaire`;row.querySelector('[data-minimum]').name=`${prefix}_minimum_peer_reviewers`;});
+  });
+  document.getElementById('phaseCount').value=phases.length;
+  document.getElementById('phaseEmpty').hidden=phases.length>0;
+}
+function updateAssessment(row){const type=row.querySelector('[data-assessment-type]').value;const questionnaire=row.querySelector('[data-questionnaire]');[...questionnaire.options].forEach(option=>{if(!option.value)return;option.hidden=!type||option.dataset[type]!=='1';option.disabled=option.hidden;});if(questionnaire.selectedOptions[0]?.disabled)questionnaire.value='';const minimum=row.querySelector('.peer-minimum');minimum.hidden=type!=='peer';row.querySelector('[data-minimum]').required=type==='peer';}
+function wireAssessment(row){row.querySelector('.remove-assessment').addEventListener('click',()=>{row.remove();renumberPhases();});row.querySelector('[data-assessment-type]').addEventListener('change',()=>updateAssessment(row));updateAssessment(row);}
+function addAssessment(phase){if(phase.querySelectorAll('.assessment-row').length>=3)return;const row=document.getElementById('assessmentTemplate').content.firstElementChild.cloneNode(true);wireAssessment(row);phase.querySelector('.assessment-list').appendChild(row);renumberPhases();}
+function wirePhase(phase){phase.querySelector('.remove-phase').addEventListener('click',()=>{phase.remove();renumberPhases();});phase.querySelector('.add-assessment').addEventListener('click',()=>addAssessment(phase));phase.querySelectorAll('.assessment-row').forEach(wireAssessment);}
+document.querySelectorAll('.rollout-phase').forEach(wirePhase);
+document.getElementById('addPhase').addEventListener('click',()=>{
+  if(document.querySelectorAll('.rollout-phase').length>=10)return;
+  const phase=document.getElementById('phaseTemplate').content.firstElementChild.cloneNode(true);
+  wirePhase(phase);document.getElementById('phaseList').appendChild(phase);addAssessment(phase);renumberPhases();
+});
+renumberPhases();
+</script>
+{% endblock %}

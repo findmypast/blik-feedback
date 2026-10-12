@@ -13,7 +13,9 @@ from questionnaires.models import Questionnaire, Question
 class OrganizationalReviewCycle(TimeStampedModel):
     """Coordinates self, peer, and manager campaigns across an organization."""
 
-    STATUS_CHOICES = [('active', 'Active'), ('completed', 'Completed')]
+    STATUS_CHOICES = [
+        ('draft', 'Not started'), ('active', 'Active'), ('completed', 'Completed')
+    ]
     AUDIENCE_CHOICES = [
         ('individuals', 'Individual(s)'),
         ('teams', 'Team(s)'),
@@ -45,9 +47,9 @@ class OrganizationalReviewCycle(TimeStampedModel):
         related_name='created_organizational_review_cycles',
     )
     self_questionnaire = models.ForeignKey(
-        Questionnaire, on_delete=models.PROTECT, related_name='+')
+        Questionnaire, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     peer_questionnaire = models.ForeignKey(
-        Questionnaire, on_delete=models.PROTECT, related_name='+')
+        Questionnaire, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     manager_questionnaire = models.ForeignKey(
         Questionnaire, on_delete=models.PROTECT, null=True, blank=True, related_name='+')
     minimum_peer_reviewers = models.PositiveSmallIntegerField(default=3)
@@ -85,6 +87,38 @@ class OrganizationalReviewCycle(TimeStampedModel):
             and self.due_date
             and self.due_date < timezone.localdate()
         )
+
+
+class OrganizationReviewPhase(TimeStampedModel):
+    """A deliberately activated group of assessments in an organisation cycle."""
+
+    STATUS_CHOICES = [
+        ('draft', 'Not started'), ('active', 'Active'), ('completed', 'Completed')
+    ]
+    organizational_cycle = models.ForeignKey(
+        OrganizationalReviewCycle,
+        on_delete=models.CASCADE,
+        related_name='phases',
+    )
+    name = models.CharField(max_length=255)
+    position = models.PositiveSmallIntegerField()
+    due_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'organization_review_phases'
+        ordering = ['position']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['organizational_cycle', 'position'],
+                name='unique_organization_cycle_phase_position',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.organizational_cycle.display_name} — {self.name}'
 
 
 class TeamCycleCompletionNotification(TimeStampedModel):
@@ -168,6 +202,13 @@ class ReviewCampaign(TimeStampedModel):
         blank=True,
         related_name='campaigns',
     )
+    phase = models.ForeignKey(
+        OrganizationReviewPhase,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='campaigns',
+    )
 
     class Meta:
         db_table = 'review_campaigns'
@@ -209,6 +250,7 @@ class ReviewCycle(TimeStampedModel):
     """360 feedback review cycle for a reviewee"""
 
     STATUS_CHOICES = [
+        ('draft', 'Not started'),
         ('active', 'Active'),
         ('completed', 'Completed'),
     ]

@@ -19,7 +19,7 @@
         <div class="cycle-summary-row{% if group.cycle.is_overdue %} is-overdue{% endif %}">
             <div>
                 <span><strong>{{ group.cycle.display_name }}</strong> <span class="badge {% if group.cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ group.cycle.get_status_display }}</span></span>
-                <span class="assessment-chip-row"><span class="assessment-chip assessment-self">Self</span><span class="assessment-chip assessment-peer">Peer review</span>{% if group.cycle.manager_questionnaire_id %}<span class="assessment-chip assessment-manager">Manager</span>{% endif %}</span>
+                <span class="assessment-chip-row">{% if group.cycle.self_questionnaire_id %}<span class="assessment-chip assessment-self">Self</span>{% endif %}{% if group.cycle.peer_questionnaire_id %}<span class="assessment-chip assessment-peer">Peer review</span>{% endif %}{% if group.cycle.manager_questionnaire_id %}<span class="assessment-chip assessment-manager">Manager</span>{% endif %}</span>
                 <small class="{% if group.cycle.is_overdue %}overdue-date{% endif %}">{{ group.cycle.audience_label }} · Due {{ group.cycle.due_date|date:"j F Y"|default:"date not set" }}{% if group.cycle.is_overdue %} · Overdue{% endif %}</small>
             </div>
             <div class="cycle-summary-progress">
@@ -27,7 +27,8 @@
                 <div class="progress"><div class="progress-bar" style="width:{% widthratio group.completed_count group.total_count 100 %}%;"></div></div>
             </div>
             <div class="cycle-summary-actions">
-                {% if group.single_report %}<a href="{% url 'reports:view_report' group.single_report.cycle.uuid %}" class="btn btn-sm btn-primary">View report</a>{% else %}<a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View reports</a>{% endif %}
+                <a href="{% url 'organisation_cycle_detail' group.cycle.uuid %}" class="btn btn-sm btn-secondary">View cycle</a>
+                {% if group.report_count %}<a href="{% url 'organisation_cycle_reports' group.cycle.uuid %}" class="btn btn-sm btn-primary">View reports</a>{% endif %}
             </div>
         </div>
         {% endfor %}

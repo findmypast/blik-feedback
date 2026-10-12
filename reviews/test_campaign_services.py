@@ -537,6 +537,409 @@ class CampaignCreationViewTests(TestCase):
         self.assertNotContains(response, 'Entire organisation')
         self.assertContains(response, 'Member email addresses')
         self.assertContains(response, 'Select one or more teams')
+        self.assertContains(response, 'Use a phased rollout')
+
+    def test_organization_admin_without_teams_can_still_create_organization_cycle(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self.member.delete()
+        self.team.delete()
+
+        response = self.client.get(reverse('review_cycle_create'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<strong>Organisation</strong>', html=False)
+        self.assertContains(response, 'Use a phased rollout')
+        self.assertContains(response, 'const organizationHasTeams = false;')
+
+    @patch('reviews.services.send_organizational_cycle_invitations')
+    def test_admin_can_create_and_begin_phased_organization_cycle(self, send):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        phase_one_due = (timezone.localdate() + timedelta(days=10)).isoformat()
+        phase_three_due = (timezone.localdate() + timedelta(days=30)).isoformat()
+        response = self.client.post(reverse('review_cycle_create'), {
+            'campaign_flow': '1',
+            'target_type': 'organization',
+            'cycle_name': 'Phased review',
+            'self_questionnaire': self_q.id,
+            'peer_questionnaire': peer_q.id,
+            'manager_questionnaire': self.questionnaire.id,
+            'minimum_peer_reviewers': 3,
+            'phased_rollout': '1',
+            'phase_count': 2,
+            'phase_1_name': 'Reflect and collect feedback',
+            'phase_1_due_date': phase_one_due,
+            'phase_1_assessment_count': 2,
+            'phase_1_assessment_1_type': 'self',
+            'phase_1_assessment_1_questionnaire': self_q.id,
+            'phase_1_assessment_2_type': 'peer',
+            'phase_1_assessment_2_questionnaire': peer_q.id,
+            'phase_1_assessment_2_minimum_peer_reviewers': 3,
+            'phase_2_name': 'Manager feedback',
+            'phase_2_due_date': phase_three_due,
+            'phase_2_assessment_count': 1,
+            'phase_2_assessment_1_type': 'manager',
+            'phase_2_assessment_1_questionnaire': self.questionnaire.id,
+        })
+
+        parent = OrganizationalReviewCycle.objects.get()
+        self.assertRedirects(
+            response, reverse('organisation_cycle_detail', args=[parent.uuid])
+        )
+        self.assertEqual(parent.status, 'draft')
+        self.assertEqual(parent.phases.count(), 2)
+        self.assertFalse(parent.campaigns.exclude(status='draft').exists())
+        self.assertFalse(
+            ReviewCycle.objects.filter(
+                campaign__organizational_cycle=parent
+            ).exclude(status='draft').exists()
+        )
+        send.assert_not_called()
+
+        phase = parent.phases.get(position=1)
+        self.assertEqual(
+            set(phase.campaigns.values_list('cycle_type', flat=True)),
+            {'self', 'peer'},
+        )
+        self.assertRedirects(
+            self.client.get(reverse(
+                'edit_organisation_phase', args=[parent.uuid, phase.id]
+            )),
+            reverse('edit_organisation_rollout', args=[parent.uuid]),
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            begin = self.client.post(reverse(
+                'begin_organisation_phase', args=[parent.uuid, phase.id]
+            ))
+        self.assertRedirects(
+            begin, reverse('organisation_cycle_detail', args=[parent.uuid])
+        )
+        phase.refresh_from_db()
+        parent.refresh_from_db()
+        self.assertEqual(phase.status, 'active')
+        self.assertEqual(parent.status, 'active')
+        self.assertFalse(phase.campaigns.exclude(status='active').exists())
+        self.assertFalse(
+            ReviewCycle.objects.filter(campaign__phase=phase).exclude(status='active').exists()
+        )
+        send.assert_called_once()
+
+        active_edit = self.client.get(reverse(
+            'edit_organisation_phase', args=[parent.uuid, phase.id]
+        ))
+        self.assertContains(active_edit, 'This phase has already begun.')
+        self.assertContains(active_edit, 'Add assessment')
+        self.assertContains(active_edit, 'disabled')
+
+        self.client.post(reverse(
+            'begin_organisation_phase', args=[parent.uuid, phase.id]
+        ))
+        self.assertEqual(send.call_count, 1)
+
+    def test_phase_due_date_can_be_changed(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org, created_by=self.manager_user,
+            questionnaires={
+                'self': self_q, 'peer': peer_q, 'manager': self.questionnaire,
+            },
+            minimum_peer_reviewers=3,
+            phase_definitions=[{
+                'name': 'All feedback',
+                'due_date': timezone.localdate() + timedelta(days=10),
+                'assessment_types': ['self', 'peer', 'manager'],
+            }],
+        )
+        phase = parent.phases.get()
+        changed_due = timezone.localdate() + timedelta(days=45)
+
+        response = self.client.post(reverse(
+            'update_organisation_phase_due_date', args=[parent.uuid, phase.id]
+        ), {'due_date': changed_due.isoformat()})
+
+        self.assertRedirects(
+            response, reverse('organisation_cycle_detail', args=[parent.uuid])
+        )
+        phase.refresh_from_db()
+        self.assertEqual(phase.due_date, changed_due)
+        self.assertFalse(phase.campaigns.exclude(due_date=changed_due).exists())
+        self.assertFalse(
+            ReviewCycle.objects.filter(campaign__phase=phase).exclude(
+                due_date=changed_due
+            ).exists()
+        )
+
+    def test_admin_can_delete_cycle_before_any_phase_starts(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q},
+            minimum_peer_reviewers=1,
+            phase_definitions=[{
+                'name': 'Phase 1',
+                'due_date': timezone.localdate() + timedelta(days=10),
+                'assessment_types': ['self'],
+            }],
+        )
+        delete_url = reverse(
+            'delete_draft_organisation_cycle', args=[parent.uuid]
+        )
+
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(dashboard, 'Delete cycle')
+        confirmation = self.client.post(delete_url)
+        self.assertEqual(confirmation.status_code, 200)
+        self.assertContains(confirmation, 'Are you sure you want to delete this cycle?')
+
+        response = self.client.post(delete_url, {'confirm_delete': '1'})
+
+        self.assertRedirects(response, reverse('admin_dashboard'))
+        self.assertFalse(
+            OrganizationalReviewCycle.objects.filter(pk=parent.pk).exists()
+        )
+        self.assertFalse(
+            ReviewCycle.objects.filter(
+                campaign__organizational_cycle_id=parent.pk
+            ).exists()
+        )
+
+    def test_admin_can_add_remove_and_reassign_draft_phases(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        first_due = timezone.localdate() + timedelta(days=10)
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={
+                'self': self_q, 'peer': peer_q, 'manager': self.questionnaire,
+            },
+            minimum_peer_reviewers=3,
+            phase_definitions=[{
+                'name': 'All feedback',
+                'due_date': first_due,
+                'assessment_types': ['self', 'peer', 'manager'],
+            }],
+        )
+        old_phase = parent.phases.get()
+        later_due = timezone.localdate() + timedelta(days=25)
+
+        response = self.client.post(reverse(
+            'edit_organisation_rollout', args=[parent.uuid]
+        ), {
+            'phase_count': 2,
+            'phase_1_name': 'Reflection',
+            'phase_1_due_date': first_due.isoformat(),
+            'phase_1_assessment_count': 1,
+            'phase_1_assessment_1_type': 'self',
+            'phase_1_assessment_1_questionnaire': self_q.id,
+            'phase_2_name': 'Feedback',
+            'phase_2_due_date': later_due.isoformat(),
+            'phase_2_assessment_count': 2,
+            'phase_2_assessment_1_type': 'peer',
+            'phase_2_assessment_1_questionnaire': peer_q.id,
+            'phase_2_assessment_1_minimum_peer_reviewers': 3,
+            'phase_2_assessment_2_type': 'manager',
+            'phase_2_assessment_2_questionnaire': self.questionnaire.id,
+        })
+
+        self.assertRedirects(
+            response, reverse('organisation_cycle_detail', args=[parent.uuid])
+        )
+        phases = list(parent.phases.all())
+        self.assertEqual([phase.name for phase in phases], ['Reflection', 'Feedback'])
+        self.assertEqual(
+            set(phases[0].campaigns.values_list('cycle_type', flat=True)),
+            {'self'},
+        )
+        self.assertEqual(
+            set(phases[1].campaigns.values_list('cycle_type', flat=True)),
+            {'peer', 'manager'},
+        )
+        self.assertFalse(phases[1].campaigns.exclude(due_date=later_due).exists())
+
+        response = self.client.post(reverse(
+            'edit_organisation_rollout', args=[parent.uuid]
+        ), {
+            'phase_count': 1,
+            'phase_1_name': 'Combined feedback',
+            'phase_1_due_date': later_due.isoformat(),
+            'phase_1_assessment_count': 3,
+            'phase_1_assessment_1_type': 'self',
+            'phase_1_assessment_1_questionnaire': self_q.id,
+            'phase_1_assessment_2_type': 'peer',
+            'phase_1_assessment_2_questionnaire': peer_q.id,
+            'phase_1_assessment_2_minimum_peer_reviewers': 3,
+            'phase_1_assessment_3_type': 'manager',
+            'phase_1_assessment_3_questionnaire': self.questionnaire.id,
+        })
+
+        self.assertRedirects(
+            response, reverse('organisation_cycle_detail', args=[parent.uuid])
+        )
+        self.assertEqual(parent.phases.count(), 1)
+        combined = parent.phases.get()
+        self.assertEqual(combined.name, 'Combined feedback')
+        self.assertEqual(combined.campaigns.count(), parent.campaigns.count())
+
+    def test_person_reports_stay_combined_across_phases(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q, 'peer': peer_q},
+            minimum_peer_reviewers=1,
+            phase_definitions=[
+                {
+                    'name': 'Reflection',
+                    'due_date': timezone.localdate() + timedelta(days=10),
+                    'assessment_types': ['self'],
+                },
+                {
+                    'name': 'Peer feedback',
+                    'due_date': timezone.localdate() + timedelta(days=20),
+                    'assessment_types': ['peer'],
+                },
+            ],
+        )
+        person_cycles = ReviewCycle.objects.filter(
+            campaign__organizational_cycle=parent,
+            reviewee=self.member,
+        ).select_related('campaign__phase')
+        for cycle in person_cycles:
+            Report.objects.create(cycle=cycle, report_data={})
+
+        cycle_page = self.client.get(reverse(
+            'organisation_cycle_detail', args=[parent.uuid]
+        ))
+        self.assertContains(cycle_page, 'Teams and assessments')
+        self.assertContains(cycle_page, self.team.name)
+        self.assertContains(cycle_page, 'View all reports')
+
+        combined = self.client.get(reverse(
+            'organisation_person_combined_reports', args=[parent.uuid, self.member.id]
+        ))
+        self.assertEqual(len(combined.context['report_entries']), 2)
+        self.assertContains(combined, 'Reflection')
+        self.assertContains(combined, 'Peer feedback')
+
+    def test_team_leader_can_view_phase_but_cannot_control_or_edit_it(self):
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        due_date = timezone.localdate() + timedelta(days=10)
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q},
+            minimum_peer_reviewers=1,
+            audience_type='teams',
+            teams=[self.team],
+            participants=[self.member],
+            phase_definitions=[{
+                'name': 'Team reflection',
+                'due_date': due_date,
+                'assessment_types': ['self'],
+            }],
+        )
+        phase = parent.phases.get()
+
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(dashboard, 'Team reflection')
+        self.assertContains(dashboard, due_date.strftime('%-d %B %Y'))
+        self.assertContains(dashboard, 'View phase details')
+        self.assertNotContains(dashboard, 'Begin phase')
+        self.assertNotContains(dashboard, 'Edit phase')
+        self.assertNotContains(dashboard, 'End phase')
+
+        detail = self.client.get(reverse(
+            'organisation_phase_detail', args=[parent.uuid, phase.id]
+        ))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, self.member.name)
+        self.assertNotContains(detail, 'Edit phase')
+        self.assertEqual(self.client.post(reverse(
+            'begin_organisation_phase', args=[parent.uuid, phase.id]
+        )).status_code, 403)
+        self.assertEqual(self.client.get(reverse(
+            'edit_organisation_phase', args=[parent.uuid, phase.id]
+        )).status_code, 403)
+
+    def test_team_leader_sees_each_person_once_with_assessment_phase_badges(self):
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q, 'peer': peer_q},
+            minimum_peer_reviewers=1,
+            audience_type='teams',
+            teams=[self.team],
+            participants=[self.member],
+            phase_definitions=[
+                {
+                    'name': 'Phase 1',
+                    'due_date': timezone.localdate() + timedelta(days=10),
+                    'assessment_types': ['self'],
+                },
+                {
+                    'name': 'Phase 2',
+                    'due_date': timezone.localdate() + timedelta(days=20),
+                    'assessment_types': ['peer'],
+                },
+            ],
+        )
+
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        content = dashboard.content.decode()
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(
+            content.count(f'<strong>{self.member.name}</strong>'), 1
+        )
+        self.assertContains(dashboard, 'assessment-phase-badge">Phase 1')
+        self.assertContains(dashboard, 'assessment-phase-badge">Phase 2')
 
     def test_team_member_can_choose_organisation_but_not_entire_organisation(self):
         member_user = UserFactory(email=self.member.email)
@@ -678,11 +1081,12 @@ class CampaignCreationViewTests(TestCase):
         cycles_page = self.client.get(reverse('review_cycle_list'))
         self.assertContains(cycles_page, 'Cycles')
         self.assertContains(cycles_page, 'Q3 Development Review')
-        self.assertContains(cycles_page, 'View reports')
+        self.assertContains(cycles_page, 'View cycle')
         summary_url = reverse('organisation_cycle_detail', args=[parent.uuid])
         self.assertContains(cycles_page, summary_url)
         cycle_summary = self.client.get(summary_url)
-        self.assertContains(cycle_summary, 'Related Assessment Cycles')
+        self.assertContains(cycle_summary, 'Teams and assessments')
+        self.assertContains(cycle_summary, self.team.name)
         self.assertContains(cycle_summary, 'Peer Review')
         self.assertContains(cycle_summary, 'Manager Assessment')
 
@@ -695,18 +1099,25 @@ class CampaignCreationViewTests(TestCase):
         self.assertNotContains(cycle_summary, 'View assessment details')
 
         cycles_with_report = self.client.get(reverse('review_cycle_list'))
-        self.assertContains(cycles_with_report, report_url)
-        self.assertNotContains(cycles_with_report, 'View reports')
+        self.assertContains(
+            cycles_with_report,
+            reverse('organisation_cycle_reports', args=[parent.uuid]),
+        )
+        self.assertContains(cycles_with_report, 'View reports')
 
         reports_page = self.client.get(reverse('report_list'))
         self.assertContains(reports_page, parent.display_name)
         self.assertContains(reports_page, reported_cycle.reviewee.name)
-        self.assertContains(reports_page, report_url)
+        combined_reports_url = reverse(
+            'organisation_person_combined_reports',
+            args=[parent.uuid, reported_cycle.reviewee_id],
+        )
+        self.assertContains(reports_page, combined_reports_url)
 
         dashboard_with_report = self.client.get(reverse('admin_dashboard'))
         self.assertContains(dashboard_with_report, 'Recent Reports')
         self.assertContains(dashboard_with_report, parent.display_name)
-        self.assertContains(dashboard_with_report, report_url)
+        self.assertContains(dashboard_with_report, combined_reports_url)
 
         close_url = reverse(
             'close_organizational_cycle_scope', args=[parent.uuid]
@@ -738,6 +1149,44 @@ class CampaignCreationViewTests(TestCase):
         self.assertContains(completed_cycles_page, 'Completed')
         completed_summary = self.client.get(summary_url)
         self.assertContains(completed_summary, 'Completed')
+
+    def test_team_cycle_disappears_from_leaders_dashboard_after_it_is_ended(self):
+        self_questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_questionnaire},
+            minimum_peer_reviewers=1,
+            name='Design team check-in',
+            audience_type='teams',
+            teams=[self.team],
+            participants=[self.member],
+            due_date=timezone.localdate() + timedelta(days=14),
+        )
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        self.assertContains(dashboard, 'Design team check-in')
+
+        close_url = reverse(
+            'close_organizational_cycle_scope', args=[parent.uuid]
+        )
+        confirmation = self.client.post(close_url, {'scope': 'team'})
+        self.assertEqual(confirmation.status_code, 200)
+        closed = self.client.post(close_url, {
+            'scope': 'team',
+            'confirm_end': '1',
+        })
+
+        self.assertRedirects(closed, reverse('admin_dashboard'))
+        dashboard_after_close = self.client.get(reverse('admin_dashboard'))
+        self.assertNotContains(dashboard_after_close, 'Design team check-in')
+        self.assertFalse(
+            ReviewCycle.objects.filter(
+                campaign__organizational_cycle=parent,
+                status='active',
+            ).exists()
+        )
 
     @patch('reviews.services.send_campaign_invitations')
     def test_manager_can_launch_team_manager_assessment(self, send):
