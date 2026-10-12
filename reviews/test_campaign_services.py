@@ -1589,16 +1589,16 @@ class PeerNominationFlowTests(TestCase):
         self.assertContains(response, self.peer.email)
         self.assertContains(response, 'Resend')
 
-    def test_manager_dashboard_peer_header_shows_nomination_status_and_resend(self):
+    def test_manager_dashboard_peer_header_shows_nomination_status(self):
         self.client.force_login(self.manager_user)
 
         response = self.client.get(reverse('admin_dashboard'))
 
         self.assertContains(response, 'Awaiting peer selection')
-        self.assertContains(response, 'Resend selection invitation')
+        self.assertNotContains(response, 'Resend selection invitation')
         self.assertNotContains(response, 'Resend nomination invitation')
         self.assertNotContains(response, 'Awaiting reviewer selections')
-        self.assertContains(
+        self.assertNotContains(
             response,
             reverse('send_campaign_cycle_reminder', args=[
                 self.campaign.uuid, self.cycle.uuid,
