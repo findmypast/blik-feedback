@@ -718,6 +718,13 @@ body.setup-page {
   box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 
+/* Keep native date-picker affordances visible and consistent in both themes. */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(59%) sepia(92%) saturate(2237%) hue-rotate(189deg) brightness(103%) contrast(101%);
+  opacity: 1;
+  cursor: pointer;
+}
+
 /* ==================== Badges ==================== */
 .badge {
   display: inline-block;
