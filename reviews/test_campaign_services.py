@@ -883,6 +883,50 @@ class CampaignCreationViewTests(TestCase):
         self.assertEqual(reuse.status_code, 200)
         self.assertEqual(parent.phases.count(), 2)
 
+    def test_parent_cycle_stays_open_until_every_phase_has_started(self):
+        from accounts.permissions import assign_organization_admin
+        from reviews.services import synchronize_cycle_parent_status
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        due = timezone.localdate() + timedelta(days=10)
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q, 'peer': peer_q},
+            minimum_peer_reviewers=1,
+            phase_definitions=[
+                {'name': 'One', 'due_date': due, 'assessment_types': ['peer']},
+                {'name': 'Two', 'due_date': due, 'assessment_types': ['self']},
+            ],
+        )
+        first, second = parent.phases.order_by('position')
+        with patch('reviews.services.send_organizational_cycle_invitations'):
+            self.client.post(reverse(
+                'begin_organisation_phase', args=[parent.uuid, first.id]
+            ))
+            ReviewCycle.objects.filter(campaign__phase=first).update(
+                status='completed'
+            )
+            synchronize_cycle_parent_status(
+                ReviewCycle.objects.filter(campaign__phase=first).first()
+            )
+            parent.refresh_from_db()
+            self.assertEqual(parent.status, 'active')
+
+            parent.status = 'completed'
+            parent.save(update_fields=['status'])
+            self.client.post(reverse(
+                'begin_organisation_phase', args=[parent.uuid, second.id]
+            ))
+        parent.refresh_from_db()
+        self.assertEqual(parent.status, 'active')
+
     def test_person_reports_stay_combined_across_phases(self):
         from accounts.permissions import assign_organization_admin
 

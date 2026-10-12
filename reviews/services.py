@@ -139,6 +139,7 @@ def synchronize_cycle_parent_status(cycle):
         if (
             parent.status != 'completed'
             and not parent.campaigns.filter(status='active').exists()
+            and not parent.phases.filter(status='draft').exists()
         ):
             parent.status = 'completed'
             parent.save(update_fields=['status', 'updated_at'])

@@ -2738,9 +2738,10 @@ def begin_organisation_phase(request, cycle_uuid, phase_id):
         ReviewCycle.objects.filter(campaign__phase=phase).update(
             status='active', start_date=timezone.localdate(), due_date=phase.due_date
         )
-        if cycle.status == 'draft':
+        if cycle.status != 'active':
+            if cycle.status == 'draft' or not cycle.start_date:
+                cycle.start_date = timezone.localdate()
             cycle.status = 'active'
-            cycle.start_date = timezone.localdate()
             cycle.save(update_fields=['status', 'start_date', 'updated_at'])
         transaction.on_commit(
             lambda cycle_id=cycle.id, phase_id=phase.id: __import__(
@@ -4094,7 +4095,10 @@ def close_organizational_cycle_scope(request, cycle_uuid):
                 campaign.save(update_fields=['status', 'updated_at'])
                 from reviews.services import schedule_campaign_completion_notifications
                 schedule_campaign_completion_notifications(campaign)
-        if not organizational_cycle.campaigns.filter(status='active').exists():
+        if (
+            not organizational_cycle.campaigns.filter(status='active').exists()
+            and not organizational_cycle.phases.filter(status='draft').exists()
+        ):
             organizational_cycle.status = 'completed'
             organizational_cycle.save(update_fields=['status', 'updated_at'])
 
@@ -4151,7 +4155,10 @@ def close_review_campaign(request, campaign_uuid):
     schedule_campaign_completion_notifications(campaign)
     if campaign.organizational_cycle_id:
         parent = campaign.organizational_cycle
-        if not parent.campaigns.filter(status='active').exists():
+        if (
+            not parent.campaigns.filter(status='active').exists()
+            and not parent.phases.filter(status='draft').exists()
+        ):
             parent.status = 'completed'
             parent.save(update_fields=['status', 'updated_at'])
     messages.success(
