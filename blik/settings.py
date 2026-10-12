@@ -280,6 +280,12 @@ MICROSOFT_SSO_CONFIGURED = bool(
     and MICROSOFT_CLIENT_SECRET
     and MICROSOFT_TENANT_ID
 )
+# Local development must retain password signup/login so developers can create
+# representative test accounts. Deployed environments continue to send known
+# corporate invitations directly to Microsoft unless explicitly overridden.
+MICROSOFT_SSO_AUTO_REDIRECT = env.bool(
+    'MICROSOFT_SSO_AUTO_REDIRECT', default=not DEBUG
+)
 
 SOCIALACCOUNT_ADAPTER = 'accounts.social_adapter.BlikSocialAccountAdapter'
 SOCIALACCOUNT_AUTO_SIGNUP = False

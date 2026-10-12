@@ -377,6 +377,26 @@ class MicrosoftLoginViewTests(TestCase):
             fetch_redirect_response=False,
         )
 
+    @override_settings(
+        MICROSOFT_SSO_CONFIGURED=True,
+        MICROSOFT_SSO_AUTO_REDIRECT=False,
+    )
+    def test_development_can_password_signup_corporate_invitation(self):
+        invitation = OrganizationInvitationFactory(
+            organization=OrganizationFactory(),
+            email='dummy@findmypast.com',
+        )
+        session = self.client.session
+        session['invitation_token'] = invitation.token
+        session['invitation_email'] = invitation.email
+        session.save()
+
+        response = self.client.get(reverse('signup_from_invitation'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, invitation.email)
+        self.assertContains(response, 'Continue with Microsoft SSO')
+
     @override_settings(MICROSOFT_SSO_CONFIGURED=False)
     def test_invitation_signup_hides_microsoft_when_not_configured(self):
         invitation = OrganizationInvitationFactory(

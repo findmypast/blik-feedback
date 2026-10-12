@@ -14,9 +14,38 @@ from accounts.factories import (
 from questionnaires.factories import QuestionnaireFactory
 from reviews.factories import ReviewCycleFactory, ReviewerTokenFactory
 from accounts.models import (
-    OrganizationInvitation, OrganizationRole, Reviewee, Team, TeamLeadGrant,
-    UserProfile,
+    OrganizationInvitation, OrganizationRole, PasswordResetToken, Reviewee,
+    Team, TeamLeadGrant, UserProfile,
 )
+
+
+class PasswordRecoveryTestCase(TestCase):
+    @patch('axes.utils.reset')
+    def test_password_reset_also_clears_axes_lockout(self, reset_lockout):
+        user = UserFactory(
+            username='different-username', email='locked@example.com'
+        )
+        UserProfileFactory(user=user, organization=OrganizationFactory())
+        token = PasswordResetToken.objects.create(user=user)
+
+        response = self.client.post(
+            reverse('reset_password', args=[token.token]),
+            {
+                'password1': 'A-new-secure-password-947!',
+                'password2': 'A-new-secure-password-947!',
+            },
+        )
+
+        self.assertRedirects(response, reverse('login'), fetch_redirect_response=False)
+        self.assertEqual(
+            [call.kwargs for call in reset_lockout.call_args_list],
+            [
+                {'username': 'locked@example.com'},
+                {'username': 'different-username'},
+            ],
+        )
+        user.refresh_from_db()
+        self.assertTrue(user.check_password('A-new-secure-password-947!'))
 
 
 class DashboardTestCase(TestCase):

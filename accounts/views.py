@@ -98,9 +98,13 @@ def signup_view(request):
         messages.error(request, 'Invalid invitation.')
         return redirect('login')
 
-    if settings.MICROSOFT_SSO_CONFIGURED and any(
+    if (
+        settings.MICROSOFT_SSO_CONFIGURED
+        and settings.MICROSOFT_SSO_AUTO_REDIRECT
+        and any(
         domain in invitation.email.casefold()
         for domain in ('findmypast', 'dcthomson')
+        )
     ):
         return redirect('microsoft_login')
 
@@ -259,6 +263,14 @@ def reset_password_view(request, token):
             user = reset_token.user
             user.set_password(form.cleaned_data['password1'])
             user.save()
+
+            # Password recovery must also recover an account locked by Axes;
+            # otherwise the new password is valid but the user still cannot
+            # sign in until the lockout cool-off expires.
+            from axes.utils import reset
+            reset(username=user.email)
+            if user.username.casefold() != user.email.casefold():
+                reset(username=user.username)
 
             # Mark token as used
             reset_token.used_at = timezone.now()
