@@ -80,8 +80,11 @@ echo ""
 # Set up cron for daily tasks (send_cycle_reminders)
 # Pass environment variables to cron by dumping them to a file
 env | grep -E '^(DATABASE_|SECRET_KEY|SITE_|ALLOWED_HOSTS|DEBUG|EMAIL_|ENCRYPTION_KEY|DJANGO_|PYTHONUNBUFFERED|PATH)' > /app/.env.cron 2>/dev/null || true
-echo "0 9 * * * cd /app && export \$(cat /app/.env.cron | xargs) && python manage.py send_cycle_reminders >> /var/log/cron.log 2>&1" | crontab -
+{
+  echo "0 9 * * * cd /app && export \$(cat /app/.env.cron | xargs) && python manage.py send_cycle_reminders >> /var/log/cron.log 2>&1"
+  echo "0 9 * * * cd /app && export \$(cat /app/.env.cron | xargs) && python manage.py send_due_date_reminders >> /var/log/cron.log 2>&1"
+} | crontab -
 service cron start
-echo "Cron started (send_cycle_reminders daily at 09:00 UTC)"
+echo "Cron started (send_cycle_reminders and send_due_date_reminders daily at 09:00 UTC)"
 
 exec "$@"
