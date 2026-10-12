@@ -2360,7 +2360,6 @@ def organisation_cycle_detail(request, cycle_uuid):
         'can_delete_cycle': can_delete_cycle,
         'can_edit_rollout': bool(
             can_manage_cycle
-            and organisation_cycle.status in ('draft', 'active')
             and any(phase.status == 'draft' for phase in phase_list)
         ),
     })
@@ -2414,7 +2413,7 @@ def edit_organisation_rollout(request, cycle_uuid):
     phases = list(cycle.phases.prefetch_related('campaigns').all())
     editable_phases = [phase for phase in phases if phase.status == 'draft']
     locked_phases = [phase for phase in phases if phase.status != 'draft']
-    if cycle.status not in ('draft', 'active') or not editable_phases:
+    if not editable_phases:
         messages.error(
             request,
             'There are no phases left to edit. '
