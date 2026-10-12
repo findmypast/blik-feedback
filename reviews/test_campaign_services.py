@@ -930,6 +930,13 @@ class CampaignCreationViewTests(TestCase):
                 },
             ],
         )
+        parent.status = 'active'
+        parent.save(update_fields=['status', 'updated_at'])
+        parent.phases.update(status='active', started_at=timezone.now())
+        parent.campaigns.update(status='active')
+        ReviewCycle.objects.filter(
+            campaign__organizational_cycle=parent
+        ).update(status='active')
 
         dashboard = self.client.get(reverse('admin_dashboard'))
         content = dashboard.content.decode()
@@ -940,6 +947,43 @@ class CampaignCreationViewTests(TestCase):
         )
         self.assertContains(dashboard, 'assessment-phase-badge">Phase 1')
         self.assertContains(dashboard, 'assessment-phase-badge">Phase 2')
+
+    @patch('reviews.services.send_peer_nomination_invitation')
+    @patch('reviews.services.send_reminder_emails')
+    def test_team_leader_can_remind_incomplete_team_assessments(
+        self, send_reminders, send_peer_nomination
+    ):
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q, 'peer': peer_q},
+            minimum_peer_reviewers=1,
+            name='Team review',
+            audience_type='teams',
+            teams=[self.team],
+            participants=[self.member],
+            due_date=timezone.localdate() + timedelta(days=10),
+        )
+        send_reminders.return_value = {'sent': 1, 'errors': []}
+        send_peer_nomination.return_value = {'sent': 1, 'errors': []}
+
+        dashboard = self.client.get(reverse('admin_dashboard'))
+        reminder_url = reverse(
+            'remind_organisation_team', args=[parent.uuid, self.team.id]
+        )
+        self.assertContains(dashboard, reminder_url)
+
+        response = self.client.post(reminder_url)
+
+        self.assertRedirects(response, reverse('admin_dashboard'))
+        self.assertEqual(send_reminders.call_count, 1)
+        self.assertEqual(send_peer_nomination.call_count, 1)
 
     def test_team_member_can_choose_organisation_but_not_entire_organisation(self):
         member_user = UserFactory(email=self.member.email)

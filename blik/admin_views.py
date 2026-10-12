@@ -550,6 +550,7 @@ def _group_organisation_campaign_people(campaigns):
     for person in people.values():
         team = person['reviewee'].team
         team_group = teams.setdefault(team.id if team else None, {
+            'id': team.id if team else None,
             'name': team.name if team else 'People without a team',
             'people': [],
         })
@@ -2763,6 +2764,49 @@ def remind_organisation_phase(request, cycle_uuid, phase_id):
     else:
         messages.info(request, 'There are no incomplete participants to remind.')
     return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+
+
+@login_required
+@require_POST
+def remind_organisation_team(request, cycle_uuid, team_id):
+    """Remind incomplete participants in one team led by the caller."""
+    cycle = get_object_or_404(
+        OrganizationalReviewCycle,
+        uuid=cycle_uuid,
+        organization=request.organization,
+        status='active',
+    )
+    team = get_object_or_404(
+        led_teams(request.user, request.organization), pk=team_id
+    )
+    from reviews.services import send_peer_nomination_invitation, send_reminder_emails
+
+    assessments = ReviewCycle.objects.filter(
+        campaign__organizational_cycle=cycle,
+        reviewee__team=team,
+        status='active',
+    ).select_related('campaign', 'reviewee')
+    sent = 0
+    errors = []
+    for assessment in assessments:
+        if assessment.campaign.cycle_type == 'peer' and not assessment.tokens.exists():
+            result = send_peer_nomination_invitation(assessment)
+        else:
+            result = send_reminder_emails(assessment)
+        sent += result['sent']
+        errors.extend(result['errors'])
+
+    if sent:
+        messages.success(
+            request, f'Sent {sent} reminder email(s) for {team.name}.'
+        )
+    elif errors:
+        messages.error(request, '; '.join(errors))
+    else:
+        messages.info(
+            request, f'There are no incomplete assessments to remind for {team.name}.'
+        )
+    return redirect('admin_dashboard')
 
 
 @login_required
