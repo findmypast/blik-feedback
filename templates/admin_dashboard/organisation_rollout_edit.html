@@ -9,9 +9,10 @@
 <form method="post" id="rolloutForm" class="rollout-form">
     {% csrf_token %}
     <div class="rollout-heading">
-        <div><h2>Rollout phases</h2><p class="text-secondary">Every assessment must belong to one phase. Drag-free ordering follows the list below.</p></div>
+        <div><h2>Rollout phases</h2><p class="text-secondary">Phases that have started are locked; you can edit the phases that haven't. Every assessment must belong to one phase. Drag-free ordering follows the list below.</p></div>
         <button class="btn btn-secondary" type="button" id="addPhase">Add phase</button>
     </div>
+    {% if locked_phases %}<div class="rollout-locked">{% for phase in locked_phases %}<div class="rollout-phase"><strong>{{ phase.name }}</strong> <small class="text-secondary">· {{ phase.get_status_display }} · already started, so it can't be changed here</small></div>{% endfor %}</div>{% endif %}
     <input type="hidden" name="phase_count" id="phaseCount" value="{{ phase_rows|length }}">
     <div id="phaseList">
         {% for row in phase_rows %}

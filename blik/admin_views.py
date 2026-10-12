@@ -10,7 +10,7 @@ from django.template.loader import render_to_string
 from django.contrib import messages
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db import transaction
-from django.db.models import Count, Q, Max
+from django.db.models import Count, F, Q, Max
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST, require_http_methods
 from django.urls import reverse
@@ -2328,6 +2328,15 @@ def organisation_cycle_detail(request, cycle_uuid):
         team_groups.append(group)
 
     phases = organisation_cycle.phases.prefetch_related('campaigns').all()
+    phase_list = list(phases)
+    type_labels = dict(ReviewCampaign.TYPE_CHOICES)
+    for phase in phase_list:
+        # Campaigns exist per team, so list each assessment type only once.
+        types = {campaign.cycle_type for campaign in phase.campaigns.all()}
+        phase.assessment_labels = [
+            type_labels[value] for value in ('self', 'peer', 'manager')
+            if value in types
+        ]
     can_manage_cycle = bool(
         request.user.has_perm('accounts.can_manage_organization')
     )
@@ -2346,10 +2355,14 @@ def organisation_cycle_detail(request, cycle_uuid):
         'completion_rate': (
             completed_total / response_total * 100 if response_total else 0
         ),
-        'phases': phases,
+        'phases': phase_list,
         'can_manage_cycle': can_manage_cycle,
         'can_delete_cycle': can_delete_cycle,
-        'can_edit_rollout': can_manage_cycle and organisation_cycle.status == 'draft',
+        'can_edit_rollout': bool(
+            can_manage_cycle
+            and organisation_cycle.status in ('draft', 'active')
+            and any(phase.status == 'draft' for phase in phase_list)
+        ),
     })
 
 
@@ -2399,13 +2412,19 @@ def edit_organisation_rollout(request, cycle_uuid):
     if not request.user.has_perm('accounts.can_manage_organization'):
         raise PermissionDenied
     phases = list(cycle.phases.prefetch_related('campaigns').all())
-    if cycle.status != 'draft' or any(phase.status != 'draft' for phase in phases):
+    editable_phases = [phase for phase in phases if phase.status == 'draft']
+    locked_phases = [phase for phase in phases if phase.status != 'draft']
+    if cycle.status not in ('draft', 'active') or not editable_phases:
         messages.error(
             request,
-            'The rollout structure cannot be changed after a phase has started. '
+            'There are no phases left to edit. '
             'You can still change deadlines from the cycle page.',
         )
         return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
+    locked_types = {
+        campaign.cycle_type
+        for phase in locked_phases for campaign in phase.campaigns.all()
+    }
 
     from reviews.campaign_services import (
         launch_organizational_cycle, questionnaire_supports,
@@ -2413,6 +2432,10 @@ def edit_organisation_rollout(request, cycle_uuid):
     applicable_types = ['self', 'peer']
     if cycle.audience_type != 'individuals' and cycle.teams.exists():
         applicable_types.append('manager')
+    applicable_types = [
+        assessment_type for assessment_type in applicable_types
+        if assessment_type not in locked_types
+    ]
     questionnaires = Questionnaire.objects.for_organization(
         request.organization
     ).filter(is_active=True).order_by('-is_default', 'name')
@@ -2424,8 +2447,9 @@ def edit_organisation_rollout(request, cycle_uuid):
             phase_count = 0
         submitted = []
         errors = []
-        if not 1 <= phase_count <= 10:
-            errors.append('Add between 1 and 10 phases.')
+        max_phases = 10 - len(locked_phases)
+        if not 1 <= phase_count <= max_phases:
+            errors.append(f'Add between 1 and {max_phases} phases.')
         for position in range(1, phase_count + 1):
             name = request.POST.get(f'phase_{position}_name', '').strip()
             try:
@@ -2497,7 +2521,7 @@ def edit_organisation_rollout(request, cycle_uuid):
                     assessment['minimum_peer_reviewers']
                     for item in submitted for assessment in item['assessments']
                     if assessment['type'] == 'peer'
-                ), 1)
+                ), cycle.minimum_peer_reviewers)
                 definitions = [{
                     'name': item['name'],
                     'due_date': item['due_date'],
@@ -2516,14 +2540,26 @@ def edit_organisation_rollout(request, cycle_uuid):
                     participants=list(cycle.selected_reviewees.all()),
                     phase_definitions=definitions,
                 )
-                cycle.campaigns.all().delete()
-                cycle.phases.all().delete()
-                replacement.phases.update(organizational_cycle=cycle)
+                position_offset = max(
+                    (phase.position for phase in locked_phases), default=0
+                )
+                editable_ids = [phase.id for phase in editable_phases]
+                cycle.campaigns.filter(phase_id__in=editable_ids).delete()
+                cycle.phases.filter(id__in=editable_ids).delete()
+                replacement.phases.update(
+                    organizational_cycle=cycle,
+                    position=F('position') + position_offset,
+                )
                 replacement.campaigns.update(organizational_cycle=cycle)
-                cycle.self_questionnaire = selected_questionnaires.get('self')
-                cycle.peer_questionnaire = selected_questionnaires.get('peer')
-                cycle.manager_questionnaire = selected_questionnaires.get('manager')
-                cycle.minimum_peer_reviewers = peer_minimum
+                for field, assessment_type in (
+                    ('self_questionnaire', 'self'),
+                    ('peer_questionnaire', 'peer'),
+                    ('manager_questionnaire', 'manager'),
+                ):
+                    if assessment_type in selected_questionnaires:
+                        setattr(cycle, field, selected_questionnaires[assessment_type])
+                if 'peer' in selected_questionnaires:
+                    cycle.minimum_peer_reviewers = peer_minimum
                 cycle.save(update_fields=[
                     'self_questionnaire', 'peer_questionnaire',
                     'manager_questionnaire', 'minimum_peer_reviewers', 'updated_at',
@@ -2546,11 +2582,12 @@ def edit_organisation_rollout(request, cycle_uuid):
                 campaign.cycle_type: campaign
                 for campaign in phase.campaigns.select_related('questionnaire').all()
             }.values()],
-        } for phase in phases]
+        } for phase in editable_phases]
 
     return render(request, 'admin_dashboard/organisation_rollout_edit.html', {
         'organisation_cycle': cycle,
         'phase_rows': phase_rows,
+        'locked_phases': locked_phases,
         'applicable_types': applicable_types,
         'questionnaires': questionnaires,
     })

@@ -811,6 +811,78 @@ class CampaignCreationViewTests(TestCase):
         self.assertEqual(combined.name, 'Combined feedback')
         self.assertEqual(combined.campaigns.count(), parent.campaigns.count())
 
+    def test_admin_can_edit_remaining_draft_phases_after_a_phase_starts(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        due = timezone.localdate() + timedelta(days=10)
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q, 'peer': peer_q},
+            minimum_peer_reviewers=1,
+            phase_definitions=[
+                {'name': 'Reflection', 'due_date': due, 'assessment_types': ['self']},
+                {'name': 'Feedback', 'due_date': due, 'assessment_types': ['peer']},
+            ],
+        )
+        started = parent.phases.get(name='Reflection')
+        with patch('reviews.services.send_organizational_cycle_invitations'):
+            self.client.post(reverse(
+                'begin_organisation_phase', args=[parent.uuid, started.id]
+            ))
+        parent.refresh_from_db()
+        detail = reverse('organisation_cycle_detail', args=[parent.uuid])
+        self.assertContains(self.client.get(detail), 'Edit rollout')
+        campaign_ids = set(started.campaigns.values_list('id', flat=True))
+
+        response = self.client.post(reverse(
+            'edit_organisation_rollout', args=[parent.uuid]
+        ), {
+            'phase_count': 1,
+            'phase_1_name': 'Peer feedback',
+            'phase_1_due_date': (due + timedelta(days=5)).isoformat(),
+            'phase_1_assessment_count': 1,
+            'phase_1_assessment_1_type': 'peer',
+            'phase_1_assessment_1_questionnaire': peer_q.id,
+            'phase_1_assessment_1_minimum_peer_reviewers': 2,
+        })
+
+        self.assertRedirects(response, detail)
+        self.assertEqual(
+            [(phase.name, phase.status) for phase in parent.phases.all()],
+            [('Reflection', 'active'), ('Peer feedback', 'draft')],
+        )
+        self.assertEqual(
+            set(parent.phases.get(name='Reflection').campaigns.values_list(
+                'id', flat=True
+            )),
+            campaign_ids,
+        )
+        self.assertEqual(
+            parent.phases.get(name='Peer feedback').campaigns.first().cycle_type,
+            'peer',
+        )
+
+        reuse = self.client.post(reverse(
+            'edit_organisation_rollout', args=[parent.uuid]
+        ), {
+            'phase_count': 1,
+            'phase_1_name': 'Again',
+            'phase_1_due_date': due.isoformat(),
+            'phase_1_assessment_count': 1,
+            'phase_1_assessment_1_type': 'self',
+            'phase_1_assessment_1_questionnaire': self_q.id,
+        })
+        self.assertEqual(reuse.status_code, 200)
+        self.assertEqual(parent.phases.count(), 2)
+
     def test_person_reports_stay_combined_across_phases(self):
         from accounts.permissions import assign_organization_admin
 

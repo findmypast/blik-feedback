@@ -17,7 +17,7 @@
         {% for phase in phases %}
         <section class="phase-row phase-{{ phase.status }}">
             <div class="phase-position">{{ phase.position }}</div>
-            <div class="phase-summary"><strong>{{ phase.name }}</strong><small>{% for campaign in phase.campaigns.all %}{% ifchanged campaign.cycle_type %}{{ campaign.get_cycle_type_display|title }}{% if not forloop.last %} · {% endif %}{% endifchanged %}{% endfor %}</small></div>
+            <div class="phase-summary"><strong>{{ phase.name }}</strong><small>{{ phase.assessment_labels|join:' · ' }}</small></div>
             <span class="badge {% if phase.status == 'completed' %}badge-success{% elif phase.status == 'active' %}badge-warning{% else %}badge-secondary{% endif %}">{{ phase.get_status_display }}</span>
             <div class="phase-due"><small>Due</small><strong>{{ phase.due_date|date:"j M Y" }}</strong></div>
             {% if can_manage_cycle %}<div class="phase-actions">
