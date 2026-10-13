@@ -339,7 +339,10 @@ class MicrosoftLoginViewTests(TestCase):
             response, f'action="{reverse("microsoft_login")}"', html=False
         )
 
-    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    @override_settings(
+        MICROSOFT_SSO_CONFIGURED=True,
+        MICROSOFT_SSO_AUTO_REDIRECT=True,
+    )
     def test_corporate_invitation_redirects_to_microsoft_sso(self):
         invitation = OrganizationInvitationFactory(
             organization=OrganizationFactory(),
@@ -358,7 +361,10 @@ class MicrosoftLoginViewTests(TestCase):
             fetch_redirect_response=False,
         )
 
-    @override_settings(MICROSOFT_SSO_CONFIGURED=True)
+    @override_settings(
+        MICROSOFT_SSO_CONFIGURED=True,
+        MICROSOFT_SSO_AUTO_REDIRECT=True,
+    )
     def test_dcthomson_invitation_redirects_to_microsoft_sso(self):
         invitation = OrganizationInvitationFactory(
             organization=OrganizationFactory(),

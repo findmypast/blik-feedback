@@ -1,5 +1,8 @@
+from django.conf import settings
+from django.core.mail import get_connection
 from django.core.management.base import BaseCommand
 from django.template.loader import render_to_string
+
 from core.email import send_email
 
 
@@ -31,6 +34,8 @@ class Command(BaseCommand):
             ),
             recipient_list=[recipient],
             html_message=render_to_string("emails/reviewer_invitation.html", context),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            connection=get_connection(fail_silently=False),
         )
 
         if sent != 1:
