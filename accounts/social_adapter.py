@@ -107,6 +107,18 @@ class BlikSocialAccountAdapter(DefaultSocialAccountAdapter):
         if not email:
             raise ImmediateHttpResponse(_access_denied_response())
 
+        # When Microsoft SSO was started from an invitation, the verified
+        # Microsoft address must be the address that was invited. Without this
+        # check, an already-linked Microsoft account could complete a different
+        # person's invitation flow.
+        invitation_email = ''
+        if session is not None:
+            invitation_email = (
+                session.get('invitation_email') or ''
+            ).strip().casefold()
+        if invitation_email and invitation_email != email.casefold():
+            raise ImmediateHttpResponse(_access_denied_response())
+
         if sociallogin.is_existing:
             user = sociallogin.user
             if (

@@ -74,8 +74,11 @@ class MicrosoftSocialAdapterTests(TestCase):
         self.organization = OrganizationFactory()
 
     def assert_denied(self, login):
+        self.assert_denied_with_request(self.request, login)
+
+    def assert_denied_with_request(self, request, login):
         with self.assertRaises(ImmediateHttpResponse) as caught:
-            self.adapter.pre_social_login(self.request, login)
+            self.adapter.pre_social_login(request, login)
         self.assertEqual(caught.exception.response.status_code, 302)
         self.assertIn('sso_error=access_denied', caught.exception.response.url)
 
@@ -111,6 +114,27 @@ class MicrosoftSocialAdapterTests(TestCase):
         profile.refresh_from_db()
         self.assertEqual(profile.organization, self.organization)
         self.assertTrue(user.groups.filter(name=ORG_ADMIN_GROUP).exists())
+
+    def test_invitation_sso_rejects_a_different_verified_email(self):
+        invitation = OrganizationInvitationFactory(
+            organization=self.organization,
+            email='invited@example.com',
+        )
+        existing_user = UserFactory(email='different@example.com')
+        UserProfileFactory(user=existing_user, organization=self.organization)
+        request = self.client.get('/').wsgi_request
+        request.session['invitation_token'] = str(invitation.token)
+        request.session['invitation_email'] = invitation.email
+        request.session.save()
+        login = social_login(existing_user.email)
+        login.user = existing_user
+        login.is_existing = True
+
+        self.assert_denied_with_request(request, login)
+
+        invitation.refresh_from_db()
+        self.assertIsNone(invitation.accepted_at)
+        login.connect.assert_not_called()
 
     def test_existing_user_and_reviewee_names_sync_from_microsoft(self):
         user = UserFactory(
