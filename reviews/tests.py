@@ -78,6 +78,28 @@ class FeedbackCompletionRedirectTests(TestCase):
         )
         self.assertNotContains(response, '<h1>360 Feedback</h1>', html=False)
 
+    def test_feedback_form_personalizes_section_header_and_subtext(self):
+        question = RatingQuestionFactory(
+            section__questionnaire__organization=self.organization
+        )
+        question.section.title = 'Feedback about <personName>'
+        question.section.description = 'Think about <personName> in this role.'
+        question.section.save(update_fields=['title', 'description'])
+        token = ReviewerTokenFactory(
+            cycle__reviewee__organization=self.organization,
+            cycle__questionnaire=question.section.questionnaire,
+            reviewer_email=self.user.email,
+        )
+
+        response = self.client.get(
+            reverse('reviews:feedback_form', args=[token.token])
+        )
+
+        name = token.cycle.reviewee.name
+        self.assertContains(response, f'Feedback about {name}')
+        self.assertContains(response, f'Think about {name} in this role.')
+        self.assertNotContains(response, '&lt;personName&gt;')
+
     def test_legacy_self_email_claims_existing_assigned_token(self):
         token = ReviewerTokenFactory(
             cycle__reviewee=Reviewee.objects.get(
