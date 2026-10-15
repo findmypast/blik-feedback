@@ -18,6 +18,7 @@ class UserProfileFactory(DjangoModelFactory):
     user = factory.SubFactory(UserFactory)
     organization = factory.SubFactory(OrganizationFactory)
     can_create_cycles_for_others = False
+    exclude_from_review_cycles = False
     has_seen_welcome = False
 
 

@@ -476,6 +476,7 @@ class OrganizationPeopleSettingsTestCase(TestCase):
             'status': 'inactive',
             'role': 'admin',
             'can_create_cycles_for_others': 'on',
+            'exclude_from_review_cycles': 'on',
             'teams': [team.id],
         })
         self.assertRedirects(response, reverse('settings') + '#people')
@@ -485,6 +486,7 @@ class OrganizationPeopleSettingsTestCase(TestCase):
         self.assertEqual(self.member.email, 'updated@example.com')
         self.assertTrue(self.member.groups.filter(name=ORG_ADMIN_GROUP).exists())
         self.assertTrue(self.member_profile.can_create_cycles_for_others)
+        self.assertTrue(self.member_profile.exclude_from_review_cycles)
         self.assertEqual(
             set(self.member_profile.reviewee.teams.values_list('id', flat=True)),
             {team.id},

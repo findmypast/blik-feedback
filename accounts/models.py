@@ -93,6 +93,12 @@ class UserProfile(TimeStampedModel):
         default=False,
         help_text='If False, user can only create cycles for themselves'
     )
+    exclude_from_review_cycles = models.BooleanField(
+        default=False,
+        help_text=(
+            'Exclude this person from new review cycles and assessment invitations.'
+        ),
+    )
     has_seen_welcome = models.BooleanField(
         default=False,
         help_text='Whether user has seen the welcome modal'

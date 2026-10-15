@@ -31,6 +31,11 @@ def _reviewee_for_profile(profile):
     ).first()
 
 
+def cycle_eligible_reviewees(queryset):
+    """Remove people explicitly exempted from new review cycles."""
+    return queryset.exclude(profile__exclude_from_review_cycles=True)
+
+
 def questionnaire_supports(questionnaire, cycle_type):
     flag = QUESTIONNAIRE_FLAG.get(cycle_type)
     return bool(flag and getattr(questionnaire, flag, False))
@@ -60,14 +65,20 @@ def launch_organizational_cycle(
     if participants is None:
         if audience_type == 'teams':
             team_ids = [team.id for team in selected_teams]
-            participants = Reviewee.objects.for_organization(organization).filter(
+            participants = cycle_eligible_reviewees(
+                Reviewee.objects.for_organization(organization).filter(
                 Q(team_id__in=team_ids) | Q(team_memberships__team_id__in=team_ids),
                 is_active=True,
-            ).distinct()
-        else:
-            participants = Reviewee.objects.for_organization(organization).filter(
-                is_active=True
+                ).distinct()
             )
+        else:
+            participants = cycle_eligible_reviewees(
+                Reviewee.objects.for_organization(organization).filter(is_active=True)
+            )
+    else:
+        participants = cycle_eligible_reviewees(
+            Reviewee.objects.filter(id__in=[participant.id for participant in participants])
+        )
     participant_ids = {
         participant.id for participant in participants
         if participant.organization_id == organization.id and participant.is_active
@@ -227,31 +238,39 @@ def launch_organizational_cycle(
 
 def campaign_members_for_team(team):
     """Active members assigned to one exact team, including additive membership."""
-    return Reviewee.objects.for_organization(team.organization).filter(
-        Q(team=team) | Q(team_memberships__team=team),
-        is_active=True,
-    ).distinct()
+    return cycle_eligible_reviewees(
+        Reviewee.objects.for_organization(team.organization).filter(
+            Q(team=team) | Q(team_memberships__team=team),
+            is_active=True,
+        ).distinct()
+    )
 
 
 def campaign_members(campaign):
     if campaign.target_type == 'organization':
-        return Reviewee.objects.for_organization(campaign.organization).filter(
-            is_active=True
+        return cycle_eligible_reviewees(
+            Reviewee.objects.for_organization(campaign.organization).filter(
+                is_active=True
+            )
         )
     if campaign.target_type == 'individual':
-        return Reviewee.objects.filter(
-            id=campaign.individual_id,
-            organization=campaign.organization,
-            is_active=True,
+        return cycle_eligible_reviewees(
+            Reviewee.objects.filter(
+                id=campaign.individual_id,
+                organization=campaign.organization,
+                is_active=True,
+            )
         )
     team_ids = (
         descendant_team_ids(campaign.team)
         if campaign.include_descendants else {campaign.team_id}
     )
-    return Reviewee.objects.for_organization(campaign.organization).filter(
-        Q(team_id__in=team_ids) | Q(team_memberships__team_id__in=team_ids),
-        is_active=True,
-    ).distinct()
+    return cycle_eligible_reviewees(
+        Reviewee.objects.for_organization(campaign.organization).filter(
+            Q(team_id__in=team_ids) | Q(team_memberships__team_id__in=team_ids),
+            is_active=True,
+        ).distinct()
+    )
 
 
 @transaction.atomic
@@ -317,14 +336,18 @@ def _launch_organization_manager_campaign(campaign):
         'manager__reviewee'
     ).prefetch_related('members')
     for team in teams:
-        for member in team.members.filter(is_active=True).select_related(
-            'reporting_manager__reviewee'
-        ):
+        for member in cycle_eligible_reviewees(
+            team.members.filter(is_active=True)
+        ).select_related('reporting_manager__reviewee'):
             if not member.email:
                 continue
             manager = member.reporting_manager or team.manager
             manager_reviewee = _reviewee_for_profile(manager)
-            if not manager_reviewee or not manager_reviewee.is_active or member == manager_reviewee:
+            if (
+                not manager_reviewee or not manager_reviewee.is_active
+                or getattr(manager_reviewee.profile, 'exclude_from_review_cycles', False)
+                or member == manager_reviewee
+            ):
                 continue
             assignment = (manager_reviewee.id, member.email.lower())
             if assignment in invited_assignments:

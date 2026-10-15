@@ -494,13 +494,15 @@ def send_organizational_cycle_invitations(organizational_cycle, phase=None):
         ]
     due_date = phase.due_date if phase is not None else organizational_cycle.due_date
 
-    participants = organizational_cycle.selected_reviewees.filter(is_active=True)
+    participants = organizational_cycle.selected_reviewees.filter(
+        is_active=True
+    ).exclude(profile__exclude_from_review_cycles=True)
     if not participants.exists():
         # Compatibility for organisation cycles created before audience
         # selection was introduced.
         participants = Reviewee.objects.for_organization(
             organizational_cycle.organization
-        ).filter(is_active=True)
+        ).filter(is_active=True).exclude(profile__exclude_from_review_cycles=True)
     participants = participants.exclude(email='').order_by('email').distinct()
     connection = get_email_backend()
     connection.open()

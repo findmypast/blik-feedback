@@ -55,6 +55,41 @@ class CampaignServiceTests(TestCase):
         self.assertEqual(campaign.cycles.count(), 3)
         self.assertEqual(campaign.cycles.filter(tokens__category='self').count(), 3)
 
+    def test_campaign_excludes_profiles_exempted_from_review_cycles(self):
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        self.manager.exclude_from_review_cycles = True
+        self.manager.save(update_fields=['exclude_from_review_cycles', 'updated_at'])
+
+        campaign = launch_campaign(self.campaign('self', questionnaire))
+
+        self.assertEqual(campaign.cycles.count(), 2)
+        self.assertFalse(
+            campaign.cycles.filter(reviewee=self.manager_reviewee).exists()
+        )
+
+    def test_explicit_organization_audience_ignores_exempt_profile(self):
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        self.manager.exclude_from_review_cycles = True
+        self.manager.save(update_fields=['exclude_from_review_cycles', 'updated_at'])
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': questionnaire},
+            minimum_peer_reviewers=1,
+            audience_type='individuals',
+            participants=[self.manager_reviewee, self.member_one],
+        )
+
+        self.assertEqual(
+            list(parent.selected_reviewees.values_list('id', flat=True)),
+            [self.member_one.id],
+        )
+
     def test_peer_campaign_waits_for_each_member_to_nominate_reviewers(self):
         questionnaire = QuestionnaireFactory(
             organization=self.org, allow_peer_review=True

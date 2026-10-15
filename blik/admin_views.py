@@ -3331,7 +3331,7 @@ def _create_review_campaign(request):
                     request.user,
                     Reviewee.objects.for_organization(org).filter(
                         participant_filter, is_active=True
-                    ),
+                    ).exclude(profile__exclude_from_review_cycles=True),
                     org,
                 )
             ) if emails else []
@@ -5148,6 +5148,9 @@ def manage_organization_person(request):
         })
         teams = list(selected_by_id.values())
         can_create = request.POST.get('can_create_cycles_for_others') == 'on'
+        exclude_from_review_cycles = (
+            request.POST.get('exclude_from_review_cycles') == 'on'
+        )
         reporting_manager_id = request.POST.get('reporting_manager') or None
         reporting_manager = None
         if reporting_manager_id:
@@ -5211,8 +5214,10 @@ def manage_organization_person(request):
             target.is_active = request.POST.get('status') == 'active'
             target.save(update_fields=['email', 'is_active'])
             profile.can_create_cycles_for_others = can_create
+            profile.exclude_from_review_cycles = exclude_from_review_cycles
             profile.save(update_fields=[
-                'can_create_cycles_for_others', 'organization_role', 'updated_at'
+                'can_create_cycles_for_others', 'exclude_from_review_cycles',
+                'organization_role', 'updated_at'
             ])
             if not reviewee:
                 reviewee = Reviewee.objects.create(
