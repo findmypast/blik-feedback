@@ -1282,6 +1282,10 @@ class CampaignCreationViewTests(TestCase):
         cycle_summary = self.client.get(summary_url)
         self.assertContains(cycle_summary, 'Teams and assessments')
         self.assertContains(cycle_summary, self.team.name)
+        self.assertContains(
+            cycle_summary, f'aria-label="{self.team.name} progress"'
+        )
+        self.assertContains(cycle_summary, 'reviews complete')
         self.assertContains(cycle_summary, 'Peer Review')
         self.assertContains(cycle_summary, 'Manager Assessment')
 
@@ -1738,6 +1742,7 @@ class PeerNominationFlowTests(TestCase):
 
         self.assertContains(response, self.member.name)
         self.assertContains(response, self.peer.email)
+        self.assertContains(response, 'Feedback invitations sent')
         self.assertContains(response, 'Resend')
 
     def test_manager_dashboard_peer_header_shows_nomination_status(self):

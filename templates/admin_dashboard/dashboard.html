@@ -339,7 +339,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="dashboard-phase dashboard-phase-{{ phase.status }}">
                     <div class="dashboard-phase-copy">
                         <span class="dashboard-phase-position">{{ forloop.counter }}</span>
-                        <span><strong>{{ phase.name }}</strong><small>{% for campaign in phase.campaigns.all %}{{ campaign.get_cycle_type_display }}{% if not forloop.last %} · {% endif %}{% empty %}No assessments{% endfor %} · Due {{ phase.due_date|date:"j M Y"|default:"date not set" }}</small></span>
+                        <span><strong>{{ phase.name }}</strong><small>{% if phase.assessment_labels %}{{ phase.assessment_labels|join:' · ' }}{% else %}No assessments{% endif %} · Due {{ phase.due_date|date:"j M Y"|default:"date not set" }}</small></span>
                     </div>
                     <span class="badge {% if phase.status == 'active' %}badge-success{% elif phase.status == 'completed' %}badge-secondary{% else %}badge-warning{% endif %}">{{ phase.get_status_display }}</span>
                     {% if organization_item.can_manage_cycle %}<div class="dashboard-phase-actions">

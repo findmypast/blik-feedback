@@ -2,7 +2,7 @@
 {# Template for rendering a single question's responses across categories #}
 
 <div class="question-report">
-    <h3 class="question-title">{{ question_data.question_text }}</h3>
+    <h3 class="question-title">{{ question_data.question_text|personalize:report.cycle.reviewee.name }}</h3>
 
     {# Show preview of how the question was presented #}
     <div style="margin: 1rem 0; padding: 1rem; background: var(--bg-light); border-radius: 6px; border-left: 3px solid var(--primary);">
@@ -247,7 +247,10 @@
                     {% elif question_data.question_type == 'text' %}
                         <div class="text-responses">
                             {% for response in cat_data.responses %}
-                                <div class="text-response">{{ response }}</div>
+                                <div class="text-response">
+                                    <div class="text-response-label">Response {{ forloop.counter }}</div>
+                                    <div>{{ response }}</div>
+                                </div>
                             {% endfor %}
                         </div>
                     {% endif %}

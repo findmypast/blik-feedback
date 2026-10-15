@@ -1654,16 +1654,28 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .text-responses {
   margin-top: 12px;
+  display: grid;
+  gap: 16px;
 }
 
 .text-response {
   background: var(--bg-card);
-  border-left: 3px solid var(--primary);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
   padding: 12px 16px;
-  margin-bottom: 8px;
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--text-primary);
   line-height: 1.6;
+  box-shadow: var(--shadow-sm);
+}
+
+.text-response-label {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .insufficient-data {

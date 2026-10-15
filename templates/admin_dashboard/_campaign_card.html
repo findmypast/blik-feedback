@@ -18,7 +18,7 @@
         <details class="peer-person-section">
             <summary class="peer-person-header">
                 <div><strong>{{ person.cycle.reviewee.name }}</strong><span>{{ person.cycle.reviewee.email }}</span>{% if item.campaign.target_type == 'organization' and person.team_names %}<small>Teams: {{ person.team_names|join:", " }}</small>{% endif %}</div>
-                <span class="peer-header-status">{% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.awaiting_nominations %}<span class="badge badge-secondary">Awaiting peer selection</span>{% elif person.completed_count == person.total_count %}<span class="badge badge-success">All reviews complete</span>{% elif person.completed_count %}<span class="badge badge-warning">Reviews in progress ({{ person.completed_count }}/{{ person.total_count }})</span>{% else %}<span class="badge badge-secondary">Review invitations sent</span>{% endif %}</span>
+                <span class="peer-header-status">{% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.awaiting_nominations %}<span class="badge badge-secondary">Awaiting peer selection</span>{% elif person.completed_count == person.total_count %}<span class="badge badge-success">All reviews complete</span>{% elif person.completed_count %}<span class="badge badge-warning">Reviews in progress ({{ person.completed_count }}/{{ person.total_count }})</span>{% else %}<span class="badge badge-secondary">Feedback invitations sent</span>{% endif %}</span>
                 <span class="peer-header-action"></span>
                 <span class="peer-person-progress">{{ person.completed_count }} / {{ person.total_count }} complete <span aria-hidden="true">▾</span></span>
             </summary>
@@ -49,7 +49,7 @@
             <div class="manager-person-identity"><strong>{{ person.cycle.reviewee.name }}</strong><span>{{ person.cycle.reviewee.email }}</span></div>
             {% if item.campaign.cycle_type == 'manager' %}<div class="manager-person-team">{{ person.assigned_team_names|join:", "|default:item.campaign.scope_label }}</div>{% endif %}
             <div class="manager-person-status">
-                {% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.completed_count %}<span class="badge badge-warning">In progress · {{ person.completed_count }} / {{ person.total_count }}</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}
+                {% if person.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif person.completed_count %}<span class="badge badge-warning">In progress{% if item.campaign.cycle_type == 'manager' %} ({{ person.completed_count }}/{{ person.total_count|default:1 }}){% endif %}</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}
             </div>
             <div class="manager-person-actions">
                 {% if person.cycle.status == 'completed' %}

@@ -261,7 +261,7 @@
 <h2 id="detailed-feedback" style="font-size: 1.75rem; font-weight: 600; margin: 2rem 0 1rem; color: var(--text-primary);">Detailed Feedback</h2>
 {% for section_id, section_data in display_data.by_section.items %}
 <div class="section-report">
-    <h2 class="section-title">{{ section_data.title }}</h2>
+    <h2 class="section-title">{{ section_data.title|personalize:report.cycle.reviewee.name }}</h2>
 
     {% for question_id, question_data in section_data.questions.items %}
         {% include "reports/_question_response.html" with question_data=question_data %}

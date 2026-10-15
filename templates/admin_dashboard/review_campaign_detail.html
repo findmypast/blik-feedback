@@ -35,7 +35,7 @@
         </section>
         {% else %}
         <div class="summary-line">
-            <strong>{{ row.cycle.reviewee.name }}</strong><span>{{ row.cycle.reviewee.email }}</span><span>{% if row.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif row.completed_count %}<span class="badge badge-warning">In progress · {{ row.completed_count }} / {{ row.tokens|length }}</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}</span>
+            <strong>{{ row.cycle.reviewee.name }}</strong><span>{{ row.cycle.reviewee.email }}</span><span>{% if row.cycle.status == 'completed' %}<span class="badge badge-success">Complete</span>{% elif row.completed_count %}<span class="badge badge-warning">In progress{% if campaign.cycle_type == 'manager' %} ({{ row.completed_count }}/{{ row.tokens|length }}){% endif %}</span>{% else %}<span class="badge badge-secondary">Invitation pending</span>{% endif %}</span>
             <span class="summary-actions">{% if row.cycle.status == 'completed' %}{% if row.report %}<a class="btn btn-sm btn-primary" href="{% url 'reports:view_report' row.cycle.uuid %}">View report</a>{% if can_manage %}<a class="btn btn-sm btn-secondary" href="{% url 'reports:regenerate_report' row.cycle.uuid %}">Regenerate report</a>{% endif %}{% elif can_manage %}<a class="btn btn-sm btn-primary" href="{% url 'generate_report' row.cycle.uuid %}">Generate report</a>{% endif %}{% elif can_manage %}<form method="post" action="{% url 'close_cycle' row.cycle.uuid %}">{% csrf_token %}<button class="btn btn-sm btn-primary">End assessment</button></form>{% endif %}</span>
             </div>
         {% endif %}

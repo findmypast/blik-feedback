@@ -481,6 +481,21 @@ def dashboard(request):
         is_active=True
     ).exists()
 
+    assessment_type_labels = dict(ReviewCampaign.TYPE_CHOICES)
+    for group in organizational_cycle_cards.values():
+        group['phases'] = list(
+            group['cycle'].phases.prefetch_related('campaigns').all()
+        )
+        for phase in group['phases']:
+            phase_types = {
+                campaign.cycle_type for campaign in phase.campaigns.all()
+            }
+            phase.assessment_labels = [
+                assessment_type_labels[cycle_type]
+                for cycle_type in ('self', 'peer', 'manager')
+                if cycle_type in phase_types
+            ]
+
     context = {
         'total_reviewees': total_reviewees,
         'active_cycles': active_cycles,
@@ -496,7 +511,6 @@ def dashboard(request):
             {
                 **group,
                 'people': _group_organisation_campaign_people(group['campaigns']),
-                'phases': group['cycle'].phases.prefetch_related('campaigns').all(),
                 'phase_cards': [
                     {
                         'phase': phase,
@@ -505,9 +519,7 @@ def dashboard(request):
                             if item['campaign'].phase_id == phase.id
                         ]),
                     }
-                    for phase in group['cycle'].phases.prefetch_related(
-                        'campaigns'
-                    ).all()
+                    for phase in group['phases']
                 ],
                 'can_manage_cycle': request.user.has_perm(
                     'accounts.can_manage_organization'
@@ -2132,7 +2144,11 @@ def review_cycle_list(request):
                     else 'Not started' if cycle.status == 'draft'
                     else 'Awaiting peer selection'
                     if campaign.cycle_type == 'peer' and not tokens
-                    else 'In progress' if completed_count
+                    else (
+                        f'In progress ({completed_count}/{max(len(tokens), 1)})'
+                        if campaign.cycle_type == 'manager' else 'In progress'
+                    ) if completed_count
+                    else 'Feedback invitations sent' if campaign.cycle_type == 'peer'
                     else 'Invitation pending'
                 ),
             })
@@ -2278,7 +2294,11 @@ def organisation_cycle_detail(request, cycle_uuid):
                     'Complete' if cycle.status == 'completed'
                     else 'Awaiting peer selection'
                     if campaign.cycle_type == 'peer' and not tokens
-                    else 'In progress' if completed
+                    else (
+                        f'In progress ({completed}/{required_total})'
+                        if campaign.cycle_type == 'manager' else 'In progress'
+                    ) if completed
+                    else 'Feedback invitations sent' if campaign.cycle_type == 'peer'
                     else 'Invitation pending'
                 ),
             }
@@ -2320,11 +2340,23 @@ def organisation_cycle_detail(request, cycle_uuid):
         group = teams.setdefault(team.id if team else None, {
             'name': team.name if team else 'People without a team',
             'people': [],
+            'completed_count': 0,
+            'total_count': 0,
         })
         group['people'].append(person)
+        group['completed_count'] += sum(
+            assessment['completed_count'] for assessment in person['assessments']
+        )
+        group['total_count'] += sum(
+            max(assessment['total_count'], 1) for assessment in person['assessments']
+        )
     team_groups = []
     for group in teams.values():
         group['people'].sort(key=lambda person: person['reviewee'].name.lower())
+        group['completion_rate'] = (
+            group['completed_count'] / group['total_count'] * 100
+            if group['total_count'] else 0
+        )
         team_groups.append(group)
 
     phases = organisation_cycle.phases.prefetch_related('campaigns').all()
@@ -2640,8 +2672,13 @@ def organisation_phase_detail(request, cycle_uuid, phase_id):
                 'Complete' if assessment.status == 'completed'
                 else 'Awaiting peer selection'
                 if assessment.campaign.cycle_type == 'peer' and not tokens
-                else 'In progress' if completed
-                else 'Not responded'
+                else (
+                    f'In progress ({completed}/{total})'
+                    if assessment.campaign.cycle_type == 'manager' else 'In progress'
+                ) if completed
+                else 'Feedback invitations sent'
+                if assessment.campaign.cycle_type == 'peer'
+                else 'Invitation pending'
             ),
         })
     teams = {}
