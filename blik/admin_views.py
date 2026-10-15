@@ -2890,17 +2890,48 @@ def end_organisation_phase(request, cycle_uuid, phase_id):
     if phase.status != 'active':
         messages.info(request, f'{phase.name} is not active.')
         return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
-    phase.status = 'completed'
-    phase.ended_at = timezone.now()
-    phase.save(update_fields=['status', 'ended_at', 'updated_at'])
-    phase.campaigns.update(status='completed')
-    ReviewCycle.objects.filter(campaign__phase=phase, status='active').update(
-        status='completed'
+    from reports.services import generate_report
+
+    active_cycles = list(
+        ReviewCycle.objects.filter(
+            campaign__phase=phase, status='active'
+        ).select_related('campaign', 'reviewee')
     )
+    reports_generated = 0
+    reports_skipped = 0
+    with transaction.atomic():
+        for assessment_cycle in active_cycles:
+            assessment_cycle.tokens.filter(
+                claimed_at__isnull=True, completed_at__isnull=True
+            ).delete()
+            assessment_cycle.status = 'completed'
+            assessment_cycle.save(update_fields=['status', 'updated_at'])
+            required = (
+                assessment_cycle.campaign.minimum_peer_reviewers
+                if assessment_cycle.campaign.cycle_type == 'peer' else 1
+            )
+            completed = assessment_cycle.tokens.filter(
+                completed_at__isnull=False
+            ).count()
+            if completed >= required:
+                generate_report(assessment_cycle)
+                reports_generated += 1
+            else:
+                reports_skipped += 1
+
+        phase.status = 'completed'
+        phase.ended_at = timezone.now()
+        phase.save(update_fields=['status', 'ended_at', 'updated_at'])
+        phase.campaigns.update(status='completed')
     if not cycle.phases.exclude(status='completed').exists():
         cycle.status = 'completed'
         cycle.save(update_fields=['status', 'updated_at'])
-    messages.success(request, f'{phase.name} ended.')
+    report_summary = f' Generated {reports_generated} available report(s).'
+    if reports_skipped:
+        report_summary += (
+            f' Skipped {reports_skipped} report(s) without enough completed feedback.'
+        )
+    messages.success(request, f'{phase.name} ended.{report_summary}')
     return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
 
 

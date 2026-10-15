@@ -1011,6 +1011,52 @@ class CampaignCreationViewTests(TestCase):
         self.assertContains(combined, 'Reflection')
         self.assertContains(combined, 'Peer feedback')
 
+    @patch('reports.services.generate_report')
+    def test_ending_phase_generates_completed_peer_reports(self, generate_report):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'peer': peer_q},
+            minimum_peer_reviewers=3,
+            audience_type='individuals',
+            participants=[self.member],
+            phase_definitions=[{
+                'name': 'Peer feedback',
+                'due_date': timezone.localdate() + timedelta(days=10),
+                'assessment_types': ['peer'],
+            }],
+        )
+        phase = parent.phases.get()
+        phase.status = 'active'
+        phase.save(update_fields=['status', 'updated_at'])
+        cycle = phase.campaigns.get().cycles.get()
+        cycle.status = 'active'
+        cycle.save(update_fields=['status', 'updated_at'])
+        for index in range(3):
+            ReviewerToken.objects.create(
+                cycle=cycle,
+                category='peer',
+                reviewer_email=f'peer{index}@example.com',
+                completed_at=timezone.now(),
+            )
+
+        response = self.client.post(reverse(
+            'end_organisation_phase', args=[parent.uuid, phase.id]
+        ))
+
+        self.assertRedirects(response, reverse(
+            'organisation_cycle_detail', args=[parent.uuid]
+        ))
+        cycle.refresh_from_db()
+        self.assertEqual(cycle.status, 'completed')
+        generate_report.assert_called_once_with(cycle)
+
     def test_team_leader_can_view_phase_but_cannot_control_or_edit_it(self):
         self_q = QuestionnaireFactory(
             organization=self.org, allow_self_assessment=True
