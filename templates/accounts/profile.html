@@ -50,7 +50,7 @@
         <td>{{ cycle_data.cycle.created_at|date:"j M Y" }}</td>
         <td><span class="badge {% if cycle_data.cycle.status == 'completed' %}badge-success{% else %}badge-warning{% endif %}">{{ cycle_data.cycle.get_status_display }}</span></td>
         <td>{% if cycle_data.summary %}{{ cycle_data.summary.total_responses }}{% else %}—{% endif %}</td>
-        <td>{% if cycle_data.has_report and cycle_data.cycle.status == 'completed' %}<a href="{% url 'reports:reviewee_report' cycle_data.report.access_token %}" class="btn btn-sm btn-secondary">View report</a>{% else %}<span class="muted">Not available</span>{% endif %}</td>
+        <td>{% if cycle_data.has_report and cycle_data.cycle.status == 'completed' %}{% if cycle_data.cycle.campaign.cycle_type != 'peer' or cycle_data.report.released_to_reviewee %}<a href="{% url 'reports:reviewee_report' cycle_data.report.access_token %}" class="btn btn-sm btn-secondary">View report</a>{% else %}<span class="muted">Awaiting release</span>{% endif %}{% else %}<span class="muted">Not available</span>{% endif %}</td>
     </tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-state"><h3>No review activity yet</h3><p>Your review cycles will appear here.</p></div>{% endif %}
 </div></div>
 

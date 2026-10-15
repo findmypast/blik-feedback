@@ -55,6 +55,10 @@ class Report(TimeStampedModel):
 
     generated_at = models.DateTimeField(auto_now_add=True)
     available = models.BooleanField(default=True)
+    released_to_reviewee = models.BooleanField(
+        default=False,
+        help_text="Whether a peer report has been explicitly released to the reviewee",
+    )
 
     # Security tracking for report access
     access_token_expires = models.DateTimeField(null=True, blank=True, help_text="Expiration date for access token")

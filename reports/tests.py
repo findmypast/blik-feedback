@@ -597,6 +597,59 @@ class ReportAccessControlTestCase(TestCase):
             self.reverse('reports:reviewee_report', args=[self.report.access_token]),
         )
 
+    def test_peer_report_requires_team_leader_release_for_reviewee(self):
+        from reviews.models import ReviewCampaign
+
+        leader_profile = UserProfile.objects.get(user=self.user2)
+        team = Team.objects.create(
+            organization=self.org, name='Aurora', manager=leader_profile
+        )
+        self.cycle.reviewee.team = team
+        self.cycle.reviewee.save(update_fields=['team', 'updated_at'])
+        campaign = ReviewCampaign.objects.create(
+            organization=self.org,
+            created_by=self.user2,
+            questionnaire=self.cycle.questionnaire,
+            team=team,
+            target_type='team',
+            cycle_type='peer',
+            status='completed',
+        )
+        self.cycle.campaign = campaign
+        self.cycle.save(update_fields=['campaign', 'updated_at'])
+
+        self.client.force_login(self.user1)
+        withheld = self.client.get(self.reverse(
+            'reports:reviewee_report', args=[self.report.access_token]
+        ))
+        unauthorized_release = self.client.post(self.reverse(
+            'reports:set_peer_report_release', args=[self.cycle.uuid]
+        ), {'released': '1'})
+
+        self.assertEqual(withheld.status_code, 403)
+        self.assertContains(withheld, 'has not been released yet', status_code=403)
+        self.assertEqual(unauthorized_release.status_code, 404)
+        self.assertNotContains(
+            self.client.get(self.reverse('report_list')),
+            str(self.cycle.uuid),
+        )
+
+        self.client.force_login(self.user2)
+        released = self.client.post(self.reverse(
+            'reports:set_peer_report_release', args=[self.cycle.uuid]
+        ), {'released': '1'})
+        self.assertRedirects(released, self.reverse(
+            'reports:view_report', args=[self.cycle.uuid]
+        ))
+        self.report.refresh_from_db()
+        self.assertTrue(self.report.released_to_reviewee)
+
+        self.client.force_login(self.user1)
+        available = self.client.get(self.reverse(
+            'reports:reviewee_report', args=[self.report.access_token]
+        ))
+        self.assertEqual(available.status_code, 200)
+
     def test_reporting_manager_can_view_reports_from_a_report_leads_team(self):
         senior_profile = UserProfile.objects.get(user=self.user2)
         lead = User.objects.create_user(

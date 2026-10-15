@@ -104,9 +104,19 @@ def visible_cycles(user, queryset, organization=None, reviewee_field='reviewee_i
 
 def visible_reports(user, queryset, organization=None):
     scope = effective_report_scope(user, organization)
-    return queryset if scope.organization_wide else queryset.filter(
-        cycle__reviewee_id__in=scope.reviewee_ids
-    )
+    if not scope.organization_wide:
+        queryset = queryset.filter(cycle__reviewee_id__in=scope.reviewee_ids)
+        if getattr(user, 'email', None):
+            withheld_own_peer_report = (
+                Q(cycle__reviewee__email__iexact=user.email)
+                & Q(released_to_reviewee=False)
+                & (
+                    Q(cycle__campaign__cycle_type='peer')
+                    | Q(cycle__campaign__isnull=True, cycle__cycle_type='peer')
+                )
+            )
+            queryset = queryset.exclude(withheld_own_peer_report)
+    return queryset
 
 
 def effective_report_scope(user, organization=None):

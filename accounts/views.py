@@ -340,14 +340,24 @@ def profile_view(request):
         try:
             report = Report.objects.get(cycle=cycle)
             cycle_data['report'] = report
-            cycle_data['summary'] = get_report_summary(report)
+            peer_withheld = bool(
+                cycle.campaign_id
+                and cycle.campaign.cycle_type == 'peer'
+                and not report.released_to_reviewee
+            )
+            if not peer_withheld:
+                cycle_data['summary'] = get_report_summary(report)
             cycle_data['has_report'] = True
         except Report.DoesNotExist:
             pass
 
         cycles_with_reports.append(cycle_data)
 
-    completed_reports = Report.objects.filter(cycle__in=user_cycles, available=True)
+    completed_reports = Report.objects.filter(
+        cycle__in=user_cycles, available=True
+    ).exclude(
+        cycle__campaign__cycle_type='peer', released_to_reviewee=False
+    )
     report_scores = []
     for report_data in completed_reports.values_list('report_data', flat=True):
         score = ((report_data or {}).get('charts', {}).get('overall', {}).get('others_avg'))

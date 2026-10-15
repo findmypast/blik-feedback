@@ -2999,6 +2999,7 @@ def organisation_cycle_reports(request, cycle_uuid):
 @login_required
 def organisation_person_combined_reports(request, cycle_uuid, reviewee_id):
     from reviews.models import OrganizationalReviewCycle
+    from reports.views import can_release_peer_report
     organisation_cycle = get_object_or_404(
         OrganizationalReviewCycle, uuid=cycle_uuid, organization=request.organization
     )
@@ -3019,6 +3020,9 @@ def organisation_person_combined_reports(request, cycle_uuid, reviewee_id):
         )
         report_entries.append({
             'report': report,
+            'can_release_peer_report': can_release_peer_report(
+                request.user, report
+            ),
             'display_data': apply_display_anonymization(
                 report.report_data, min_threshold=threshold
             ),

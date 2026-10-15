@@ -817,6 +817,14 @@ def send_report_ready_notification(report, request=None):
     cycle = report.cycle
     reviewee = cycle.reviewee
 
+    if (
+        cycle.campaign_id
+        and cycle.campaign.cycle_type == 'peer'
+        and not report.released_to_reviewee
+    ):
+        stats['withheld'] = 1
+        return stats
+
     if not reviewee.email:
         stats['errors'].append(f"No email address for reviewee {reviewee.name}")
         return stats

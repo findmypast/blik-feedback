@@ -3,9 +3,10 @@ from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.contrib.auth.decorators import login_required
 from django.http import Http404
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
 from accounts.permissions import can_view_all_reports
-from accounts.authorization import visible_cycles, visible_report_cycles
+from accounts.authorization import led_teams, visible_cycles, visible_report_cycles
 from reviews.models import ReviewCycle
 from .models import Report
 from .services import generate_report, get_report_summary, apply_display_anonymization
@@ -42,6 +43,29 @@ def get_cycle_or_404(request, cycle_uuid):
 def is_own_cycle(user, cycle):
     """Reviewees are matched by email — there is no FK from Reviewee to User."""
     return bool(user.email) and cycle.reviewee.email.lower() == user.email.lower()
+
+
+def is_peer_report(report):
+    campaign = report.cycle.campaign
+    return bool(
+        (campaign and campaign.cycle_type == 'peer')
+        or (not campaign and report.cycle.cycle_type == 'peer')
+    )
+
+
+def can_release_peer_report(user, report):
+    """Only organization admins and leaders of the reviewee's teams may release."""
+    organization = report.cycle.organization
+    if user.has_perm('accounts.can_manage_organization'):
+        return True
+    team_ids = set(led_teams(user, organization).values_list('id', flat=True))
+    if not team_ids:
+        return False
+    reviewee = report.cycle.reviewee
+    return bool(
+        reviewee.team_id in team_ids
+        or reviewee.teams.filter(id__in=team_ids).exists()
+    )
 
 
 @login_required
@@ -82,6 +106,7 @@ def view_report(request, cycle_uuid):
             'cycle': cycle, 'report': report, 'display_data': display_data,
             'summary': summary, 'questionnaire': cycle.questionnaire,
             'is_admin_view': True,
+            'can_release_peer_report': can_release_peer_report(request.user, report),
         })
 
     cycle = get_cycle_or_404(request, cycle_uuid)
@@ -113,6 +138,7 @@ def view_report(request, cycle_uuid):
         'summary': summary,
         'questionnaire': cycle.questionnaire,
         'is_admin_view': True,
+        'can_release_peer_report': can_release_peer_report(request.user, report),
     }
 
     return render(request, 'reports/admin_view_report.html', context)
@@ -128,6 +154,38 @@ def regenerate_report(request, cycle_uuid):
         messages.error(request, '; '.join(exc.messages))
 
     return redirect('reports:view_report', cycle_uuid=cycle.uuid)
+
+
+@login_required
+@require_http_methods(["POST"])
+def set_peer_report_release(request, cycle_uuid):
+    report = get_object_or_404(
+        Report.objects.select_related(
+            'cycle__campaign', 'cycle__reviewee__organization',
+        ),
+        cycle__uuid=cycle_uuid,
+        available=True,
+    )
+    if not is_peer_report(report) or not can_release_peer_report(request.user, report):
+        raise Http404
+    was_released = report.released_to_reviewee
+    report.released_to_reviewee = request.POST.get('released') == '1'
+    report.save(update_fields=['released_to_reviewee', 'updated_at'])
+    if report.released_to_reviewee and not was_released:
+        from .services import send_report_ready_notification
+        send_report_ready_notification(report, request)
+    messages.success(
+        request,
+        'Peer report released to the reviewee.'
+        if report.released_to_reviewee
+        else 'Peer report withdrawn from the reviewee.',
+    )
+    next_url = request.POST.get('next', '')
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(next_url)
+    return redirect('reports:view_report', cycle_uuid=cycle_uuid)
 
 
 def reviewee_report(request, access_token):
@@ -150,6 +208,23 @@ def reviewee_report(request, access_token):
         }, status=403)
 
     cycle = report.cycle
+
+    if is_peer_report(report) and not report.released_to_reviewee:
+        authorized_manager = (
+            request.user.is_authenticated
+            and (
+                can_view_all_reports(request.user)
+                or (
+                    not is_own_cycle(request.user, cycle)
+                    and can_release_peer_report(request.user, report)
+                )
+            )
+        )
+        if not authorized_manager:
+            return render(request, 'reports/report_not_ready.html', {
+                'cycle': cycle,
+                'error': 'This peer feedback report has not been released yet.',
+            }, status=403)
 
     # The token supports external reviewees who do not have a Blik account.
     # When somebody is signed in, however, their identity must agree with the
