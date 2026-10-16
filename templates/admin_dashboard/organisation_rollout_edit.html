@@ -43,7 +43,7 @@
 </style>
 <script>
 function renumberPhases(){
-  const phases=[...document.querySelectorAll('.rollout-phase')];
+  const phases=[...document.querySelectorAll('#phaseList > .rollout-phase')];
   phases.forEach((phase,index)=>{
     const number=index+1;
     phase.querySelector('[data-phase-number]').textContent=number;
@@ -61,9 +61,9 @@ function updateAssessment(row){const type=row.querySelector('[data-assessment-ty
 function wireAssessment(row){row.querySelector('.remove-assessment').addEventListener('click',()=>{row.remove();renumberPhases();});row.querySelector('[data-assessment-type]').addEventListener('change',()=>updateAssessment(row));updateAssessment(row);}
 function addAssessment(phase){if(phase.querySelectorAll('.assessment-row').length>=3)return;const row=document.getElementById('assessmentTemplate').content.firstElementChild.cloneNode(true);wireAssessment(row);phase.querySelector('.assessment-list').appendChild(row);renumberPhases();}
 function wirePhase(phase){phase.querySelector('.remove-phase').addEventListener('click',()=>{phase.remove();renumberPhases();});phase.querySelector('.add-assessment').addEventListener('click',()=>addAssessment(phase));phase.querySelectorAll('.assessment-row').forEach(wireAssessment);}
-document.querySelectorAll('.rollout-phase').forEach(wirePhase);
+document.querySelectorAll('#phaseList > .rollout-phase').forEach(wirePhase);
 document.getElementById('addPhase').addEventListener('click',()=>{
-  if(document.querySelectorAll('.rollout-phase').length>=10)return;
+  if(document.querySelectorAll('.rollout-locked > .rollout-phase, #phaseList > .rollout-phase').length>=10)return;
   const phase=document.getElementById('phaseTemplate').content.firstElementChild.cloneNode(true);
   wirePhase(phase);document.getElementById('phaseList').appendChild(phase);addAssessment(phase);renumberPhases();
 });

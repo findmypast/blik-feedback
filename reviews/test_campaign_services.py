@@ -918,6 +918,57 @@ class CampaignCreationViewTests(TestCase):
         self.assertEqual(reuse.status_code, 200)
         self.assertEqual(parent.phases.count(), 2)
 
+    def test_admin_can_add_phase_when_all_existing_phases_have_started(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.manager_user)
+        self_q = QuestionnaireFactory(
+            organization=self.org, allow_self_assessment=True
+        )
+        peer_q = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=True
+        )
+        due = timezone.localdate() + timedelta(days=10)
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'self': self_q},
+            minimum_peer_reviewers=1,
+            phase_definitions=[{
+                'name': 'Reflection',
+                'due_date': due,
+                'assessment_types': ['self'],
+            }],
+        )
+        started = parent.phases.get()
+        with patch('reviews.services.send_organizational_cycle_invitations'):
+            self.client.post(reverse(
+                'begin_organisation_phase', args=[parent.uuid, started.id]
+            ))
+
+        detail = reverse('organisation_cycle_detail', args=[parent.uuid])
+        self.assertContains(self.client.get(detail), 'Edit rollout')
+        edit_url = reverse('edit_organisation_rollout', args=[parent.uuid])
+        edit_page = self.client.get(edit_url)
+        self.assertContains(edit_page, 'Reflection')
+        self.assertContains(edit_page, 'already started')
+
+        response = self.client.post(edit_url, {
+            'phase_count': 1,
+            'phase_1_name': 'Peer feedback',
+            'phase_1_due_date': (due + timedelta(days=5)).isoformat(),
+            'phase_1_assessment_count': 1,
+            'phase_1_assessment_1_type': 'peer',
+            'phase_1_assessment_1_questionnaire': peer_q.id,
+            'phase_1_assessment_1_minimum_peer_reviewers': 2,
+        })
+
+        self.assertRedirects(response, detail)
+        self.assertEqual(
+            [(phase.name, phase.status) for phase in parent.phases.all()],
+            [('Reflection', 'active'), ('Peer feedback', 'draft')],
+        )
+
     def test_parent_cycle_stays_open_until_every_phase_has_started(self):
         from accounts.permissions import assign_organization_admin
         from reviews.services import synchronize_cycle_parent_status

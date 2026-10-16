@@ -2392,7 +2392,7 @@ def organisation_cycle_detail(request, cycle_uuid):
         'can_delete_cycle': can_delete_cycle,
         'can_edit_rollout': bool(
             can_manage_cycle
-            and any(phase.status == 'draft' for phase in phase_list)
+            and len(phase_list) < 10
         ),
     })
 
@@ -2434,7 +2434,7 @@ def delete_draft_organisation_cycle(request, cycle_uuid):
 @login_required
 @require_http_methods(['GET', 'POST'])
 def edit_organisation_rollout(request, cycle_uuid):
-    """Restructure an organisation rollout before any phase has started."""
+    """Edit unstarted phases or append phases to an in-progress rollout."""
     cycle = get_object_or_404(
         OrganizationalReviewCycle,
         uuid=cycle_uuid,
@@ -2445,13 +2445,6 @@ def edit_organisation_rollout(request, cycle_uuid):
     phases = list(cycle.phases.prefetch_related('campaigns').all())
     editable_phases = [phase for phase in phases if phase.status == 'draft']
     locked_phases = [phase for phase in phases if phase.status != 'draft']
-    if not editable_phases:
-        messages.error(
-            request,
-            'There are no phases left to edit. '
-            'You can still change deadlines from the cycle page.',
-        )
-        return redirect('organisation_cycle_detail', cycle_uuid=cycle.uuid)
     locked_types = {
         campaign.cycle_type
         for phase in locked_phases for campaign in phase.campaigns.all()
