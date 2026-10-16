@@ -710,6 +710,36 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertContains(response, 'Team leader: Morgan Member')
         self.assertContains(response, '<td>Team Leader</td>', html=True)
 
+    def test_descendant_management_grant_displays_member_on_child_team(self):
+        TeamLeadGrant.objects.create(
+            profile=self.member_profile,
+            team=self.parent_team,
+            include_descendants=True,
+        )
+        self.member_reviewee.teams.add(self.parent_team, self.child_team)
+
+        response = self.client.get(reverse('team_list'))
+
+        parent_card = next(
+            card for card in response.context['team_cards']
+            if card['team'].id == self.parent_team.id
+        )
+        child_card = next(
+            card for card in response.context['team_cards']
+            if card['team'].id == self.child_team.id
+        )
+        parent_member = next(
+            member for member in parent_card['members']
+            if member.get('profile') == self.member_profile
+        )
+        child_member = next(
+            member for member in child_card['members']
+            if member.get('profile') == self.member_profile
+        )
+        self.assertTrue(parent_member['is_team_leader'])
+        self.assertFalse(child_member['is_team_leader'])
+        self.assertTrue(child_card['can_edit'])
+
     def test_team_page_shows_pending_team_leader(self):
         invitation = OrganizationInvitationFactory(
             organization=self.org,

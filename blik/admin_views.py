@@ -680,18 +680,12 @@ def team_list(request):
     for team in all_teams:
         if team.manager_id:
             team_leader_ids[team.id].add(team.manager_id)
-    for grant in TeamLeadGrant.objects.filter(
-        team__organization=org
-    ).prefetch_related('revocations__team'):
-        granted_ids = (
-            descendant_team_ids(grant.team)
-            if grant.include_descendants else {grant.team_id}
-        )
-        for revocation in grant.revocations.all():
-            granted_ids -= descendant_team_ids(revocation.team)
-        for team_id in granted_ids:
-            if team_id in team_leader_ids:
-                team_leader_ids[team_id].add(grant.profile_id)
+    # Display leadership is intentionally narrower than management access.
+    # A grant may allow someone to manage descendant teams, but they should
+    # only be labelled as a team leader on the exact team they lead.
+    for grant in TeamLeadGrant.objects.filter(team__organization=org):
+        if grant.team_id in team_leader_ids:
+            team_leader_ids[grant.team_id].add(grant.profile_id)
     for team in all_teams:
         if team.id not in visible_team_ids:
             continue
