@@ -661,11 +661,19 @@ def team_list(request):
     ).filter(
         Q(team__isnull=False) | Q(team_memberships__isnull=False)
     ).select_related('profile__user', 'team').prefetch_related('team_memberships').distinct())
-    pending_invitations = OrganizationInvitation.objects.filter(
-        organization=org, accepted_at__isnull=True, team__isnull=False
-    ).select_related('team')
+    pending_invitations = list(
+        OrganizationInvitation.objects.filter(
+            organization=org, accepted_at__isnull=True
+        ).select_related('team').order_by('first_name', 'last_name', 'email')
+    )
     pending_invitations_by_email = {
         invitation.email.casefold(): invitation for invitation in pending_invitations
+    }
+    pending_reviewees_by_email = {
+        reviewee.email.casefold(): reviewee
+        for reviewee in Reviewee.objects.for_organization(org).filter(
+            profile__isnull=True
+        ).prefetch_related('team_memberships')
     }
     team_cards_by_id = {}
     team_leader_ids = {team.id: set() for team in all_teams}
@@ -745,17 +753,23 @@ def team_list(request):
                 'is_manager': True,
                 'is_team_leader': True,
             })
-        members.extend({
-            'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
-            'email': invite.email, 'status': 'pending', 'profile': None,
-            'reviewee': None, 'invitation': invite,
-        } for invite in pending_invitations if (
-            invite.team_id == team.id
-            and not any(
-                member['email'].casefold() == invite.email.casefold()
-                for member in members
-            )
-        ))
+        for invite in pending_invitations:
+            pending_reviewee = pending_reviewees_by_email.get(invite.email.casefold())
+            pending_team_ids = {
+                membership.team_id for membership in pending_reviewee.team_memberships.all()
+            } if pending_reviewee else set()
+            if (
+                (invite.team_id == team.id or team.id in pending_team_ids)
+                and not any(
+                    member['email'].casefold() == invite.email.casefold()
+                    for member in members
+                )
+            ):
+                members.append({
+                    'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
+                    'email': invite.email, 'status': 'pending', 'profile': None,
+                    'reviewee': pending_reviewee, 'invitation': invite,
+                })
         team_cards_by_id[team.id] = {
             'team': team,
             'members': members,
@@ -813,11 +827,14 @@ def team_list(request):
             campaign__status='active',
             status='active',
         ).order_by('-created_at').first(),
+        'organization_pending_invitations': pending_invitations,
     }
     if is_org_admin:
         context.update({
             'organization_profiles': UserProfile.objects.for_organization(org).select_related('user'),
-            'organization_reviewees': Reviewee.objects.for_organization(org).select_related(
+            'organization_reviewees': Reviewee.objects.for_organization(org).filter(
+                profile__isnull=False
+            ).select_related(
                 'profile__user', 'team', 'reporting_manager__user'
             ).order_by('name'),
             'team_lead_grants': TeamLeadGrant.objects.filter(
@@ -825,14 +842,14 @@ def team_list(request):
             ).select_related('profile__user', 'team').prefetch_related('revocations__team'),
         })
     else:
-        # Managers may assign unassigned people or move people between teams
-        # that they manage. Do not expose members of unrelated teams in the
-        # edit control.
+        # A team leader may add any person in the organization to a team they
+        # lead. Memberships are additive, so this does not remove the person
+        # from another leader's team.
         context['organization_reviewees'] = Reviewee.objects.for_organization(org).filter(
-            Q(team__isnull=True)
-            | Q(team__manager=request.user.profile)
-            | Q(team_memberships__team__manager=request.user.profile)
-        ).select_related('profile__user', 'team').prefetch_related('teams').distinct().order_by('name')
+            profile__isnull=False
+        ).select_related('profile__user', 'team').prefetch_related(
+            'teams'
+        ).distinct().order_by('name')
 
     return render(request, 'admin_dashboard/team.html', context)
 
@@ -883,9 +900,22 @@ def manage_team_structure(request):
                 team.parent = (get_object_or_404(Team, organization=org, pk=parent_id)
                                if parent_id else None)
                 if is_org_admin:
-                    team.manager = get_object_or_404(
-                        UserProfile, organization=org, pk=request.POST.get('manager')
-                    )
+                    manager_choice = request.POST.get('manager', '')
+                    if manager_choice.startswith('invitation:'):
+                        invitation = get_object_or_404(
+                            OrganizationInvitation,
+                            organization=org,
+                            accepted_at__isnull=True,
+                            pk=manager_choice.removeprefix('invitation:'),
+                        )
+                        team.manager = None
+                        team.pending_manager_email = invitation.email
+                    else:
+                        manager_id = manager_choice.removeprefix('profile:') or None
+                        team.manager = (get_object_or_404(
+                            UserProfile, organization=org, pk=manager_id
+                        ) if manager_id else None)
+                        team.pending_manager_email = ''
                 team.full_clean()
                 team.save()
                 messages.success(request, f'Team “{team.name}” updated.')
@@ -923,10 +953,37 @@ def manage_team_structure(request):
                 )
 
             elif action == 'set_member_team':
-                reviewee = get_object_or_404(
-                    Reviewee.objects.for_organization(org).select_related('team'),
-                    pk=request.POST.get('reviewee'),
-                )
+                invitation = None
+                member_choice = request.POST.get('member', '')
+                invitation_id = request.POST.get('invitation')
+                reviewee_id = request.POST.get('reviewee')
+                if member_choice.startswith('invitation:'):
+                    invitation_id = member_choice.removeprefix('invitation:')
+                elif member_choice.startswith('reviewee:'):
+                    reviewee_id = member_choice.removeprefix('reviewee:')
+                if invitation_id:
+                    invitation = get_object_or_404(
+                        OrganizationInvitation,
+                        pk=invitation_id,
+                        organization=org,
+                        accepted_at__isnull=True,
+                    )
+                    reviewee, _ = Reviewee.objects.get_or_create(
+                        organization=org,
+                        email__iexact=invitation.email,
+                        defaults={
+                            'email': invitation.email,
+                            'name': (
+                                f'{invitation.first_name} {invitation.last_name}'.strip()
+                                or invitation.email
+                            ),
+                        },
+                    )
+                else:
+                    reviewee = get_object_or_404(
+                        Reviewee.objects.for_organization(org).select_related('team'),
+                        pk=reviewee_id,
+                    )
                 team_id = request.POST.get('team') or None
                 remove_team_id = request.POST.get('remove_from_team') or (
                     reviewee.team_id if not team_id else None
@@ -945,17 +1002,7 @@ def manage_team_structure(request):
                 manages_current = removal_team and removal_team.id in led_team_ids
                 manages_destination = destination and destination.id in led_team_ids
                 if not is_org_admin:
-                    existing_team_ids = set(
-                        reviewee.team_memberships.values_list('team_id', flat=True)
-                    )
-                    if reviewee.team_id:
-                        existing_team_ids.add(reviewee.team_id)
-                    manages_existing = Team.objects.filter(
-                        id__in=existing_team_ids, manager=request.user.profile
-                    ).exists()
-                    can_add = bool(manages_destination) and (
-                        not existing_team_ids or manages_existing
-                    )
+                    can_add = bool(manages_destination)
                     if not (manages_current or can_add):
                         raise PermissionDenied
                 if destination:
@@ -965,6 +1012,9 @@ def manage_team_structure(request):
                     if reviewee.team_id is None:
                         reviewee.team = destination
                         reviewee.save(update_fields=['team', 'updated_at'])
+                    if invitation and invitation.team_id is None:
+                        invitation.team = destination
+                        invitation.save(update_fields=['team', 'updated_at'])
                     messages.success(
                         request, f'{reviewee.name} added to {destination.name}.'
                     )

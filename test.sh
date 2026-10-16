@@ -40,6 +40,7 @@ MODE="run"
 KEEP_DB=""
 VERBOSE=""
 TEST_PATH=""
+PARALLEL="auto"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -70,6 +71,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         -v|--verbose)
             VERBOSE="--verbosity=2"
+            shift
+            ;;
+        -j|--parallel)
+            PARALLEL="${2:-auto}"
+            shift 2
+            ;;
+        --serial)
+            PARALLEL="1"
             shift
             ;;
         *)
@@ -161,6 +170,8 @@ sleep 3
 # Build test command
 TEST_CMD="python manage.py test"
 
+TEST_CMD="$TEST_CMD --parallel $PARALLEL"
+
 if [ -n "$KEEP_DB" ]; then
     TEST_CMD="$TEST_CMD $KEEP_DB"
 fi
@@ -203,6 +214,8 @@ echo "  ./test.sh accounts           # Run specific app tests"
 echo "  ./test.sh api                # Run API tests"
 echo "  ./test.sh api.tests.test_authentication  # Run specific test file"
 echo "  ./test.sh --keepdb           # Keep database between runs"
+echo "  ./test.sh --parallel 4       # Run with four test workers"
+echo "  ./test.sh --serial           # Run tests in one process"
 echo "  ./test.sh -v                 # Verbose output"
 echo "  ./test.sh shell              # Open test shell"
 echo "  ./test.sh mailpit            # Open email UI"

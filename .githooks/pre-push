@@ -9,11 +9,11 @@ if [ ! -x .venv/bin/python ]; then
     exit 1
 fi
 
-if ! .venv/bin/python -c "import factory, pytest" >/dev/null 2>&1; then
+if ! .venv/bin/python -c "import factory, pytest, xdist" >/dev/null 2>&1; then
     echo "Development test dependencies are missing." >&2
     echo "Install uv, then run: uv sync --extra dev" >&2
     exit 1
 fi
 
 echo "Running local tests before push..."
-.venv/bin/python -m pytest --tb=short --disable-warnings
+.venv/bin/python -m pytest -n auto --dist worksteal --tb=short --disable-warnings

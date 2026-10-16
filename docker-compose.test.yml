@@ -26,7 +26,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.test
-    command: sh -c "python manage.py test --keepdb --verbosity=2"
+    command: python -m pytest -n auto --dist worksteal
     volumes:
       - .:/app
     environment:

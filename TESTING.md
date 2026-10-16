@@ -6,6 +6,8 @@
 ./test.sh              # All tests
 ./test.sh accounts     # Specific app
 ./test.sh --keepdb     # Faster (keep DB)
+./test.sh --parallel 4 # Use four workers (defaults to auto)
+./test.sh --serial     # Disable parallel execution for debugging
 ./test.sh -v           # Verbose
 ```
 

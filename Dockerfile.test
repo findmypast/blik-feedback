@@ -34,4 +34,4 @@ RUN mkdir -p /app/staticfiles
 EXPOSE 8000
 
 # Default command (can be overridden)
-CMD ["python", "manage.py", "test"]
+CMD ["python", "-m", "pytest", "-n", "auto", "--dist", "worksteal"]

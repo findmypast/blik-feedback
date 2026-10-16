@@ -164,8 +164,11 @@ uv run python manage.py runserver
 Run the test suite with:
 
 ```bash
-uv run python manage.py test
+uv run pytest
 ```
+
+Pytest uses all available CPU cores by default. Use `uv run pytest -n 4` to
+choose a worker count, or `uv run pytest -n 0` when debugging serially.
 
 After pulling dependency changes, run `uv sync --extra dev` again. When changing
 dependencies in `pyproject.toml`, regenerate and commit `uv.lock` with `uv lock`.

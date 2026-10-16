@@ -814,6 +814,63 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertTrue(teammate.is_team_leader)
         self.assertIn(self.child_team.id, [team.id for team in teammate.managed_team_list])
 
+    def test_admin_can_leave_team_leader_unassigned(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.member_user)
+        self.child_team.manager = self.teammate_profile
+        self.child_team.pending_manager_email = 'pending.leader@example.com'
+        self.child_team.save(update_fields=['manager', 'pending_manager_email'])
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'update_team',
+            'team': self.child_team.id,
+            'name': self.child_team.name,
+            'parent': self.parent_team.id,
+            'manager': '',
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.child_team.refresh_from_db()
+        self.assertIsNone(self.child_team.manager)
+        self.assertEqual(self.child_team.pending_manager_email, '')
+        page = self.client.get(
+            reverse('team_list') + f'?edit={self.child_team.id}'
+        )
+        self.assertContains(page, '<option value="" selected>Not assigned</option>', html=True)
+
+    def test_admin_can_assign_pending_invitee_as_team_leader(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.member_user)
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='future.leader@example.com',
+            first_name='Future',
+            last_name='Leader',
+        )
+
+        page = self.client.get(
+            reverse('team_list') + f'?edit={self.child_team.id}'
+        )
+        self.assertContains(page, f'value="invitation:{invitation.id}"')
+        self.assertContains(page, 'future.leader@example.com (pending)')
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'update_team',
+            'team': self.child_team.id,
+            'name': self.child_team.name,
+            'parent': self.parent_team.id,
+            'manager': f'invitation:{invitation.id}',
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        self.child_team.refresh_from_db()
+        self.assertIsNone(self.child_team.manager)
+        self.assertEqual(self.child_team.pending_manager_email, invitation.email)
+        page = self.client.get(reverse('team_list'))
+        self.assertContains(page, 'Team leader: Future Leader (invited)')
+
     def test_request_review_link_uses_campaign_flow(self):
         response = self.client.get(reverse('review_cycle_create'))
 
@@ -836,7 +893,7 @@ class TeamHierarchyViewTestCase(TestCase):
             f"openTeamInvite('{self.child_team.id}', 'Research')",
         )
 
-    def test_manager_cannot_take_member_from_unmanaged_team_by_id(self):
+    def test_manager_can_add_member_from_another_team_to_managed_team(self):
         manager_user = UserFactory(username='manager', email='manager@example.com')
         manager_profile = UserProfileFactory(user=manager_user, organization=self.org)
         managed_team = Team.objects.create(
@@ -851,9 +908,84 @@ class TeamHierarchyViewTestCase(TestCase):
             'team': managed_team.id,
         })
 
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, reverse('team_list'))
         outsider.refresh_from_db()
         self.assertEqual(outsider.team, self.child_team)
+        self.assertTrue(outsider.teams.filter(pk=managed_team.id).exists())
+
+    def test_manager_can_assign_pending_invitation_to_managed_team(self):
+        manager_user = UserFactory(username='manager', email='manager@example.com')
+        manager_profile = UserProfileFactory(user=manager_user, organization=self.org)
+        managed_team = Team.objects.create(
+            organization=self.org, name='Managed', manager=manager_profile
+        )
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='pending@example.com',
+            first_name='Pending',
+            last_name='Person',
+            team=None,
+        )
+        self.client.force_login(manager_user)
+
+        page = self.client.get(reverse('team_list'))
+        self.assertContains(page, 'pending@example.com (pending)')
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'set_member_team',
+            'invitation': invitation.id,
+            'team': managed_team.id,
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        invitation.refresh_from_db()
+        self.assertEqual(invitation.team, managed_team)
+        pending_reviewee = Reviewee.objects.get(
+            organization=self.org, email='pending@example.com'
+        )
+        self.assertEqual(pending_reviewee.team, managed_team)
+        self.assertTrue(pending_reviewee.teams.filter(pk=managed_team.id).exists())
+
+    def test_pending_invitee_can_be_added_to_a_second_team_and_is_displayed(self):
+        from accounts.permissions import assign_organization_admin
+
+        assign_organization_admin(self.member_user)
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='pending.crattray@example.com',
+            first_name='Pending',
+            last_name='Crattray',
+            team=self.child_team,
+        )
+        # Imported pending people can predate their invitation and may retain
+        # differently-cased email data. Membership and rendering must still
+        # resolve them as the same person.
+        Reviewee.objects.create(
+            organization=self.org,
+            email='Pending.Crattray@Example.com',
+            name='pending.crattray@example.com',
+            team=self.child_team,
+        )
+        destination = Team.objects.create(organization=self.org, name='Experts')
+
+        response = self.client.post(reverse('manage_team_structure'), {
+            'action': 'set_member_team',
+            'member': f'invitation:{invitation.id}',
+            'team': destination.id,
+        })
+
+        self.assertRedirects(response, reverse('team_list'))
+        pending_reviewee = Reviewee.objects.get(
+            organization=self.org, email__iexact=invitation.email
+        )
+        self.assertTrue(pending_reviewee.teams.filter(pk=destination.id).exists())
+        page = self.client.get(reverse('team_list'))
+        experts = next(
+            card for card in page.context['team_cards']
+            if card['team'].id == destination.id
+        )
+        self.assertEqual([member['email'] for member in experts['members']], [invitation.email])
+        self.assertEqual(experts['members'][0]['status'], 'pending')
 
     def test_removing_member_requires_typed_delete_confirmation(self):
         self.child_team.manager = self.member_profile
