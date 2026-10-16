@@ -31,6 +31,24 @@ def _reviewee_for_profile(profile):
     ).first()
 
 
+def _manager_reviewee_for_assignment(participant, team):
+    """Resolve an assigned manager, including an invited manager awaiting setup."""
+    if participant.reporting_manager_id:
+        return _reviewee_for_profile(participant.reporting_manager)
+    pending_email = participant.pending_reporting_manager_email
+    if not pending_email and team.manager_id:
+        return _reviewee_for_profile(team.manager)
+    if not pending_email:
+        pending_email = team.pending_manager_email
+    if not pending_email:
+        return None
+    return Reviewee.objects.filter(
+        organization=team.organization,
+        email__iexact=pending_email,
+        is_active=True,
+    ).first()
+
+
 def cycle_eligible_reviewees(queryset):
     """Remove people explicitly exempted from new review cycles."""
     return queryset.exclude(profile__exclude_from_review_cycles=True)
@@ -185,8 +203,7 @@ def launch_organizational_cycle(
             continue
         manager_groups = {}
         for participant in team_participants:
-            manager = participant.reporting_manager or team.manager
-            manager_reviewee = _reviewee_for_profile(manager)
+            manager_reviewee = _manager_reviewee_for_assignment(participant, team)
             assignment = (participant.id, getattr(manager_reviewee, 'id', None))
             if (
                 not participant.email or not manager_reviewee
@@ -341,8 +358,7 @@ def _launch_organization_manager_campaign(campaign):
         ).select_related('reporting_manager__reviewee'):
             if not member.email:
                 continue
-            manager = member.reporting_manager or team.manager
-            manager_reviewee = _reviewee_for_profile(manager)
+            manager_reviewee = _manager_reviewee_for_assignment(member, team)
             if (
                 not manager_reviewee or not manager_reviewee.is_active
                 or getattr(manager_reviewee.profile, 'exclude_from_review_cycles', False)

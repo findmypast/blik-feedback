@@ -340,6 +340,89 @@ class CampaignServiceTests(TestCase):
             tokens__reviewer_email=self.member_one.email,
         ).exists())
 
+    def test_organization_manager_review_uses_pending_team_leader(self):
+        pending_manager = RevieweeFactory(
+            organization=self.org,
+            email='pending-manager@example.com',
+            profile=None,
+        )
+        self.team.manager = None
+        self.team.pending_manager_email = pending_manager.email
+        self.team.save(update_fields=['manager', 'pending_manager_email', 'updated_at'])
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=False,
+            allow_self_assessment=False, allow_manager_assessment=True,
+        )
+
+        campaign = launch_campaign(ReviewCampaign.objects.create(
+            organization=self.org, created_by=self.manager_user,
+            questionnaire=questionnaire, target_type='organization',
+            cycle_type='manager',
+        ))
+
+        self.assertTrue(campaign.cycles.filter(
+            reviewee=pending_manager,
+            tokens__reviewer_email=self.member_one.email,
+        ).exists())
+
+    def test_explicit_pending_manager_overrides_team_leader(self):
+        pending_manager = RevieweeFactory(
+            organization=self.org,
+            email='different-manager@example.com',
+            profile=None,
+        )
+        self.member_one.pending_reporting_manager_email = pending_manager.email
+        self.member_one.save(update_fields=[
+            'pending_reporting_manager_email', 'updated_at'
+        ])
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_peer_review=False,
+            allow_self_assessment=False, allow_manager_assessment=True,
+        )
+
+        campaign = launch_campaign(ReviewCampaign.objects.create(
+            organization=self.org, created_by=self.manager_user,
+            questionnaire=questionnaire, target_type='organization',
+            cycle_type='manager',
+        ))
+
+        self.assertTrue(campaign.cycles.filter(
+            reviewee=pending_manager,
+            tokens__reviewer_email=self.member_one.email,
+        ).exists())
+        self.assertFalse(campaign.cycles.filter(
+            reviewee=self.manager_reviewee,
+            tokens__reviewer_email=self.member_one.email,
+        ).exists())
+
+    def test_organisational_cycle_assigns_pending_team_leader_reviews(self):
+        pending_manager = RevieweeFactory(
+            organization=self.org,
+            email='pending-manager@example.com',
+            profile=None,
+        )
+        self.team.manager = None
+        self.team.pending_manager_email = pending_manager.email
+        self.team.save(update_fields=['manager', 'pending_manager_email', 'updated_at'])
+        questionnaire = QuestionnaireFactory(
+            organization=self.org, allow_manager_assessment=True,
+        )
+
+        parent = launch_organizational_cycle(
+            organization=self.org,
+            created_by=self.manager_user,
+            questionnaires={'manager': questionnaire},
+            minimum_peer_reviewers=1,
+            audience_type='teams',
+            teams=[self.team],
+        )
+
+        self.assertTrue(parent.campaigns.filter(
+            cycle_type='manager',
+            cycles__reviewee=pending_manager,
+            cycles__tokens__reviewer_email=self.member_one.email,
+        ).exists())
+
     def test_organizational_cycle_shares_self_but_splits_peer_and_manager_by_team(self):
         second_manager_user = UserFactory(email='second-lead@example.com')
         second_manager = UserProfileFactory(
