@@ -664,6 +664,9 @@ def team_list(request):
     pending_invitations = OrganizationInvitation.objects.filter(
         organization=org, accepted_at__isnull=True, team__isnull=False
     ).select_related('team')
+    pending_invitations_by_email = {
+        invitation.email.casefold(): invitation for invitation in pending_invitations
+    }
     team_cards_by_id = {}
     team_leader_ids = {team.id: set() for team in all_teams}
     for team in all_teams:
@@ -718,18 +721,51 @@ def team_list(request):
                     'is_manager': True,
                     'is_team_leader': True,
                 })
+        pending_manager_invitation = pending_invitations_by_email.get(
+            team.pending_manager_email.casefold()
+        ) if team.pending_manager_email else None
+        pending_manager_name = (
+            f'{pending_manager_invitation.first_name} '
+            f'{pending_manager_invitation.last_name}'.strip()
+            if pending_manager_invitation else team.pending_manager_email
+        )
+        if team.pending_manager_email and not any(
+            member['email'].casefold() == team.pending_manager_email.casefold()
+            for member in members
+        ):
+            members.insert(0, {
+                'name': pending_manager_name or team.pending_manager_email,
+                'email': team.pending_manager_email,
+                'status': 'pending',
+                'profile': None,
+                'reviewee': Reviewee.objects.for_organization(org).filter(
+                    email__iexact=team.pending_manager_email
+                ).first(),
+                'invitation': pending_manager_invitation,
+                'is_manager': True,
+                'is_team_leader': True,
+            })
         members.extend({
             'name': f'{invite.first_name} {invite.last_name}'.strip() or invite.email,
             'email': invite.email, 'status': 'pending', 'profile': None,
             'reviewee': None, 'invitation': invite,
-        } for invite in pending_invitations if invite.team_id == team.id)
+        } for invite in pending_invitations if (
+            invite.team_id == team.id
+            and not any(
+                member['email'].casefold() == invite.email.casefold()
+                for member in members
+            )
+        ))
         team_cards_by_id[team.id] = {
             'team': team,
             'members': members,
             'can_edit': is_org_admin or team.id in led_team_ids,
             'manager_name': (
                 team.manager.user.get_full_name() or team.manager.user.email
-                if team.manager else 'Not assigned'
+                if team.manager else (
+                    f'{pending_manager_name or team.pending_manager_email} (invited)'
+                    if team.pending_manager_email else 'Not assigned'
+                )
             ),
             'children': [],
         }

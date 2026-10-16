@@ -710,6 +710,23 @@ class TeamHierarchyViewTestCase(TestCase):
         self.assertContains(response, 'Team leader: Morgan Member')
         self.assertContains(response, '<td>Team Leader</td>', html=True)
 
+    def test_team_page_shows_pending_team_leader(self):
+        invitation = OrganizationInvitationFactory(
+            organization=self.org,
+            email='pending.leader@example.com',
+            first_name='Pending',
+            last_name='Leader',
+            team=self.child_team,
+        )
+        self.child_team.pending_manager_email = invitation.email
+        self.child_team.save(update_fields=['pending_manager_email'])
+
+        response = self.client.get(reverse('team_list'))
+
+        self.assertContains(response, 'Team leader: Pending Leader (invited)')
+        self.assertContains(response, 'pending.leader@example.com')
+        self.assertContains(response, '<td>Team Leader</td>', html=True)
+
     def test_organization_admin_without_team_scope_is_shown_as_member(self):
         from accounts.permissions import assign_organization_admin
 
