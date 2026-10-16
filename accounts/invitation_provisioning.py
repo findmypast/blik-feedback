@@ -1,3 +1,5 @@
+from django.db.models import Q
+
 from accounts.models import Reviewee, Team, TeamLeadGrant
 from accounts.permissions import assign_organization_admin, assign_organization_member
 
@@ -36,6 +38,17 @@ def apply_invitation_access(invitation, profile):
         ])
     if requested_role == 'team_leader' and invitation.team_id:
         TeamLeadGrant.objects.get_or_create(profile=profile, team=invitation.team)
+    if requested_role == 'team_leader':
+        managed_teams = Team.objects.filter(
+            Q(reviewees__pending_reporting_manager_email__iexact=user.email)
+            | Q(memberships__reviewee__pending_reporting_manager_email__iexact=user.email),
+            organization=invitation.organization,
+        ).distinct()
+        TeamLeadGrant.objects.bulk_create([
+            TeamLeadGrant(profile=profile, team=team) for team in managed_teams
+        ], ignore_conflicts=True)
+        if reviewee:
+            reviewee.teams.add(*managed_teams)
     for team in Team.objects.filter(
         organization=invitation.organization,
         pending_manager_email__iexact=user.email,

@@ -149,6 +149,32 @@ class PeopleImportServiceTests(TestCase):
             {'alex@example.com', 'manager@example.com'},
         )
 
+    def test_invited_manager_leads_every_team_listed_in_manager_column(self):
+        preview = self.preview([
+            'Alex,One,alex@example.com,Platform,manager@example.com',
+            'Sam,Two,sam@example.com,Search,manager@example.com',
+        ])
+
+        apply_people_import(self.organization, preview, self.admin.user)
+        invitation = OrganizationInvitation.objects.get(email='manager@example.com')
+        manager_profile = UserProfileFactory(
+            organization=self.organization, user__email='manager@example.com'
+        )
+
+        apply_invitation_access(invitation, manager_profile)
+
+        self.assertEqual(
+            set(TeamLeadGrant.objects.filter(profile=manager_profile).values_list(
+                'team__name', flat=True
+            )),
+            {'Platform', 'Search'},
+        )
+        manager_reviewee = Reviewee.objects.get(email='manager@example.com')
+        self.assertEqual(
+            set(manager_reviewee.teams.values_list('name', flat=True)),
+            {'Platform', 'Search'},
+        )
+
     def test_sync_preview_lists_absent_members_but_not_admins(self):
         absent = UserProfileFactory(organization=self.organization)
         absent.user.email = 'absent@example.com'
@@ -242,7 +268,7 @@ class PeopleImportServiceTests(TestCase):
 
         self.assertEqual(preview['errors'], [])
 
-    def test_different_reporting_managers_do_not_receive_team_lead_grants(self):
+    def test_every_listed_manager_is_added_as_a_team_leader(self):
         manager_one = UserProfileFactory(
             organization=self.organization, user__email='manager.one@example.com'
         )
@@ -258,10 +284,68 @@ class PeopleImportServiceTests(TestCase):
 
         employee = Reviewee.objects.get(email='alex@example.com')
         self.assertEqual(employee.reporting_manager, manager_one)
-        self.assertFalse(TeamLeadGrant.objects.filter(
-            profile__in=[manager_one, manager_two]
-        ).exists())
+        self.assertEqual(
+            set(TeamLeadGrant.objects.filter(
+                profile__in=[manager_one, manager_two]
+            ).values_list('profile_id', flat=True)),
+            {manager_one.id, manager_two.id},
+        )
+        self.assertTrue(employee.teams.filter(name='Platform').exists())
         self.assertIsNone(Team.objects.get(name='Platform').manager)
+
+    def test_reimport_repairs_existing_manager_missing_from_team(self):
+        own_team = Team.objects.create(
+            organization=self.organization, name='Management'
+        )
+        managed_team = Team.objects.create(
+            organization=self.organization, name='Platform'
+        )
+        manager = UserProfileFactory(
+            organization=self.organization, user__email='manager@example.com'
+        )
+        manager_reviewee = Reviewee.objects.get(
+            organization=self.organization, email='manager@example.com'
+        )
+        manager_reviewee.profile = manager
+        manager_reviewee.name = 'Existing Manager'
+        manager_reviewee.team = own_team
+        manager_reviewee.save()
+        manager_reviewee.teams.set([own_team])
+        employee = UserProfileFactory(
+            organization=self.organization, user__email='alex@example.com'
+        )
+        employee_reviewee = Reviewee.objects.get(
+            organization=self.organization, email='alex@example.com'
+        )
+        employee_reviewee.profile = employee
+        employee_reviewee.name = 'Alex Member'
+        employee_reviewee.team = managed_team
+        employee_reviewee.save()
+        employee_reviewee.teams.set([managed_team])
+
+        preview = self.preview([
+            'Alex,Member,alex@example.com,Platform,manager@example.com',
+        ])
+        apply_people_import(self.organization, preview, self.admin.user)
+
+        managed_team.refresh_from_db()
+        employee_reviewee.refresh_from_db()
+        self.assertEqual(managed_team.manager, manager)
+        self.assertEqual(employee_reviewee.reporting_manager, manager)
+        self.assertTrue(TeamLeadGrant.objects.filter(
+            profile=manager, team=managed_team
+        ).exists())
+        self.assertEqual(
+            set(manager_reviewee.teams.values_list('name', flat=True)),
+            {'Management', 'Platform'},
+        )
+        self.assertEqual(
+            Reviewee.objects.filter(
+                organization=self.organization,
+                email__iexact='manager@example.com',
+            ).count(),
+            1,
+        )
 
     def test_majority_reporting_manager_becomes_team_leader(self):
         manager_one = UserProfileFactory(
@@ -283,11 +367,11 @@ class PeopleImportServiceTests(TestCase):
         self.assertTrue(TeamLeadGrant.objects.filter(
             profile=manager_one, team=team
         ).exists())
-        self.assertFalse(TeamLeadGrant.objects.filter(
+        self.assertTrue(TeamLeadGrant.objects.filter(
             profile=manager_two, team=team
         ).exists())
 
-    def test_minority_supervisor_is_invited_as_reporting_manager(self):
+    def test_every_listed_manager_is_invited_as_team_leader(self):
         preview = self.preview([
             'Alex,One,alex@example.com,Platform,lead@example.com',
             'Sam,Two,sam@example.com,Platform,lead@example.com',
@@ -304,7 +388,7 @@ class PeopleImportServiceTests(TestCase):
             OrganizationInvitation.objects.get(
                 email='supervisor@example.com'
             ).requested_role,
-            'reporting_manager',
+            'team_leader',
         )
 
     def test_sync_can_deactivate_absent_people_without_deleting_history(self):

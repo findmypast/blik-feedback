@@ -408,11 +408,20 @@ def apply_people_import(organization, preview, invited_by, deactivate_missing=Fa
                 if len(manager_counts) > 1 else 0
             if report_count > runner_up_count:
                 inferred_team_managers[team_key] = manager_email
-        inferred_leader_emails = set(inferred_team_managers.values())
-
         invitation_emails = {invitation.email.casefold() for invitation in invitations}
         for manager_email, managed_teams in manager_teams.items():
-            if manager_email in profiles_by_email:
+            unique_managed_teams = list({team.pk: team for team in managed_teams}.values())
+            manager = profiles_by_email.get(manager_email)
+            if manager:
+                TeamLeadGrant.objects.bulk_create([
+                    TeamLeadGrant(profile=manager, team=team)
+                    for team in unique_managed_teams
+                ], ignore_conflicts=True)
+                manager_reviewee = Reviewee.objects.filter(
+                    organization=organization, email__iexact=manager_email
+                ).first()
+                if manager_reviewee:
+                    manager_reviewee.teams.add(*unique_managed_teams)
                 continue
             invitation = OrganizationInvitation.objects.filter(
                 organization=organization,
@@ -426,10 +435,7 @@ def apply_people_import(organization, preview, invited_by, deactivate_missing=Fa
             invitation.expires_at = timezone.now() + timezone.timedelta(days=7)
             invitation.accepted_at = None
             if invitation.requested_role != 'admin':
-                invitation.requested_role = (
-                    'team_leader'
-                    if manager_email in inferred_leader_emails else 'reporting_manager'
-                )
+                invitation.requested_role = 'team_leader'
             invitation.save()
             manager_reviewee, _ = Reviewee.objects.get_or_create(
                 organization=organization,
@@ -439,7 +445,7 @@ def apply_people_import(organization, preview, invited_by, deactivate_missing=Fa
             if manager_reviewee.team_id is None:
                 manager_reviewee.team = managed_teams[0]
                 manager_reviewee.save(update_fields=['team', 'updated_at'])
-            manager_reviewee.teams.add(*managed_teams)
+            manager_reviewee.teams.add(*unique_managed_teams)
             if manager_email not in invitation_emails:
                 invitations.append(invitation)
                 invitation_emails.add(manager_email)
