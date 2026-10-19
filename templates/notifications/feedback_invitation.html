@@ -26,6 +26,8 @@
                                 Your feedback is completely anonymous and will be aggregated with other responses to help {{ reviewee_name }} with their professional development.
                             </p>
 
+                            {% if due_date %}<div style="background:#eef2ff;border-left:4px solid #6366f1;border-radius:6px;padding:12px 15px;margin:0 0 20px;color:#3730a3;"><strong>📅 Feedback due {{ due_date|date:"j F Y" }}</strong></div>{% endif %}
+
                             <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                                 <tr>
                                     <td align="center" style="padding: 24px 0;">

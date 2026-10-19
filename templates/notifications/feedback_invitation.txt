@@ -6,7 +6,9 @@ You have been invited to provide {{ category }} feedback for {{ reviewee_name }}
 
 Your feedback is completely anonymous and will be aggregated with other responses to help {{ reviewee_name }} with their professional development.
 
-Please complete the feedback questionnaire at:
+{% if due_date %}Feedback due: {{ due_date|date:"j F Y" }}
+
+{% endif %}Please complete the feedback questionnaire at:
 {{ feedback_url }}
 
 This is a secure, one-time link that only you can use.

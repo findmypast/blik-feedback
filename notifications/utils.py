@@ -18,6 +18,7 @@ def send_feedback_invitation(token, reviewer_email=None):
         'category': token.get_category_display(),
         'feedback_url': full_url,
         'token': token,
+        'due_date': token.cycle.due_date,
     }
 
     subject = f"360 Feedback Request for {token.cycle.reviewee.name}"
