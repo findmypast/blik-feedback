@@ -240,6 +240,7 @@ def send_reviewer_invitations(cycle, token_ids=None, connection=None):
                     'category': token.get_category_display(),
                     'feedback_url': feedback_url,
                     'questionnaire_name': cycle.questionnaire.name,
+                    'due_date': cycle.due_date,
                 }
                 html_message = render_to_string(
                     'emails/reviewer_invitation.html', context
@@ -311,6 +312,7 @@ def send_reminder_emails(cycle, token_ids=None, connection=None):
                     'category': token.get_category_display(),
                     'feedback_url': feedback_url,
                     'questionnaire_name': cycle.questionnaire.name,
+                    'due_date': cycle.due_date,
                 }
                 html_message = render_to_string(
                     'emails/reviewer_reminder.html', context

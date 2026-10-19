@@ -46,6 +46,12 @@
                                 <strong>Questionnaire:</strong> {{ questionnaire_name }}
                             </p>
 
+                            {% if due_date %}
+                            <p style="margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: #6b7280;">
+                                <strong>Due date:</strong> {{ due_date|date:"j F Y" }}
+                            </p>
+                            {% endif %}
+
                             <p style="margin: 20px 0 0; font-size: 14px; line-height: 1.6; color: #6b7280;">
                                 You can save your progress and return to complete it later - just bookmark the link above.
                             </p>

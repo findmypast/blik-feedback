@@ -10,6 +10,8 @@ Click the link below to continue your review:
 {{ feedback_url }}
 
 This questionnaire covers: {{ questionnaire_name }}
+{% if due_date %}Due date: {{ due_date|date:"j F Y" }}
+{% endif %}
 
 Your progress is saved automatically, so you can complete the review at your convenience.
 

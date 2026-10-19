@@ -336,6 +336,26 @@ class SendReviewerInvitationsTests(TestCase):
         self.assertEqual(recipients, {'manager@example.com'})
         self.assertEqual(stats['sent'], 1)
 
+    @patch('reviews.services.send_email')
+    def test_includes_due_date_in_reviewer_request(self, mock_send_email):
+        self.cycle.due_date = timezone.localdate() + timedelta(days=10)
+        self.cycle.save(update_fields=['due_date'])
+        ReviewerTokenFactory(
+            cycle=self.cycle,
+            category='peer',
+            reviewer_email='peer@example.com',
+        )
+
+        stats = send_reviewer_invitations(self.cycle)
+
+        self.assertEqual(stats['sent'], 1)
+        rendered = (
+            mock_send_email.call_args.kwargs['message']
+            + mock_send_email.call_args.kwargs['html_message']
+        )
+        self.assertIn('Due date:', rendered)
+        self.assertIn(self.cycle.due_date.strftime('%-d %B %Y'), rendered)
+
 
 @override_settings(SITE_DOMAIN='public.example.com', SITE_PROTOCOL='https')
 class SendRevieweeNotificationsTests(TestCase):
