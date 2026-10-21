@@ -31,6 +31,23 @@ docker run -d --name blik -p 8000:8000 \
   blik
 ```
 
+### Docker Compose (Quickest)
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+Visit `http://localhost:8000/setup/` to complete the interactive setup wizard.
+
+For Email configuration screen:
+
+- SMTP Host: **mailpit**
+- SMTP Port: **1025**
+- SMTP Username: leave blank
+- SMTP Password: leave blank
+- Use TLS: unchecked
+- From Email Address: **<test@blik.local>**
+
 ### Production Deployment
 
 **One-Click Deploy Options:**
