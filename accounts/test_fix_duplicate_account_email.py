@@ -274,3 +274,32 @@ class FixDuplicateAccountEmailTests(TestCase):
         self.assertTrue(TeamMembership.objects.filter(reviewee=reviewee_a, team=team).exists())
         self.assertTrue(TeamMembership.objects.filter(reviewee=reviewee_a, team=extra).exists())
         self.assertFalse(TeamMembership.objects.filter(reviewee=reviewee_b).exists())
+
+    def test_keeps_correct_login_when_typo_has_no_user(self):
+        reviewee_a = Reviewee.objects.create(
+            organization=self.org, name='Typo', email=TYPO,
+        )
+        cycle = self._cycle(reviewee_a)
+        user_b, profile_b = self._user(CORRECT)
+        reviewee_b = Reviewee.objects.get(email=CORRECT)
+        reviewee_b.profile = profile_b
+        reviewee_b.save(update_fields=['profile', 'updated_at'])
+        team = Team.objects.create(organization=self.org, name='Product')
+        reviewee_b.team = team
+        reviewee_b.save(update_fields=['team', 'updated_at'])
+
+        run_fix()
+
+        user_b.refresh_from_db()
+        reviewee_a.refresh_from_db()
+        reviewee_b.refresh_from_db()
+        cycle.refresh_from_db()
+        self.assertEqual(cycle.reviewee_id, reviewee_a.id)
+        self.assertEqual(user_b.email, CORRECT)
+        self.assertTrue(user_b.is_active)
+        self.assertEqual(user_b.profile.id, profile_b.id)
+        self.assertEqual(reviewee_a.email, CORRECT)
+        self.assertEqual(reviewee_a.profile_id, profile_b.id)
+        self.assertEqual(reviewee_a.team_id, team.id)
+        self.assertTrue(reviewee_b.email.startswith('deleted-b-'))
+        self.assertFalse(User.objects.filter(email__iexact=TYPO).exists())

@@ -183,22 +183,24 @@ def fix_duplicate_account_email(apps, schema_editor):
     users_b = list(User.objects.filter(email__iexact=correct))
     if not any((reviewee_a, reviewee_b, users_a, users_b)):
         return
-    if (
-        len(reviewee_a) != 1
-        or len(reviewee_b) != 1
-        or len(users_a) != 1
-        or len(users_b) != 1
+    # The in-cycle person may exist only as a reviewee. The login then already
+    # uses the correct email, and that user is kept.
+    if not (
+        len(reviewee_a) == 1
+        and len(reviewee_b) == 1
+        and len(users_b) == 1
+        and len(users_a) in (0, 1)
     ):
         raise RuntimeError(
             'Expected one mistyped reviewee, one correct-email reviewee, '
-            'one mistyped user, and one correct-email user; '
+            'one correct-email user, and at most one mistyped user; '
             f'found reviewees {len(reviewee_a)}/{len(reviewee_b)}, '
             f'users {len(users_a)}/{len(users_b)}.'
         )
 
     a = reviewee_a[0]
     b = reviewee_b[0]
-    user_a = users_a[0]
+    user_a = users_a[0] if users_a else None
     user_b = users_b[0]
     if a.organization_id != b.organization_id:
         raise RuntimeError(
@@ -224,13 +226,19 @@ def fix_duplicate_account_email(apps, schema_editor):
             'refusing to anonymize.'
         )
 
-    profile_a = UserProfile.objects.filter(user_id=user_a.id).first()
+    profile_a = (
+        UserProfile.objects.filter(user_id=user_a.id).first() if user_a else None
+    )
     profile_b = UserProfile.objects.filter(user_id=user_b.id).first()
     if profile_a and profile_a.organization_id != a.organization_id:
         raise RuntimeError('Typo user profile belongs to a different organization.')
     if profile_b and profile_b.organization_id != a.organization_id:
         raise RuntimeError('Correct-email user profile belongs to a different organization.')
-    if a.profile_id and (profile_a is None or a.profile_id != profile_a.id):
+    allowed_profiles = [profile_a]
+    if user_a is None:
+        allowed_profiles.append(profile_b)
+    allowed_profile_ids = {profile.id for profile in allowed_profiles if profile}
+    if a.profile_id and a.profile_id not in allowed_profile_ids:
         raise RuntimeError('Typo reviewee is linked to a different user profile.')
     if b.profile_id and (profile_b is None or b.profile_id != profile_b.id):
         raise RuntimeError('Correct-email reviewee is linked to a different user profile.')
@@ -255,8 +263,6 @@ def fix_duplicate_account_email(apps, schema_editor):
     _retarget_invitations(
         OrganizationInvitation, a.organization_id, typo, correct, now
     )
-
-    _anonymize_axes(schema_editor, user_b.username)
 
     # Keep the correct-email person's teams. The in-cycle account often has none.
     b_primary_team_id = b.team_id
@@ -285,33 +291,39 @@ def fix_duplicate_account_email(apps, schema_editor):
         'reporting_manager', 'pending_reporting_manager_email', 'updated_at',
     ])
 
-    if profile_b and profile_a is None:
+    if user_a is None:
+        # The only login already has the correct email. Attach it to the
+        # in-cycle reviewee instead of anonymizing it.
+        profile_a = profile_b
+    elif profile_b and profile_a is None:
         profile_b.user_id = user_a.id
         profile_b.save(update_fields=['user', 'updated_at'])
         profile_a = profile_b
     elif profile_b and profile_a is not None:
         _transfer_profile(apps, profile_b, profile_a, now)
 
-    user_b.email = f'deleted-b-user-{user_b.id}@deleted.invalid'
-    user_b.username = user_b.email
-    user_b.first_name = ''
-    user_b.last_name = ''
-    user_b.is_active = False
-    user_b.password = make_password(None)
-    user_b.save(update_fields=[
-        'email', 'username', 'first_name', 'last_name', 'is_active', 'password',
-    ])
+    if user_a is not None:
+        _anonymize_axes(schema_editor, user_b.username)
+        user_b.email = f'deleted-b-user-{user_b.id}@deleted.invalid'
+        user_b.username = user_b.email
+        user_b.first_name = ''
+        user_b.last_name = ''
+        user_b.is_active = False
+        user_b.password = make_password(None)
+        user_b.save(update_fields=[
+            'email', 'username', 'first_name', 'last_name', 'is_active', 'password',
+        ])
 
-    _reassign_sign_in(apps, user_b.id, user_a.id, typo, correct)
+        _reassign_sign_in(apps, user_b.id, user_a.id, typo, correct)
 
-    if User.objects.filter(username__iexact=correct).exclude(pk=user_a.id).exists():
-        raise RuntimeError(
-            'Another account already uses the correct email as its username.'
-        )
-    user_a.email = correct
-    user_a.username = correct
-    user_a.is_active = True
-    user_a.save(update_fields=['email', 'username', 'is_active'])
+        if User.objects.filter(username__iexact=correct).exclude(pk=user_a.id).exists():
+            raise RuntimeError(
+                'Another account already uses the correct email as its username.'
+            )
+        user_a.email = correct
+        user_a.username = correct
+        user_a.is_active = True
+        user_a.save(update_fields=['email', 'username', 'is_active'])
 
     a = Reviewee.objects.get(pk=a.id)
     a.email = correct
