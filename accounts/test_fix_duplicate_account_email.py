@@ -54,21 +54,19 @@ class FixDuplicateAccountEmailTests(TestCase):
         run_fix()
         self.assertFalse(User.objects.exists())
 
-    def test_partial_pair_raises_without_writing(self):
+    def test_renames_typo_account_when_correct_account_is_absent(self):
         user_a, profile_a = self._user(TYPO)
         reviewee_a = Reviewee.objects.get(email=TYPO)
         reviewee_a.profile = profile_a
         reviewee_a.save(update_fields=['profile', 'updated_at'])
         self._cycle(reviewee_a)
 
-        with self.assertRaises(RuntimeError):
-            with transaction.atomic():
-                run_fix()
+        run_fix()
 
         user_a.refresh_from_db()
         reviewee_a.refresh_from_db()
-        self.assertEqual(user_a.email, TYPO)
-        self.assertEqual(reviewee_a.email, TYPO)
+        self.assertEqual(user_a.email, CORRECT)
+        self.assertEqual(reviewee_a.email, CORRECT)
 
     def test_refuses_when_correct_email_is_already_in_a_cycle(self):
         user_a, profile_a = self._user(TYPO)

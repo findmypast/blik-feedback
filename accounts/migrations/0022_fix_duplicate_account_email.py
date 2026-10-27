@@ -183,44 +183,37 @@ def fix_duplicate_account_email(apps, schema_editor):
     users_b = list(User.objects.filter(email__iexact=correct))
     if not any((reviewee_a, reviewee_b, users_a, users_b)):
         return
-    # The in-cycle person may exist only as a reviewee. The login then already
-    # uses the correct email, and that user is kept.
-    if not (
-        len(reviewee_a) == 1
-        and len(reviewee_b) == 1
-        and len(users_b) == 1
-        and len(users_a) in (0, 1)
+    if (
+        len(reviewee_a) > 1
+        or len(reviewee_b) > 1
+        or len(users_a) > 1
+        or len(users_b) > 1
     ):
         raise RuntimeError(
-            'Expected one mistyped reviewee, one correct-email reviewee, '
-            'one correct-email user, and at most one mistyped user; '
+            'Refusing to repair an ambiguous email pair; '
             f'found reviewees {len(reviewee_a)}/{len(reviewee_b)}, '
             f'users {len(users_a)}/{len(users_b)}.'
         )
+    # The mistyped person is the one in the cycle. If that reviewee is not in
+    # this database, there is nothing to repair.
+    if len(reviewee_a) != 1:
+        return
 
     a = reviewee_a[0]
-    b = reviewee_b[0]
+    b = reviewee_b[0] if reviewee_b else None
     user_a = users_a[0] if users_a else None
-    user_b = users_b[0]
-    if a.organization_id != b.organization_id:
+    user_b = users_b[0] if users_b else None
+    if b and a.organization_id != b.organization_id:
         raise RuntimeError(
             'Reviewees belong to different organizations '
             f'({a.organization_id} vs {b.organization_id}).'
         )
 
-    cycles_a = ReviewCycle.objects.filter(reviewee_id=a.id).count()
-    cycles_b = ReviewCycle.objects.filter(reviewee_id=b.id).count()
-    if cycles_a == 0:
+    if b and ReviewCycle.objects.filter(reviewee_id=b.id).exists():
         raise RuntimeError(
-            f'Typo reviewee {a.id} has no review cycles; '
-            'refusing to treat it as the in-cycle account.'
+            f'Correct-email reviewee {b.id} has review cycles; refusing to anonymize.'
         )
-    if cycles_b > 0:
-        raise RuntimeError(
-            f'Correct-email reviewee {b.id} has {cycles_b} review cycle(s); '
-            'refusing to anonymize.'
-        )
-    if ReviewCampaign.objects.filter(individual_id=b.id).exists():
+    if b and ReviewCampaign.objects.filter(individual_id=b.id).exists():
         raise RuntimeError(
             f'Correct-email reviewee {b.id} is the target of a review campaign; '
             'refusing to anonymize.'
@@ -229,19 +222,13 @@ def fix_duplicate_account_email(apps, schema_editor):
     profile_a = (
         UserProfile.objects.filter(user_id=user_a.id).first() if user_a else None
     )
-    profile_b = UserProfile.objects.filter(user_id=user_b.id).first()
+    profile_b = (
+        UserProfile.objects.filter(user_id=user_b.id).first() if user_b else None
+    )
     if profile_a and profile_a.organization_id != a.organization_id:
-        raise RuntimeError('Typo user profile belongs to a different organization.')
+        profile_a = None
     if profile_b and profile_b.organization_id != a.organization_id:
-        raise RuntimeError('Correct-email user profile belongs to a different organization.')
-    allowed_profiles = [profile_a]
-    if user_a is None:
-        allowed_profiles.append(profile_b)
-    allowed_profile_ids = {profile.id for profile in allowed_profiles if profile}
-    if a.profile_id and a.profile_id not in allowed_profile_ids:
-        raise RuntimeError('Typo reviewee is linked to a different user profile.')
-    if b.profile_id and (profile_b is None or b.profile_id != profile_b.id):
-        raise RuntimeError('Correct-email reviewee is linked to a different user profile.')
+        profile_b = None
 
     now = timezone.now()
     ReviewerToken.objects.filter(
@@ -265,11 +252,16 @@ def fix_duplicate_account_email(apps, schema_editor):
     )
 
     # Keep the correct-email person's teams. The in-cycle account often has none.
-    b_primary_team_id = b.team_id
+    b_primary_team_id = b.team_id if b else None
+    copied_name = b.name if b and not a.name else ''
+    copied_department = b.department if b and not a.department else ''
     b_team_ids = []
-    for team_id in TeamMembership.objects.filter(reviewee_id=b.id).values_list('team_id', flat=True):
-        if team_id not in b_team_ids:
-            b_team_ids.append(team_id)
+    if b:
+        for team_id in TeamMembership.objects.filter(
+            reviewee_id=b.id
+        ).values_list('team_id', flat=True):
+            if team_id not in b_team_ids:
+                b_team_ids.append(team_id)
     if b_primary_team_id and b_primary_team_id not in b_team_ids:
         b_team_ids.insert(0, b_primary_team_id)
     if profile_b:
@@ -277,19 +269,20 @@ def fix_duplicate_account_email(apps, schema_editor):
             if team_id not in b_team_ids:
                 b_team_ids.append(team_id)
 
-    TeamMembership.objects.filter(reviewee_id=b.id).delete()
-    b.email = f'deleted-b-{b.id}@deleted.invalid'
-    b.name = 'Deleted User'
-    b.department = ''
-    b.is_active = False
-    b.profile_id = None
-    b.team_id = None
-    b.reporting_manager_id = None
-    b.pending_reporting_manager_email = ''
-    b.save(update_fields=[
-        'email', 'name', 'department', 'is_active', 'profile', 'team',
-        'reporting_manager', 'pending_reporting_manager_email', 'updated_at',
-    ])
+    if b:
+        TeamMembership.objects.filter(reviewee_id=b.id).delete()
+        b.email = f'deleted-b-{b.id}@deleted.invalid'
+        b.name = 'Deleted User'
+        b.department = ''
+        b.is_active = False
+        b.profile_id = None
+        b.team_id = None
+        b.reporting_manager_id = None
+        b.pending_reporting_manager_email = ''
+        b.save(update_fields=[
+            'email', 'name', 'department', 'is_active', 'profile', 'team',
+            'reporting_manager', 'pending_reporting_manager_email', 'updated_at',
+        ])
 
     if user_a is None:
         # The only login already has the correct email. Attach it to the
@@ -302,7 +295,7 @@ def fix_duplicate_account_email(apps, schema_editor):
     elif profile_b and profile_a is not None:
         _transfer_profile(apps, profile_b, profile_a, now)
 
-    if user_a is not None:
+    if user_a is not None and user_b is not None:
         _anonymize_axes(schema_editor, user_b.username)
         user_b.email = f'deleted-b-user-{user_b.id}@deleted.invalid'
         user_b.username = user_b.email
@@ -313,26 +306,34 @@ def fix_duplicate_account_email(apps, schema_editor):
         user_b.save(update_fields=[
             'email', 'username', 'first_name', 'last_name', 'is_active', 'password',
         ])
-
         _reassign_sign_in(apps, user_b.id, user_a.id, typo, correct)
 
-        if User.objects.filter(username__iexact=correct).exclude(pk=user_a.id).exists():
-            raise RuntimeError(
-                'Another account already uses the correct email as its username.'
-            )
+    if user_a is not None:
         user_a.email = correct
-        user_a.username = correct
         user_a.is_active = True
-        user_a.save(update_fields=['email', 'username', 'is_active'])
+        user_fields = ['email', 'is_active']
+        username_taken = User.objects.filter(
+            username__iexact=correct
+        ).exclude(pk=user_a.id).exists()
+        if not username_taken:
+            user_a.username = correct
+            user_fields.append('username')
+        user_a.save(update_fields=user_fields)
 
+    if profile_a is not None:
+        Reviewee.objects.filter(profile_id=profile_a.id).exclude(pk=a.id).update(
+            profile_id=None, updated_at=now
+        )
     a = Reviewee.objects.get(pk=a.id)
     a.email = correct
     update_fields = ['email', 'updated_at']
-    if (
-        profile_a is not None
-        and a.profile_id is None
-        and UserProfile.objects.filter(pk=profile_a.id).exists()
-    ):
+    if copied_name:
+        a.name = copied_name
+        update_fields.append('name')
+    if copied_department:
+        a.department = copied_department
+        update_fields.append('department')
+    if profile_a is not None and UserProfile.objects.filter(pk=profile_a.id).exists():
         a.profile_id = profile_a.id
         update_fields.append('profile')
     if a.team_id is None and (b_primary_team_id or b_team_ids):
