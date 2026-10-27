@@ -11,7 +11,7 @@ dependencies = [
     "dj-database-url>=2.1.0",
     "gunicorn>=21.2.0",
     "whitenoise>=6.6.0",
-    "pillow>=10.0.0",
+    "pillow>=13.0.0",
     "stripe>=7.0.0",
     "django-cors-headers>=4.3.0",
     "django-allauth[socialaccount]>=0.63.0",
@@ -20,7 +20,7 @@ dependencies = [
     "django-ratelimit>=4.1.0",
     "django-csp>=3.8",
     "django-axes>=6.1.1",
-    "djangorestframework>=3.14.0",
+    "djangorestframework>=3.18.3",
     "drf-spectacular>=0.27.0",
     "drf-spectacular-sidecar>=2024.0.0",
     "django-filter>=23.0",
@@ -32,6 +32,7 @@ dependencies = [
 constraint-dependencies = [
     "oauthlib>=4.0.0",
     "urllib3>=2.8.0",
+    "certifi>=2026.10.23",
 ]
 
 [project.optional-dependencies]
